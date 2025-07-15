@@ -26,6 +26,8 @@ type Config struct {
 	ClaudeModel string
 	DeepSeekKey string
 	DeepSeekModel string
+	MistralKey  string
+	MistralModel string
 	ShowScissors bool
 	API         string
 }
@@ -113,6 +115,20 @@ type DeepSeekResponse struct {
 	} `json:"choices"`
 }
 
+type MistralRequest struct {
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	MaxTokens int       `json:"max_tokens"`
+}
+
+type MistralResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
 type OpenAPIResponse struct {
 	Content string `json:"content"`
 }
@@ -128,12 +144,14 @@ func loadConfig() *Config {
 		OpenAIModel: "gpt-4o",
 		ClaudeModel: "claude-3-5-sonnet-20241022",
 		DeepSeekModel: "claude-3-5-sonnet-20241022",
+		MistralModel: "mistral-large-latest",
 		ShowScissors: true,
-		API:         getEnvOrDefault("SHAI_API", "claude"),
+		API:         getEnvOrDefault("AI", "claude"),
 		GeminiKey:   os.Getenv("GEMINI_API_KEY"),
 		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
 		ClaudeKey:   os.Getenv("CLAUDE_API_KEY"),
 		DeepSeekKey: os.Getenv("DEEPSEEK_API_KEY"),
+		MistralKey:  os.Getenv("MISTRAL_API_KEY"),
 	}
 
 	// Load API keys from files if environment variables are not set
@@ -155,6 +173,11 @@ func loadConfig() *Config {
 	if config.DeepSeekKey == "" {
 		if key := readKeyFile("~/.r2ai.deepseek-key"); key != "" {
 			config.DeepSeekKey = key
+		}
+	}
+	if config.MistralKey == "" {
+		if key := readKeyFile("~/.r2ai.mistral-key"); key != "" {
+			config.MistralKey = key
 		}
 	}
 
@@ -210,7 +233,7 @@ func readInput(args []string) string {
 
 func printScissors(config *Config) {
 	if config.ShowScissors {
-		fmt.Println("------------8<------------")
+		fmt.Println("\n------------8<------------")
 	}
 }
 
@@ -420,6 +443,43 @@ func callDeepSeek(config *Config, input string) error {
 	return nil
 }
 
+func callMistral(config *Config, input string) error {
+	request := MistralRequest{
+		Model:     config.MistralModel,
+		MaxTokens: 5128,
+		Messages:  []Message{{Role: "user", Content: input}},
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+
+	headers := map[string]string{
+		"Authorization": "Bearer " + config.MistralKey,
+		"Content-Type":  "application/json",
+	}
+
+	printScissors(config)
+	
+	respBody, err := makeRequest("POST", "https://api.mistral.ai/v1/chat/completions", headers, jsonData)
+	if err != nil {
+		return err
+	}
+
+	var response MistralResponse
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return err
+	}
+
+	if len(response.Choices) > 0 {
+		fmt.Print(response.Choices[0].Message.Content)
+	}
+	
+	printScissors(config)
+	return nil
+}
+
 func callOpenAPI(config *Config, input string) error {
 	request := OpenAPIRequest{
 		Prompt: input,
@@ -458,7 +518,7 @@ func showHelp() {
 	fmt.Print(`$ ai [--] | [-h] | [prompt] < INPUT
 -h = show this help message
 -- = don't display the ---8<--- lines in the output
-SHAI_API = ollama | gemini | claude | openai
+AI= ollama | gemini | deepseek | claude | openai | mistral
 OLLAMA_MODEL=hf.co/mradermacher/salamandra-7b-instruct-aina-hack-GGUF:salamandra-7b-instruct-aina-hack.Q4_K_M.gguf
 OLLAMA_HOST=localhost
 OLLAMA_PORT=11434
@@ -466,7 +526,9 @@ GEMINI_API_KEY=your_gemini_api_key (or set in ~/.r2ai.gemini-key)
 OPENAI_API_KEY=your_openai_api_key (or set in ~/.r2ai.openai-key)
 CLAUDE_API_KEY=your_claude_api_key (or set in ~/.r2ai.anthropic-key)
 DEEPSEEK_API_KEY=your_deepseek_api_key (or set in ~/.r2ai.deepseek-key)
+MISTRAL_API_KEY=your_mistral_api_key (or set in ~/.r2ai.mistral-key)
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
+MISTRAL_MODEL=mistral-large-latest
 `)
 }
 
@@ -501,6 +563,8 @@ func main() {
 		err = callOllama(config, input)
 	case "openai":
 		err = callOpenAI(config, input)
+	case "mistral":
+		err = callMistral(config, input)
 	default:
 		err = callClaude(config, input)
 	}
