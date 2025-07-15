@@ -67,6 +67,7 @@ const (
 	YoloPermitToolForever
 	YoloPermitToolWithParamsForever
 	YoloRejectForever
+	YoloPermitAllToolsForever
 )
 
 // Tool permission record
@@ -139,7 +140,7 @@ func (s *MCPService) StartServer(name, command string) error {
 	}
 
 	cmd := exec.Command(parts[0], parts[1:]...)
-	
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %v", err)
@@ -273,6 +274,7 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 	fmt.Printf("[t] Permit this tool forever\n")
 	fmt.Printf("[p] Permit this tool with these parameters forever\n")
 	fmt.Printf("[x] Reject this tool forever\n")
+	fmt.Printf("[*] Approve all tools forever\n")
 	fmt.Printf("\nYour decision: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -290,6 +292,8 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 		return YoloPermitToolWithParamsForever
 	case "x":
 		return YoloRejectForever
+	case "*":
+		return YoloPermitAllToolsForever
 	default:
 		fmt.Println("Invalid option, defaulting to reject")
 		return YoloReject
@@ -301,7 +305,12 @@ func (s *MCPService) checkToolPermission(toolName string, paramsJSON string) boo
 	s.toolPermsLock.RLock()
 	defer s.toolPermsLock.RUnlock()
 
-	// Check exact tool+params match first
+	// Check if all tools are approved globally
+	if perm, exists := s.toolPerms["*"]; exists && perm.Approved {
+		return true
+	}
+
+	// Check exact tool+params match
 	key := toolName + "#" + paramsJSON
 	if perm, exists := s.toolPerms[key]; exists {
 		return perm.Approved
@@ -338,6 +347,12 @@ func (s *MCPService) storeToolPermission(toolName string, paramsJSON string, dec
 		s.toolPerms[toolName] = ToolPermission{
 			ToolName: toolName,
 			Approved: false,
+		}
+	case YoloPermitAllToolsForever:
+		// Special key for approving all tools
+		s.toolPerms["*"] = ToolPermission{
+			ToolName: "*",
+			Approved: true,
 		}
 	}
 }
@@ -378,16 +393,16 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 		var callParams CallToolParams
 		paramsBytes, _ := json.Marshal(request.Params)
 		json.Unmarshal(paramsBytes, &callParams)
-		
+
 		// Convert arguments to JSON string for comparison
 		paramsJSON, _ := json.Marshal(callParams.Arguments)
-		
+
 		// Check if we already have a permission decision
 		allowed := s.checkToolPermission(callParams.Name, string(paramsJSON))
 		if !allowed {
 			// No existing permission, ask user
 			decision := s.promptYoloDecision(callParams.Name, string(paramsJSON))
-			
+
 			switch decision {
 			case YoloApprove:
 				// Continue with request
@@ -397,7 +412,7 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 			case YoloPermitToolForever, YoloPermitToolWithParamsForever, YoloRejectForever:
 				// Store the decision
 				s.storeToolPermission(callParams.Name, string(paramsJSON), decision)
-				
+
 				// If it was a reject decision, return error
 				if decision == YoloRejectForever {
 					return nil, fmt.Errorf("tool execution rejected by user policy")
@@ -435,7 +450,7 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 		var toolParams CallToolParams
 		paramsBytes, _ := json.Marshal(request.Params)
 		json.Unmarshal(paramsBytes, &toolParams)
-		
+
 		s.addReportEntry(server.Name, toolParams.Name, toolParams.Arguments, response.Result, nil)
 	}
 
@@ -472,7 +487,7 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	defer s.mutex.RUnlock()
 
 	w.Header().Set("Content-Type", "text/plain")
-	
+
 	var output strings.Builder
 	output.WriteString("# MCP Tools\n\n")
 
@@ -485,12 +500,12 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 		for _, tool := range server.Tools {
 			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
-			
+
 			if tool.InputSchema != nil {
 				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 			}
-			
+
 			output.WriteString(fmt.Sprintf("**Usage:** `POST /tools/%s/%s`\n\n", serverName, tool.Name))
 		}
 		server.mutex.RUnlock()
@@ -520,9 +535,9 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 	defer s.mutex.RUnlock()
 
 	w.Header().Set("Content-Type", "text/plain")
-	
+
 	var output strings.Builder
-	
+
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
@@ -540,7 +555,7 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 	defer s.mutex.RUnlock()
 
 	w.Header().Set("Content-Type", "text/markdown")
-	
+
 	var output strings.Builder
 	output.WriteString("# MCP Tools\n\n")
 
@@ -553,12 +568,12 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 		for _, tool := range server.Tools {
 			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
-			
+
 			if tool.InputSchema != nil {
 				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 			}
-			
+
 			output.WriteString(fmt.Sprintf("**Usage:** `POST /tools/%s/%s`\n\n", serverName, tool.Name))
 		}
 		server.mutex.RUnlock()
@@ -584,7 +599,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse arguments
 	var arguments map[string]interface{}
-	
+
 	if r.Method == "POST" {
 		contentType := r.Header.Get("Content-Type")
 		if strings.Contains(contentType, "application/json") {
@@ -594,7 +609,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Failed to read request body", http.StatusBadRequest)
 				return
 			}
-			
+
 			if len(body) > 0 {
 				if err := json.Unmarshal(body, &arguments); err != nil {
 					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
@@ -663,7 +678,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse and format response
 	w.Header().Set("Content-Type", "text/plain")
-	
+
 	resultBytes, _ := json.Marshal(response.Result)
 	var toolResult CallToolResult
 	if err := json.Unmarshal(resultBytes, &toolResult); err != nil {
@@ -690,7 +705,7 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 	defer s.mutex.RUnlock()
 
 	w.Header().Set("Content-Type", "text/plain")
-	
+
 	var output strings.Builder
 	output.WriteString("# MCP Service Status\n\n")
 
@@ -716,9 +731,16 @@ func showHelp() {
 	fmt.Println("  -v\tShow version information")
 	fmt.Println("  -h\tShow this help message")
 	fmt.Println("  -p PORT\tPort to listen on (default: 8080)")
-	fmt.Println("  -y\tYolo mode")
+	fmt.Println("  -y\tYolo mode (skip tool confirmations)")
 	fmt.Println("  -o FILE\tOutput report to FILE")
 	fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
+	fmt.Println("\nTool Confirmation Options:")
+	fmt.Println("  [a] Approve execution (once)")
+	fmt.Println("  [r] Reject execution")
+	fmt.Println("  [t] Permit this tool forever")
+	fmt.Println("  [p] Permit this tool with these parameters forever")
+	fmt.Println("  [x] Reject this tool forever")
+	fmt.Println("  [*] Approve all tools forever")
 }
 
 func showVersion() {
@@ -730,20 +752,20 @@ func main() {
 	port := "8080"
 	yoloMode := false
 	outputReport := ""
-	
+
 	args := os.Args[1:]
 	cmdArgs := []string{}
-	
+
 	// Show help if no arguments provided
 	if len(args) == 0 {
 		showHelp()
 		os.Exit(0)
 	}
-	
+
 	// Process command line arguments
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		
+
 		if len(arg) > 0 && arg[0] == '-' {
 			switch arg {
 			case "-v":
@@ -781,16 +803,16 @@ func main() {
 			cmdArgs = append(cmdArgs, arg)
 		}
 	}
-	
+
 	// Check if we have any commands to run
 	if len(cmdArgs) == 0 {
 		fmt.Println("Error: No MCP commands provided")
 		showHelp()
 		os.Exit(1)
 	}
-	
+
 	service := NewMCPService(yoloMode, outputReport)
-	
+
 	// Ensure cleanup on exit
 	defer service.StopAllServers()
 
@@ -808,7 +830,7 @@ func main() {
 
 	// Setup HTTP routes
 	router := mux.NewRouter()
-	
+
 	// List all tools
 	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET")
 	// JSON list of all tools
@@ -817,13 +839,13 @@ func main() {
 	router.HandleFunc("/tools/quiet", service.quietToolsHandler).Methods("GET")
 	// Markdown list of all tools
 	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET")
-	
+
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
-	
+
 	// Call a specific tool
 	router.HandleFunc("/tools/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
-	
+
 	// Root endpoint with usage info
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -857,7 +879,7 @@ Examples:
 
 	log.Printf("Starting MCP REST service on port %s", port)
 	log.Printf("Access tools at: http://localhost:%s/tools", port)
-	
+
 	if err := http.ListenAndServe(":"+port, router); err != nil {
 		log.Fatal("Failed to start HTTP server:", err)
 	}
