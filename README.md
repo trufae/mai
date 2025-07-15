@@ -37,6 +37,27 @@ make build
 go run main.go "server-command-1" "server-command-2"
 ```
 
+### Command Line Client
+
+A CLI client is available in `clients/cli` to interact with the MCPD service:
+
+```bash
+# Build the CLI client
+cd clients/mcpd-cli
+go build -o mcpcli
+
+# List all available tools
+./mcpcli list
+
+# Call a specific tool
+./mcpcli call server1 mytool param1=value1
+
+# Get JSON output
+./mcpcli -j call server1 mytool param1=value1
+```
+
+See [clients/cli/README.md](clients/cli/README.md) for more information.
+
 The service will:
 1. Start each MCP server as a subprocess
 2. Perform the MCP handshake with each server

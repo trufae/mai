@@ -514,6 +514,59 @@ func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
+// quietToolsHandler returns all tools from all servers in a minimally formatted plain text
+func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+	
+	var output strings.Builder
+	
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			output.WriteString(fmt.Sprintf("%s/%s\n", serverName, tool.Name))
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// markdownToolsHandler returns all tools from all servers in markdown format
+func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/markdown")
+	
+	var output strings.Builder
+	output.WriteString("# MCP Tools\n\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
+		output.WriteString(fmt.Sprintf("Command: `%s`\n", server.Command))
+		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
+
+		for _, tool := range server.Tools {
+			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
+			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
+			
+			if tool.InputSchema != nil {
+				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
+				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
+			}
+			
+			output.WriteString(fmt.Sprintf("**Usage:** `POST /tools/%s/%s`\n\n", serverName, tool.Name))
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
 // callToolHandler calls a specific tool on a specific server
 func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -760,6 +813,10 @@ func main() {
 	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET")
 	// JSON list of all tools
 	router.HandleFunc("/tools/json", service.jsonToolsHandler).Methods("GET")
+	// Quiet list of all tools
+	router.HandleFunc("/tools/quiet", service.quietToolsHandler).Methods("GET")
+	// Markdown list of all tools
+	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET")
 	
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
@@ -777,12 +834,16 @@ Available endpoints:
 - GET /status - Service status
 - GET /tools - List all available tools
 - GET /tools/json - List all available tools in JSON format
+- GET /tools/quiet - List all tools in minimal format
+- GET /tools/markdown - List all tools in markdown format
 - GET /tools/{server}/{tool}?param=value - Call tool with query parameters
 - POST /tools/{server}/{tool} - Call tool with JSON body or form data
 
 Examples:
 - curl http://localhost:8080/tools
 - curl http://localhost:8080/tools/json
+- curl http://localhost:8080/tools/quiet
+- curl http://localhost:8080/tools/markdown
 - curl http://localhost:8080/tools/server1/mytool?arg1=value1
 - curl -X POST http://localhost:8080/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
 `
