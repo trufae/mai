@@ -140,10 +140,68 @@ func buildApiUrl(config Config, path string) string {
 	return url
 }
 
+// createDebugTransport returns an http.RoundTripper that logs requests and responses
+func createDebugTransport(config Config) http.RoundTripper {
+	return &debugTransport{
+		config: config,
+		transport: http.DefaultTransport,
+	}
+}
+
+// debugTransport implements http.RoundTripper interface
+type debugTransport struct {
+	config Config
+	transport http.RoundTripper
+}
+
+// RoundTrip logs the request and response for debugging
+func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Log request details
+	debugPrint(d.config, "HTTP Request: %s %s", req.Method, req.URL.String())
+	debugPrint(d.config, "Request headers: %v", req.Header)
+	
+	// Execute the request
+	resp, err := d.transport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Log response details
+	debugPrint(d.config, "Response status: %s", resp.Status)
+	debugPrint(d.config, "Response headers: %v", resp.Header)
+	
+	return resp, nil
+}
+
 // debugPrint outputs debug information if debug mode is enabled
 func debugPrint(config Config, format string, args ...interface{}) {
 	if config.Debug {
-		fmt.Fprintf(os.Stderr, "DEBUG: "+format+"\n", args...)
+		// Check if any argument is a map, slice, or struct that should be pretty printed
+		formattedArgs := make([]interface{}, len(args))
+		for i, arg := range args {
+			switch v := arg.(type) {
+			case map[string]interface{}, []interface{}, map[string]string:
+				// Pretty print JSON objects
+				b, err := json.MarshalIndent(v, "", "  ")
+				if err == nil {
+					formattedArgs[i] = "\n" + string(b)
+				} else {
+					formattedArgs[i] = v
+				}
+			case http.Header:
+				// Format HTTP headers nicely
+				var sb strings.Builder
+				sb.WriteString("\n")
+				for k, vals := range v {
+					fmt.Fprintf(&sb, "  %s: %s\n", k, strings.Join(vals, ", "))
+				}
+				formattedArgs[i] = sb.String()
+			default:
+				formattedArgs[i] = arg
+			}
+		}
+		
+		fmt.Fprintf(os.Stderr, "DEBUG: "+format+"\n", formattedArgs...)
 	}
 }
 
@@ -152,7 +210,15 @@ func listServers(config Config) {
 	statusUrl := buildApiUrl(config, "/status")
 
 	debugPrint(config, "Making GET request to: %s", statusUrl)
-	resp, err := http.Get(statusUrl)
+	
+	// Create HTTP client with debug transport if needed
+	client := &http.Client{}
+	if config.Debug {
+		client.Transport = createDebugTransport(config)
+	}
+	
+	// Execute the request
+	resp, err := client.Get(statusUrl)
 	if err != nil {
 		fmt.Printf("Error connecting to mcpd: %v\n", err)
 		os.Exit(1)
@@ -224,7 +290,15 @@ func listTools(config Config) {
 	toolsUrl := buildApiUrl(config, endpoint)
 
 	debugPrint(config, "Making GET request to: %s", toolsUrl)
-	resp, err := http.Get(toolsUrl)
+	
+	// Create HTTP client with debug transport if needed
+	client := &http.Client{}
+	if config.Debug {
+		client.Transport = createDebugTransport(config)
+	}
+	
+	// Execute the request
+	resp, err := client.Get(toolsUrl)
 	if err != nil {
 		fmt.Printf("Error connecting to mcpd: %v\n", err)
 		os.Exit(1)
@@ -275,11 +349,8 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 
 	// Standard tool call for other tools
 	var endpoint string
-	if config.Quiet {
-		endpoint = fmt.Sprintf("/tools/quiet/%s/%s", serverName, toolName)
-	} else {
-		endpoint = fmt.Sprintf("/tools/%s/%s", serverName, toolName)
-	}
+	// Always use /call endpoint for tool calls
+	endpoint = fmt.Sprintf("/call/%s/%s", serverName, toolName)
 
 	// Build the tool URL
 	toolUrl := buildApiUrl(config, endpoint)
@@ -302,7 +373,15 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 
 	// Make GET request
 	debugPrint(config, "Making GET request to: %s", toolUrl)
-	resp, requestErr = http.Get(toolUrl)
+	
+	// Create HTTP client with debug transport if needed
+	client := &http.Client{}
+	if config.Debug {
+		client.Transport = createDebugTransport(config)
+	}
+	
+	// Execute the request
+	resp, requestErr = client.Get(toolUrl)
 
 	// Handle request errors
 	if requestErr != nil {
@@ -336,6 +415,10 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 
 	// Debug logging for response
 	if config.Debug {
+		// Log detailed response information
+		debugPrint(config, "Response content type: %s", resp.Header.Get("Content-Type"))
+		debugPrint(config, "Response content length: %d", resp.ContentLength)
+		
 		// Try to pretty print JSON response
 		var prettyJSON bytes.Buffer
 		if json.Indent(&prettyJSON, body, "", "  ") == nil {

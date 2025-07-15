@@ -2,6 +2,8 @@
 
 A REST API bridge for Model Context Protocol (MCP) servers written in Go. This service allows you to interact with multiple MCP servers through HTTP endpoints, converting JSONRPC calls to simple REST API calls.
 
+--pancake
+
 ## Features
 
 - 🚀 **Multi-server support**: Run multiple MCP servers simultaneously
@@ -11,31 +13,16 @@ A REST API bridge for Model Context Protocol (MCP) servers written in Go. This s
 - 🔄 **Flexible input**: Supports JSON, form data, and query parameters
 - 🛡️ **Error handling**: Robust error handling and graceful shutdown
 
-## Installation
-
-```bash
-# Clone or download the source code
-git clone <repository-url>
-cd mcp-rest-bridge
-
-# Install dependencies
-make deps
-
-# Build the binary
-make build
-```
-
 ## Usage
 
 ### Starting the Service
 
 ```bash
 # Start with multiple MCP servers
-./mcpd "r2pm -r r2mcp" "timemcp" "weather-mcp"
-
-# Or run directly with go
-go run main.go "server-command-1" "server-command-2"
+./mcpd "r2pm -r r2mcp" "servers/wttr/wttr"
 ```
+
+Now you can curl localhost:8080 or use the commandline client
 
 ### Command Line Client
 
@@ -90,8 +77,8 @@ Shows the status of all running MCP servers.
 
 ### Call a Tool
 ```bash
-GET /tools/{server}/{tool}?param=value
-POST /tools/{server}/{tool}
+GET /call/{server}/{tool}?param=value
+POST /call/{server}/{tool}
 ```
 Calls a specific tool on a specific server.
 
@@ -138,37 +125,7 @@ curl -X POST "http://localhost:8080/tools/server1/setComment" \
   -d '{"address": "0x1000", "message": "This is the main function"}'
 ```
 
-### 3. Time MCP Examples (timemcp)
-
-```bash
-# Get current time
-curl "http://localhost:8080/tools/server2/getCurrentTime"
-
-# Get time in specific timezone
-curl "http://localhost:8080/tools/server2/getTimeInTimezone?timezone=America/New_York"
-
-# Format timestamp
-curl -X POST "http://localhost:8080/tools/server2/formatTime" \
-  -H "Content-Type: application/json" \
-  -d '{"timestamp": 1640995200, "format": "2006-01-02 15:04:05"}'
-```
-
-### 4. Weather MCP Examples
-
-```bash
-# Get current weather
-curl "http://localhost:8080/tools/server3/getCurrentWeather?location=New York"
-
-# Get weather forecast
-curl "http://localhost:8080/tools/server3/getForecast?location=London&days=5"
-
-# Get weather with specific units
-curl -X POST "http://localhost:8080/tools/server3/getWeather" \
-  -H "Content-Type: application/json" \
-  -d '{"location": "Tokyo", "units": "metric"}'
-```
-
-### 5. Form Data Examples
+### Form Data Examples
 
 You can also use form data instead of JSON:
 
@@ -251,83 +208,6 @@ curl -X POST "http://localhost:8080/tools/server1/openFile" \
 # HTTP 400: Tool call failed: missing required parameter 'filePath'
 ```
 
-## Development
-
-### Building
-
-```bash
-# Install dependencies
-make deps
-
-# Build binary
-make build
-
-# Run tests
-make test
-
-# Clean build artifacts
-make clean
-```
-
-### Adding New MCP Servers
-
-Simply add the server command to the command line arguments:
-
-```bash
-./mcpd "r2pm -r r2mcp" "timemcp" "your-new-mcp-server --args"
-```
-
-The service will automatically:
-1. Start the server process
-2. Perform the MCP handshake
-3. Discover available tools
-4. Expose them via REST API
-
-## Troubleshooting
-
-### Server Won't Start
-
-```bash
-# Check if the MCP server binary exists and is executable
-which r2mcp
-ls -la $(which r2mcp)
-
-# Check server logs (stderr is captured)
-curl http://localhost:8080/status
-```
-
-### Tool Call Fails
-
-```bash
-# Check tool requirements by listing tools first
-curl http://localhost:8080/tools
-
-# Verify JSON format
-echo '{"param": "value"}' | jq .
-
-# Check parameter types (strings vs numbers vs booleans)
-curl -X POST "http://localhost:8080/tools/server1/tool" \
-  -H "Content-Type: application/json" \
-  -d '{"count": 10}' # number, not "10"
-```
-
-### Connection Issues
-
-```bash
-# Check if service is running
-curl http://localhost:8080/
-
-# Check specific server status
-curl http://localhost:8080/status
-
-# Test with verbose output
-curl -v http://localhost:8080/tools
-```
-
 ## License
 
-[Add your license information here]
-
-## Contributing
-
-[Add contribution guidelines here]
+MIT

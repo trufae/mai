@@ -130,20 +130,32 @@ func loadConfig() *Config {
 		DeepSeekModel: "claude-3-5-sonnet-20241022",
 		ShowScissors: true,
 		API:         getEnvOrDefault("SHAI_API", "claude"),
+		GeminiKey:   os.Getenv("GEMINI_API_KEY"),
+		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
+		ClaudeKey:   os.Getenv("CLAUDE_API_KEY"),
+		DeepSeekKey: os.Getenv("DEEPSEEK_API_KEY"),
 	}
 
-	// Load API keys from files
-	if key := readKeyFile("~/.r2ai.gemini-key"); key != "" {
-		config.GeminiKey = key
+	// Load API keys from files if environment variables are not set
+	if config.GeminiKey == "" {
+		if key := readKeyFile("~/.r2ai.gemini-key"); key != "" {
+			config.GeminiKey = key
+		}
 	}
-	if key := readKeyFile("~/.r2ai.openai-key"); key != "" {
-		config.OpenAIKey = key
+	if config.OpenAIKey == "" {
+		if key := readKeyFile("~/.r2ai.openai-key"); key != "" {
+			config.OpenAIKey = key
+		}
 	}
-	if key := readKeyFile("~/.r2ai.anthropic-key"); key != "" {
-		config.ClaudeKey = key
+	if config.ClaudeKey == "" {
+		if key := readKeyFile("~/.r2ai.anthropic-key"); key != "" {
+			config.ClaudeKey = key
+		}
 	}
-	if key := readKeyFile("~/.r2ai.deepseek-key"); key != "" {
-		config.DeepSeekKey = key
+	if config.DeepSeekKey == "" {
+		if key := readKeyFile("~/.r2ai.deepseek-key"); key != "" {
+			config.DeepSeekKey = key
+		}
 	}
 
 	return config
@@ -450,10 +462,10 @@ SHAI_API = ollama | gemini | claude | openai
 OLLAMA_MODEL=hf.co/mradermacher/salamandra-7b-instruct-aina-hack-GGUF:salamandra-7b-instruct-aina-hack.Q4_K_M.gguf
 OLLAMA_HOST=localhost
 OLLAMA_PORT=11434
-GEMINI_KEY=~/.r2ai-gemini.key
-OPENAI_KEY=~/.r2ai-openai.key
-CLAUDE_KEY=~/.r2ai-anthropic.key
-DEEPSEEK_KEY=~/.r2ai-deepseek.key
+GEMINI_API_KEY=your_gemini_api_key (or set in ~/.r2ai.gemini-key)
+OPENAI_API_KEY=your_openai_api_key (or set in ~/.r2ai.openai-key)
+CLAUDE_API_KEY=your_claude_api_key (or set in ~/.r2ai.anthropic-key)
+DEEPSEEK_API_KEY=your_deepseek_api_key (or set in ~/.r2ai.deepseek-key)
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
 `)
 }

@@ -8,6 +8,13 @@ all: build
 build:
 	go build -o $(BINARY_NAME) $(MAIN_FILE)
 
+full f:
+	$(MAKE)
+	$(MAKE) -C servers/wttr
+	$(MAKE) -C clients/mcpd-cli
+	./mcpd 'r2pm -r r2mcp' servers/wttr/wttr
+
+
 run:
 	go run $(MAIN_FILE)
 

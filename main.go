@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -109,6 +110,7 @@ type MCPService struct {
 	servers       map[string]*MCPServer
 	mutex         sync.RWMutex
 	yoloMode      bool
+	debugMode     bool
 	toolPerms     map[string]ToolPermission // Map tool name or tool+params hash to permission
 	toolPermsLock sync.RWMutex
 	reportEnabled bool
@@ -126,6 +128,17 @@ func NewMCPService(yoloMode bool, reportFile string) *MCPService {
 		reportFile:    reportFile,
 		report:        Report{Entries: []ReportEntry{}},
 	}
+}
+
+// getServerNameFromCommand extracts server name from the command string
+func getServerNameFromCommand(command string) string {
+	parts := strings.Fields(command)
+	lastPart := parts[len(parts)-1]
+	serverName := lastPart
+	if idx := strings.LastIndex(lastPart, "/"); idx != -1 {
+		serverName = lastPart[idx+1:]
+	}
+	return serverName
 }
 
 // StartServer starts an MCP server process
@@ -440,8 +453,23 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 		return nil, fmt.Errorf("failed to read response")
 	}
 
+	// Get the response bytes
+	responseBytes := scanner.Bytes()
+
+	// Debug logging for JSONRPC response
+	if s.debugMode {
+		// Try to pretty print the JSON
+		var prettyJSON bytes.Buffer
+		if json.Indent(&prettyJSON, responseBytes, "", "  ") == nil {
+			debugLog(s.debugMode, "Received JSONRPC response from %s: %s", server.Name, prettyJSON.String())
+		} else {
+			// If not valid JSON, print as string
+			debugLog(s.debugMode, "Received JSONRPC response from %s: %s", server.Name, string(responseBytes))
+		}
+	}
+
 	var response JSONRPCResponse
-	if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(responseBytes, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
 	}
 
@@ -499,14 +527,39 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 		for _, tool := range server.Tools {
 			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
-			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
-
+			output.WriteString(fmt.Sprintf("\n%s\n\n", tool.Description))
 			if tool.InputSchema != nil {
-				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
-				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
-			}
+				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
+				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 
-			output.WriteString(fmt.Sprintf("**Usage:** `POST /tools/%s/%s`\n\n", serverName, tool.Name))
+				// Print CLI-style arguments list
+				output.WriteString("**Arguments:**\n\n")
+				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					for key, val := range properties {
+						propInfo, _ := val.(map[string]interface{})
+						desc := ""
+						if propInfo != nil {
+							if d, ok := propInfo["description"].(string); ok {
+								desc = " - " + d
+							}
+						}
+						output.WriteString(fmt.Sprintf("* %s=<value>%s\n", key, desc))
+					}
+				}
+				output.WriteString("\n")
+			}
+			// Construct usage example with parameters if available
+			if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(properties) > 0 {
+				// Build URL with query parameters
+				var params []string
+				for key, _ := range properties {
+					params = append(params, fmt.Sprintf("%s=value", key))
+				}
+				paramString := strings.Join(params, "&")
+				output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
+			} else {
+				output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
+			}
 		}
 		server.mutex.RUnlock()
 	}
@@ -574,7 +627,7 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 			}
 
-			output.WriteString(fmt.Sprintf("**Usage:** `POST /tools/%s/%s`\n\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("**Usage:** `POST /call/%s/%s`\n\n", serverName, tool.Name))
 		}
 		server.mutex.RUnlock()
 	}
@@ -598,7 +651,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse arguments
-	var arguments map[string]interface{}
+	arguments := make(map[string]interface{})
 
 	if r.Method == "POST" {
 		contentType := r.Header.Get("Content-Type")
@@ -636,8 +689,11 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if r.Method == "GET" {
+		// Debug log query parameters if debug mode is enabled
+		if s.debugMode {
+			debugLog(s.debugMode, "Query parameters: %v", r.URL.Query())
+		}
 		// Parse query parameters
-		arguments = make(map[string]interface{})
 		for key, values := range r.URL.Query() {
 			if len(values) == 1 {
 				// Try to parse as number, otherwise keep as string
@@ -696,6 +752,11 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		output.WriteString(content.Text)
 	}
 
+	// Debug log the response
+	if s.debugMode {
+		debugLog(s.debugMode, "Response content: %s", output.String())
+	}
+
 	w.Write([]byte(output.String()))
 }
 
@@ -733,6 +794,7 @@ func showHelp() {
 	fmt.Println("  -p PORT\tPort to listen on (default: 8080)")
 	fmt.Println("  -y\tYolo mode (skip tool confirmations)")
 	fmt.Println("  -o FILE\tOutput report to FILE")
+	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
 	fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
 	fmt.Println("\nTool Confirmation Options:")
 	fmt.Println("  [a] Approve execution (once)")
@@ -747,11 +809,19 @@ func showVersion() {
 	fmt.Printf("mcpd version %s\n", version)
 }
 
+// debugLog prints debug logs when debug mode is enabled
+func debugLog(debug bool, format string, args ...interface{}) {
+	if debug {
+		log.Printf("DEBUG: "+format, args...)
+	}
+}
+
 func main() {
 	// Parse command line flags
 	port := "8080"
 	yoloMode := false
 	outputReport := ""
+	debugMode := false
 
 	args := os.Args[1:]
 	cmdArgs := []string{}
@@ -776,6 +846,8 @@ func main() {
 				os.Exit(0)
 			case "-y":
 				yoloMode = true
+			case "-d":
+				debugMode = true
 			case "-p":
 				if i+1 < len(args) {
 					port = args[i+1]
@@ -813,14 +885,17 @@ func main() {
 
 	service := NewMCPService(yoloMode, outputReport)
 
+	// Set debug flag
+	service.debugMode = debugMode
+
 	// Ensure cleanup on exit
 	defer service.StopAllServers()
 
 	// Start all MCP servers
 	// Only start servers if we have commands to run
 	if len(cmdArgs) > 0 {
-		for i, command := range cmdArgs {
-			serverName := fmt.Sprintf("server%d", i+1)
+		for _, command := range cmdArgs {
+			serverName := getServerNameFromCommand(command)
 			if err := service.StartServer(serverName, command); err != nil {
 				log.Printf("Failed to start server %s: %v", serverName, err)
 				continue
@@ -843,8 +918,10 @@ func main() {
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
 
-	// Call a specific tool
+	// Call a specific tool (old endpoint for backward compatibility)
 	router.HandleFunc("/tools/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
+	// Call a specific tool (new endpoint)
+	router.HandleFunc("/call/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
 
 	// Root endpoint with usage info
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -858,8 +935,10 @@ Available endpoints:
 - GET /tools/json - List all available tools in JSON format
 - GET /tools/quiet - List all tools in minimal format
 - GET /tools/markdown - List all tools in markdown format
-- GET /tools/{server}/{tool}?param=value - Call tool with query parameters
-- POST /tools/{server}/{tool} - Call tool with JSON body or form data
+- GET /tools/{server}/{tool}?param=value - Call tool with query parameters (legacy)
+- GET /call/{server}/{tool}?param=value - Call tool with query parameters
+- POST /tools/{server}/{tool} - Call tool with JSON body or form data (legacy)
+- POST /call/{server}/{tool} - Call tool with JSON body or form data
 
 Examples:
 - curl http://localhost:8080/tools
