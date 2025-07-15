@@ -499,6 +499,21 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(output.String()))
 }
 
+// jsonToolsHandler returns all tools from all servers in JSON format
+func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	res := make(map[string][]Tool)
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		res[serverName] = server.Tools
+		server.mutex.RUnlock()
+	}
+	json.NewEncoder(w).Encode(res)
+}
+
 // callToolHandler calls a specific tool on a specific server
 func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -743,6 +758,8 @@ func main() {
 	
 	// List all tools
 	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET")
+	// JSON list of all tools
+	router.HandleFunc("/tools/json", service.jsonToolsHandler).Methods("GET")
 	
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
@@ -759,11 +776,13 @@ Available endpoints:
 
 - GET /status - Service status
 - GET /tools - List all available tools
+- GET /tools/json - List all available tools in JSON format
 - GET /tools/{server}/{tool}?param=value - Call tool with query parameters
 - POST /tools/{server}/{tool} - Call tool with JSON body or form data
 
 Examples:
 - curl http://localhost:8080/tools
+- curl http://localhost:8080/tools/json
 - curl http://localhost:8080/tools/server1/mytool?arg1=value1
 - curl -X POST http://localhost:8080/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
 `

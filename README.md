@@ -55,6 +55,12 @@ GET /tools
 ```
 Returns a markdown-formatted list of all available tools from all servers.
 
+### List All Tools (JSON)
+```bash
+GET /tools/json
+```
+Returns a JSON-formatted list of all available tools from all servers.
+
 ### Service Status
 ```bash
 GET /status
