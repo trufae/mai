@@ -1,4 +1,4 @@
-module mcp-rest-bridge
+module mcpd
 
 go 1.21
 
