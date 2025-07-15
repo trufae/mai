@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -57,6 +58,39 @@ type Content struct {
 	Text string `json:"text"`
 }
 
+// Yolo prompt decision type
+type YoloDecision int
+
+const (
+	YoloApprove YoloDecision = iota
+	YoloReject
+	YoloPermitToolForever
+	YoloPermitToolWithParamsForever
+	YoloRejectForever
+)
+
+// Tool permission record
+type ToolPermission struct {
+	ToolName   string
+	Parameters string // JSON string of parameters for exact matching
+	Approved   bool
+}
+
+// ReportEntry represents a single entry in the report
+type ReportEntry struct {
+	Timestamp string      `json:"timestamp"`
+	Server    string      `json:"server"`
+	Tool      string      `json:"tool"`
+	Params    interface{} `json:"params"`
+	Result    interface{} `json:"result,omitempty"`
+	Error     string      `json:"error,omitempty"`
+}
+
+// Report represents a collection of tool executions
+type Report struct {
+	Entries []ReportEntry `json:"entries"`
+}
+
 // MCP Server represents a running MCP server process
 type MCPServer struct {
 	Name    string
@@ -71,13 +105,25 @@ type MCPServer struct {
 
 // MCPService manages multiple MCP servers
 type MCPService struct {
-	servers map[string]*MCPServer
-	mutex   sync.RWMutex
+	servers       map[string]*MCPServer
+	mutex         sync.RWMutex
+	yoloMode      bool
+	toolPerms     map[string]ToolPermission // Map tool name or tool+params hash to permission
+	toolPermsLock sync.RWMutex
+	reportEnabled bool
+	reportFile    string
+	report        Report
+	reportLock    sync.RWMutex
 }
 
-func NewMCPService() *MCPService {
+func NewMCPService(yoloMode bool, reportFile string) *MCPService {
 	return &MCPService{
-		servers: make(map[string]*MCPServer),
+		servers:       make(map[string]*MCPServer),
+		yoloMode:      yoloMode,
+		toolPerms:     make(map[string]ToolPermission),
+		reportEnabled: reportFile != "",
+		reportFile:    reportFile,
+		report:        Report{Entries: []ReportEntry{}},
 	}
 }
 
@@ -216,8 +262,150 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 	return nil
 }
 
+// promptYoloDecision prompts the user for a yolo decision on tool execution
+func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) YoloDecision {
+	fmt.Printf("\n===== TOOL EXECUTION CONFIRMATION =====\n")
+	fmt.Printf("Tool: %s\n", toolName)
+	fmt.Printf("Parameters: %s\n\n", paramsJSON)
+	fmt.Printf("Options:\n")
+	fmt.Printf("[a] Approve execution\n")
+	fmt.Printf("[r] Reject execution\n")
+	fmt.Printf("[t] Permit this tool forever\n")
+	fmt.Printf("[p] Permit this tool with these parameters forever\n")
+	fmt.Printf("[x] Reject this tool forever\n")
+	fmt.Printf("\nYour decision: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	switch response {
+	case "a":
+		return YoloApprove
+	case "r":
+		return YoloReject
+	case "t":
+		return YoloPermitToolForever
+	case "p":
+		return YoloPermitToolWithParamsForever
+	case "x":
+		return YoloRejectForever
+	default:
+		fmt.Println("Invalid option, defaulting to reject")
+		return YoloReject
+	}
+}
+
+// checkToolPermission checks if a tool is allowed to run based on stored permissions
+func (s *MCPService) checkToolPermission(toolName string, paramsJSON string) bool {
+	s.toolPermsLock.RLock()
+	defer s.toolPermsLock.RUnlock()
+
+	// Check exact tool+params match first
+	key := toolName + "#" + paramsJSON
+	if perm, exists := s.toolPerms[key]; exists {
+		return perm.Approved
+	}
+
+	// Check tool-only match
+	if perm, exists := s.toolPerms[toolName]; exists {
+		return perm.Approved
+	}
+
+	// No permission record found
+	return false
+}
+
+// storeToolPermission stores a tool permission decision
+func (s *MCPService) storeToolPermission(toolName string, paramsJSON string, decision YoloDecision) {
+	s.toolPermsLock.Lock()
+	defer s.toolPermsLock.Unlock()
+
+	switch decision {
+	case YoloPermitToolForever:
+		s.toolPerms[toolName] = ToolPermission{
+			ToolName: toolName,
+			Approved: true,
+		}
+	case YoloPermitToolWithParamsForever:
+		key := toolName + "#" + paramsJSON
+		s.toolPerms[key] = ToolPermission{
+			ToolName:   toolName,
+			Parameters: paramsJSON,
+			Approved:   true,
+		}
+	case YoloRejectForever:
+		s.toolPerms[toolName] = ToolPermission{
+			ToolName: toolName,
+			Approved: false,
+		}
+	}
+}
+
+// addReportEntry adds an entry to the report
+func (s *MCPService) addReportEntry(server string, tool string, params interface{}, result interface{}, err error) {
+	if !s.reportEnabled {
+		return
+	}
+
+	s.reportLock.Lock()
+	defer s.reportLock.Unlock()
+
+	entry := ReportEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Server:    server,
+		Tool:      tool,
+		Params:    params,
+		Result:    result,
+	}
+
+	if err != nil {
+		entry.Error = err.Error()
+	}
+
+	s.report.Entries = append(s.report.Entries, entry)
+
+	// Write to file
+	reportJSON, _ := json.MarshalIndent(s.report, "", "  ")
+	ioutil.WriteFile(s.reportFile, reportJSON, 0644)
+}
+
 // sendRequest sends a JSONRPC request to the server and returns the response
 func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
+	// Handle tool execution confirmation for tools/call requests when NOT in yolo mode
+	if !s.yoloMode && request.Method == "tools/call" {
+		// Extract tool name and params
+		var callParams CallToolParams
+		paramsBytes, _ := json.Marshal(request.Params)
+		json.Unmarshal(paramsBytes, &callParams)
+		
+		// Convert arguments to JSON string for comparison
+		paramsJSON, _ := json.Marshal(callParams.Arguments)
+		
+		// Check if we already have a permission decision
+		allowed := s.checkToolPermission(callParams.Name, string(paramsJSON))
+		if !allowed {
+			// No existing permission, ask user
+			decision := s.promptYoloDecision(callParams.Name, string(paramsJSON))
+			
+			switch decision {
+			case YoloApprove:
+				// Continue with request
+				break
+			case YoloReject:
+				return nil, fmt.Errorf("tool execution rejected by user")
+			case YoloPermitToolForever, YoloPermitToolWithParamsForever, YoloRejectForever:
+				// Store the decision
+				s.storeToolPermission(callParams.Name, string(paramsJSON), decision)
+				
+				// If it was a reject decision, return error
+				if decision == YoloRejectForever {
+					return nil, fmt.Errorf("tool execution rejected by user policy")
+				}
+			}
+		}
+	}
+
 	reqBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
@@ -240,6 +428,15 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 	var response JSONRPCResponse
 	if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
+	}
+
+	// Add to report if this is a tool call
+	if s.reportEnabled && request.Method == "tools/call" {
+		var toolParams CallToolParams
+		paramsBytes, _ := json.Marshal(request.Params)
+		json.Unmarshal(paramsBytes, &toolParams)
+		
+		s.addReportEntry(server.Name, toolParams.Name, toolParams.Arguments, response.Result, nil)
 	}
 
 	return &response, nil
@@ -524,11 +721,7 @@ func main() {
 		os.Exit(1)
 	}
 	
-	// These variables will be used in future implementations
-	_ = yoloMode
-	_ = outputReport
-	
-	service := NewMCPService()
+	service := NewMCPService(yoloMode, outputReport)
 	
 	// Ensure cleanup on exit
 	defer service.StopAllServers()
