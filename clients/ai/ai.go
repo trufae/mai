@@ -10,26 +10,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	OpenAPIHost string
-	OpenAPIPort string
-	OllamaHost  string
-	OllamaPort  string
-	OllamaModel string
-	GeminiKey   string
-	GeminiModel string
-	OpenAIKey   string
-	OpenAIModel string
-	ClaudeKey   string
-	ClaudeModel string
-	DeepSeekKey string
+	OpenAPIHost   string
+	OpenAPIPort   string
+	OllamaHost    string
+	OllamaPort    string
+	OllamaModel   string
+	GeminiKey     string
+	GeminiModel   string
+	OpenAIKey     string
+	OpenAIModel   string
+	ClaudeKey     string
+	ClaudeModel   string
+	DeepSeekKey   string
 	DeepSeekModel string
-	MistralKey  string
-	MistralModel string
-	ShowScissors bool
-	API         string
+	MistralKey    string
+	MistralModel  string
+	ShowScissors  bool
+	API           string
 }
 
 type ClaudeRequest struct {
@@ -39,9 +40,9 @@ type ClaudeRequest struct {
 }
 
 type OpenAIRequest struct {
-	Model              string    `json:"model"`
-	MaxCompletionTokens int      `json:"max_completion_tokens"`
-	Messages           []Message `json:"messages"`
+	Model               string    `json:"model"`
+	MaxCompletionTokens int       `json:"max_completion_tokens"`
+	Messages            []Message `json:"messages"`
 }
 
 type OllamaRequest struct {
@@ -135,23 +136,23 @@ type OpenAPIResponse struct {
 
 func loadConfig() *Config {
 	config := &Config{
-		OpenAPIHost: getEnvOrDefault("OPENAPI_HOST", "localhost"),
-		OpenAPIPort: getEnvOrDefault("OPENAPI_PORT", "8080"),
-		OllamaHost:  getEnvOrDefault("OLLAMA_HOST", "localhost"),
-		OllamaPort:  getEnvOrDefault("OLLAMA_PORT", "11434"),
-		OllamaModel: getEnvOrDefault("OLLAMA_MODEL", "llama3.2:1b"),
-		GeminiModel: "gemini-1.5-flash",
-		OpenAIModel: "gpt-4o",
-		ClaudeModel: "claude-3-5-sonnet-20241022",
+		OpenAPIHost:   getEnvOrDefault("OPENAPI_HOST", "localhost"),
+		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8080"),
+		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
+		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
+		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "llama3.2:1b"),
+		GeminiModel:   "gemini-1.5-flash",
+		OpenAIModel:   "gpt-4o",
+		ClaudeModel:   "claude-3-5-sonnet-20241022",
 		DeepSeekModel: "claude-3-5-sonnet-20241022",
-		MistralModel: "mistral-large-latest",
-		ShowScissors: true,
-		API:         getEnvOrDefault("AI", "claude"),
-		GeminiKey:   os.Getenv("GEMINI_API_KEY"),
-		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
-		ClaudeKey:   os.Getenv("CLAUDE_API_KEY"),
-		DeepSeekKey: os.Getenv("DEEPSEEK_API_KEY"),
-		MistralKey:  os.Getenv("MISTRAL_API_KEY"),
+		MistralModel:  "mistral-large-latest",
+		ShowScissors:  true,
+		API:           getEnvOrDefault("AI", "claude"),
+		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
+		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
+		ClaudeKey:     os.Getenv("CLAUDE_API_KEY"),
+		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
+		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 	}
 
 	// Load API keys from files if environment variables are not set
@@ -210,24 +211,24 @@ func readKeyFile(path string) string {
 
 func readInput(args []string) string {
 	var input strings.Builder
-	
+
 	// Add command line arguments
 	if len(args) > 0 {
 		input.WriteString(strings.Join(args, " "))
 		input.WriteString("\n")
 	}
-	
+
 	input.WriteString("<INPUT>\n")
-	
+
 	// Read from stdin
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		input.WriteString(scanner.Text())
 		input.WriteString("\n")
 	}
-	
+
 	input.WriteString("</INPUT>")
-	
+
 	return input.String()
 }
 
@@ -240,6 +241,7 @@ func printScissors(config *Config) {
 func makeRequest(method, url string, headers map[string]string, body []byte) ([]byte, error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating HTTP request: %v\n", err)
 		return nil, err
 	}
 
@@ -247,14 +249,31 @@ func makeRequest(method, url string, headers map[string]string, body []byte) ([]
 		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
+
 	resp, err := client.Do(req)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "HTTP request failed: %v\n", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	return io.ReadAll(resp.Body)
+	fmt.Fprintf(os.Stderr, "Response status code: %d\n", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n", resp.StatusCode, resp.Status)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response body: %v\n", err)
+		return nil, err
+	}
+
+	return respBody, nil
 }
 
 func callClaude(config *Config, input string) error {
@@ -270,13 +289,13 @@ func callClaude(config *Config, input string) error {
 	}
 
 	headers := map[string]string{
-		"Content-Type":       "application/json",
-		"anthropic-version":  "2023-06-01",
+		"Content-Type":      "application/json",
+		"anthropic-version": "2023-06-01",
 		"x-api-key":         config.ClaudeKey,
 	}
 
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", "https://api.anthropic.com/v1/messages", headers, jsonData)
 	if err != nil {
 		return err
@@ -290,16 +309,16 @@ func callClaude(config *Config, input string) error {
 	if len(response.Content) > 0 {
 		fmt.Print(response.Content[0].Text)
 	}
-	
+
 	printScissors(config)
 	return nil
 }
 
 func callOpenAI(config *Config, input string) error {
 	request := OpenAIRequest{
-		Model:              config.OpenAIModel,
+		Model:               config.OpenAIModel,
 		MaxCompletionTokens: 5128,
-		Messages:           []Message{{Role: "user", Content: input}},
+		Messages:            []Message{{Role: "user", Content: input}},
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -313,7 +332,7 @@ func callOpenAI(config *Config, input string) error {
 	}
 
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", "https://api.openai.com/v1/chat/completions", headers, jsonData)
 	if err != nil {
 		return err
@@ -327,7 +346,7 @@ func callOpenAI(config *Config, input string) error {
 	if len(response.Choices) > 0 {
 		fmt.Print(response.Choices[0].Message.Content)
 	}
-	
+
 	printScissors(config)
 	return nil
 }
@@ -341,6 +360,7 @@ func callOllama(config *Config, input string) error {
 
 	jsonData, err := json.Marshal(request)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshaling Ollama request: %v\n", err)
 		return err
 	}
 
@@ -349,21 +369,39 @@ func callOllama(config *Config, input string) error {
 	}
 
 	url := fmt.Sprintf("http://%s:%s/api/chat", config.OllamaHost, config.OllamaPort)
-	
+	fmt.Fprintf(os.Stderr, "Connecting to Ollama at: %s\n", url)
+	fmt.Fprintf(os.Stderr, "Using model: %s\n", config.OllamaModel)
+
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", url, headers, jsonData)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error connecting to Ollama API: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Check if Ollama server is running at %s:%s\n", config.OllamaHost, config.OllamaPort)
 		return err
 	}
+
+	if len(respBody) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: Received empty response from Ollama API\n")
+		return fmt.Errorf("empty response from Ollama API")
+	}
+
+	fmt.Fprintf(os.Stderr, "Response received from Ollama (%d bytes)\n", len(respBody))
 
 	var response OllamaResponse
 	if err := json.Unmarshal(respBody, &response); err != nil {
+		fmt.Fprintf(os.Stderr, "Error unmarshaling Ollama response: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Raw response: %s\n", string(respBody))
 		return err
 	}
 
+	if response.Message.Content == "" {
+		fmt.Fprintf(os.Stderr, "Warning: Empty content in Ollama response\n")
+		fmt.Fprintf(os.Stderr, "Raw response: %s\n", string(respBody))
+	}
+
 	fmt.Print(response.Message.Content)
-	
+
 	printScissors(config)
 	return nil
 }
@@ -385,9 +423,9 @@ func callGemini(config *Config, input string) error {
 	}
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", config.GeminiKey)
-	
+
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", url, headers, jsonData)
 	if err != nil {
 		return err
@@ -401,7 +439,7 @@ func callGemini(config *Config, input string) error {
 	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
 		fmt.Print(response.Candidates[0].Content.Parts[0].Text)
 	}
-	
+
 	printScissors(config)
 	return nil
 }
@@ -424,7 +462,7 @@ func callDeepSeek(config *Config, input string) error {
 	}
 
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", "https://api.deepseek.com/chat/completions", headers, jsonData)
 	if err != nil {
 		return err
@@ -438,7 +476,7 @@ func callDeepSeek(config *Config, input string) error {
 	if len(response.Choices) > 0 {
 		fmt.Print(response.Choices[0].Message.Content)
 	}
-	
+
 	printScissors(config)
 	return nil
 }
@@ -461,7 +499,7 @@ func callMistral(config *Config, input string) error {
 	}
 
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", "https://api.mistral.ai/v1/chat/completions", headers, jsonData)
 	if err != nil {
 		return err
@@ -475,7 +513,7 @@ func callMistral(config *Config, input string) error {
 	if len(response.Choices) > 0 {
 		fmt.Print(response.Choices[0].Message.Content)
 	}
-	
+
 	printScissors(config)
 	return nil
 }
@@ -495,9 +533,9 @@ func callOpenAPI(config *Config, input string) error {
 	}
 
 	url := fmt.Sprintf("http://%s:%s/completion", config.OpenAPIHost, config.OpenAPIPort)
-	
+
 	printScissors(config)
-	
+
 	respBody, err := makeRequest("POST", url, headers, jsonData)
 	if err != nil {
 		return err
@@ -509,7 +547,7 @@ func callOpenAPI(config *Config, input string) error {
 	}
 
 	fmt.Print(response.Content)
-	
+
 	printScissors(config)
 	return nil
 }
@@ -519,14 +557,16 @@ func showHelp() {
 -h = show this help message
 -- = don't display the ---8<--- lines in the output
 AI= ollama | gemini | deepseek | claude | openai | mistral
-OLLAMA_MODEL=hf.co/mradermacher/salamandra-7b-instruct-aina-hack-GGUF:salamandra-7b-instruct-aina-hack.Q4_K_M.gguf
+OLLAMA_MODEL=mannix/jan-nano:latest
 OLLAMA_HOST=localhost
 OLLAMA_PORT=11434
-GEMINI_API_KEY=your_gemini_api_key (or set in ~/.r2ai.gemini-key)
-OPENAI_API_KEY=your_openai_api_key (or set in ~/.r2ai.openai-key)
-CLAUDE_API_KEY=your_claude_api_key (or set in ~/.r2ai.anthropic-key)
-DEEPSEEK_API_KEY=your_deepseek_api_key (or set in ~/.r2ai.deepseek-key)
-MISTRAL_API_KEY=your_mistral_api_key (or set in ~/.r2ai.mistral-key)
+GEMINI_API_KEY=(or set in ~/.r2ai.gemini-key)
+OPENAI_API_KEY=(or set in ~/.r2ai.openai-key)
+CLAUDE_API_KEY=(or set in ~/.r2ai.anthropic-key)
+DEEPSEEK_API_KEY=(or set in ~/.r2ai.deepseek-key)
+MISTRAL_API_KEY=(or set in ~/.r2ai.mistral-key)
+# Model Selection
+OLLAMA_MODEL=gemma3:1b
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
 MISTRAL_MODEL=mistral-large-latest
 `)
@@ -570,7 +610,14 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error when calling %s API: %v\n", config.API, err)
+		if config.API == "ollama" {
+			fmt.Fprintf(os.Stderr, "Ollama troubleshooting tips:\n")
+			fmt.Fprintf(os.Stderr, "1. Check if Ollama is running: ps aux | grep ollama\n")
+			fmt.Fprintf(os.Stderr, "2. Verify Ollama server is accessible at %s:%s\n", config.OllamaHost, config.OllamaPort)
+			fmt.Fprintf(os.Stderr, "3. Confirm model '%s' is available: ollama list\n", config.OllamaModel)
+			fmt.Fprintf(os.Stderr, "4. Try pulling the model: ollama pull %s\n", config.OllamaModel)
+		}
 		os.Exit(1)
 	}
 }
