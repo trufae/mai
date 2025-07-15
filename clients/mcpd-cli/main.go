@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 // Tool represents an MCP tool
@@ -122,14 +121,14 @@ func printUsage() {
 
 func parseParams(args []string) map[string]string {
 	params := make(map[string]string)
-	
+
 	for _, arg := range args {
 		parts := strings.SplitN(arg, "=", 2)
 		if len(parts) == 2 {
 			params[parts[0]] = parts[1]
 		}
 	}
-	
+
 	return params
 }
 
@@ -148,11 +147,10 @@ func debugPrint(config Config, format string, args ...interface{}) {
 	}
 }
 
-
 func listServers(config Config) {
 	// Get the status endpoint which lists servers
 	statusUrl := buildApiUrl(config, "/status")
-	
+
 	debugPrint(config, "Making GET request to: %s", statusUrl)
 	resp, err := http.Get(statusUrl)
 	if err != nil {
@@ -160,10 +158,10 @@ func listServers(config Config) {
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	
+
 	debugPrint(config, "Response status: %s", resp.Status)
 	debugPrint(config, "Response headers: %v", resp.Header)
-	
+
 	if resp.StatusCode != http.StatusOK {
 		fmt.Printf("Server returned error: %s\n", resp.Status)
 		body, _ := io.ReadAll(resp.Body)
@@ -176,7 +174,7 @@ func listServers(config Config) {
 		fmt.Printf("Error reading response: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	if config.Debug {
 		debugPrint(config, "Response body: %s", string(body))
 	}
@@ -224,7 +222,7 @@ func listTools(config Config) {
 	}
 
 	toolsUrl := buildApiUrl(config, endpoint)
-	
+
 	debugPrint(config, "Making GET request to: %s", toolsUrl)
 	resp, err := http.Get(toolsUrl)
 	if err != nil {
@@ -232,7 +230,7 @@ func listTools(config Config) {
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	
+
 	debugPrint(config, "Response status: %s", resp.Status)
 	debugPrint(config, "Response headers: %v", resp.Header)
 
@@ -248,7 +246,7 @@ func listTools(config Config) {
 		fmt.Printf("Error reading response: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	if config.Debug {
 		debugPrint(config, "Response body: %s", string(body))
 	}
@@ -274,72 +272,38 @@ func listTools(config Config) {
 func callTool(config Config, serverName, toolName string, params map[string]string) {
 	var resp *http.Response
 	var requestErr error
-	
-	// For wttr, we need to directly call the wttr.in service since the local server seems to be misconfigured
-	if serverName == "server1" && toolName == "wttr" {
-		// Get the location parameter or use default
-		location := "barcelona"
-		if loc, ok := params["location"]; ok {
-			location = loc
-		}
-		
-		// Make a direct call to wttr.in
-		wttrUrl := fmt.Sprintf("https://wttr.in/%s?format=v2", location)
-		
-		// Debug logging
-		if config.Debug {
-			debugPrint(config, "Making direct request to wttr.in: %s", wttrUrl)
-		}
-		
-		// Create a custom request with curl user agent to get plain text output
-		req, err := http.NewRequest("GET", wttrUrl, nil)
-		if err != nil {
-			if !config.Quiet {
-				fmt.Printf("Error creating request: %v\n", err)
-			}
-			os.Exit(1)
-		}
-		
-		// Set curl user agent to get plain text output
-		req.Header.Set("User-Agent", "curl/7.68.0")
-		
-		// Make GET request to wttr.in
-		client := &http.Client{
-			Timeout: 30 * time.Second,
-		}
-		resp, requestErr = client.Do(req)
+
+	// Standard tool call for other tools
+	var endpoint string
+	if config.Quiet {
+		endpoint = fmt.Sprintf("/tools/quiet/%s/%s", serverName, toolName)
 	} else {
-		// Standard tool call for other tools
-		var endpoint string
-		if config.Quiet {
-			endpoint = fmt.Sprintf("/tools/quiet/%s/%s", serverName, toolName)
-		} else {
-			endpoint = fmt.Sprintf("/tools/%s/%s", serverName, toolName)
-		}
-		
-		// Build the tool URL
-		toolUrl := buildApiUrl(config, endpoint)
-		
-		// Prepare parameters as query params
-		queryParams := make([]string, 0, len(params))
-		for k, v := range params {
-			queryParams = append(queryParams, fmt.Sprintf("%s=%s", k, v))
-		}
-		
-		if len(queryParams) > 0 {
-			toolUrl = toolUrl + "?" + strings.Join(queryParams, "&")
-		}
-		
-		// Debug logging for parameters
-		if config.Debug {
-			debugPrint(config, "Query parameters: %v", queryParams)
-		}
-		
-		// Make GET request
-		debugPrint(config, "Making GET request to: %s", toolUrl)
-		resp, requestErr = http.Get(toolUrl)
+		endpoint = fmt.Sprintf("/tools/%s/%s", serverName, toolName)
 	}
-	
+
+	// Build the tool URL
+	toolUrl := buildApiUrl(config, endpoint)
+	fmt.Println (toolUrl)
+
+	// Prepare parameters as query params
+	queryParams := make([]string, 0, len(params))
+	for k, v := range params {
+		queryParams = append(queryParams, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	if len(queryParams) > 0 {
+		toolUrl = toolUrl + "?" + strings.Join(queryParams, "&")
+	}
+
+	// Debug logging for parameters
+	if config.Debug {
+		debugPrint(config, "Query parameters: %v", queryParams)
+	}
+
+	// Make GET request
+	debugPrint(config, "Making GET request to: %s", toolUrl)
+	resp, requestErr = http.Get(toolUrl)
+
 	// Handle request errors
 	if requestErr != nil {
 		if !config.Quiet {
@@ -348,10 +312,10 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	
+
 	debugPrint(config, "Response status: %s", resp.Status)
 	debugPrint(config, "Response headers: %v", resp.Header)
-	
+
 	if resp.StatusCode != http.StatusOK {
 		if !config.Quiet {
 			fmt.Printf("Tool call failed: %s\n", resp.Status)
@@ -360,7 +324,7 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 		}
 		os.Exit(1)
 	}
-	
+
 	// Read the response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -369,7 +333,7 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 		}
 		os.Exit(1)
 	}
-	
+
 	// Debug logging for response
 	if config.Debug {
 		// Try to pretty print JSON response
@@ -381,7 +345,7 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 			debugPrint(config, "Tool response: %s", string(body))
 		}
 	}
-	
+
 	// If json output is requested, try to convert the output to JSON
 	if config.JsonOutput {
 		// Try to parse as JSON first
