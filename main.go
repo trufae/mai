@@ -441,24 +441,107 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(output.String()))
 }
 
+const (
+	version = "1.0.0"
+)
+
+func showHelp() {
+	fmt.Println("Usage: ./mcpd [options] \"command1\" \"command2\" ...")
+	fmt.Println("Options:")
+	fmt.Println("  -v\tShow version information")
+	fmt.Println("  -h\tShow this help message")
+	fmt.Println("  -p PORT\tPort to listen on (default: 8080)")
+	fmt.Println("  -y\tYolo mode")
+	fmt.Println("  -o FILE\tOutput report to FILE")
+	fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
+}
+
+func showVersion() {
+	fmt.Printf("mcpd version %s\n", version)
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: ./mcpd \"command1\" \"command2\" ...")
-		fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
+	// Parse command line flags
+	port := "8080"
+	yoloMode := false
+	outputReport := ""
+	
+	args := os.Args[1:]
+	cmdArgs := []string{}
+	
+	// Show help if no arguments provided
+	if len(args) == 0 {
+		showHelp()
+		os.Exit(0)
+	}
+	
+	// Process command line arguments
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		
+		if len(arg) > 0 && arg[0] == '-' {
+			switch arg {
+			case "-v":
+				showVersion()
+				os.Exit(0)
+			case "-h":
+				showHelp()
+				os.Exit(0)
+			case "-y":
+				yoloMode = true
+			case "-p":
+				if i+1 < len(args) {
+					port = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -p requires a port number")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-o":
+				if i+1 < len(args) {
+					outputReport = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -o requires a filename")
+					showHelp()
+					os.Exit(1)
+				}
+			default:
+				fmt.Printf("Unknown option: %s\n", arg)
+				showHelp()
+				os.Exit(1)
+			}
+		} else {
+			cmdArgs = append(cmdArgs, arg)
+		}
+	}
+	
+	// Check if we have any commands to run
+	if len(cmdArgs) == 0 {
+		fmt.Println("Error: No MCP commands provided")
+		showHelp()
 		os.Exit(1)
 	}
-
+	
+	// These variables will be used in future implementations
+	_ = yoloMode
+	_ = outputReport
+	
 	service := NewMCPService()
 	
 	// Ensure cleanup on exit
 	defer service.StopAllServers()
 
 	// Start all MCP servers
-	for i, command := range os.Args[1:] {
-		serverName := fmt.Sprintf("server%d", i+1)
-		if err := service.StartServer(serverName, command); err != nil {
-			log.Printf("Failed to start server %s: %v", serverName, err)
-			continue
+	// Only start servers if we have commands to run
+	if len(cmdArgs) > 0 {
+		for i, command := range cmdArgs {
+			serverName := fmt.Sprintf("server%d", i+1)
+			if err := service.StartServer(serverName, command); err != nil {
+				log.Printf("Failed to start server %s: %v", serverName, err)
+				continue
+			}
 		}
 	}
 
@@ -495,7 +578,6 @@ Examples:
 	}).Methods("GET")
 
 	// Start HTTP server
-	port := "8080"
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		port = envPort
 	}
