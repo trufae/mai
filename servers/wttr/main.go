@@ -37,10 +37,15 @@ type RPCError struct {
 var toolsList = []interface{}{map[string]interface{}{
 	"name":        "getWeather",
 	"description": "Get weather for a location",
-	"arguments": map[string]interface{}{
+	"inputSchema": map[string]interface{}{
 		"type":       "object",
-		"properties": map[string]interface{}{ "location": map[string]string{"type":"string"} },
-		"required":   []string{"location"},
+		"properties": map[string]interface{}{
+			"location": map[string]interface{}{
+				"type":        "string",
+				"description": "The location to get weather for",
+			},
+		},
+		"required": []string{"location"},
 	},
 }}
 
@@ -56,9 +61,21 @@ func main() {
 
 		switch req.Method {
 		case "initialize":
-			sendResult(req.ID, map[string]string{"protocolVersion": "2025-03-26"})
+			sendResult(req.ID, map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities": map[string]interface{}{
+					"tools": map[string]interface{}{},
+				},
+			})
+		case "notifications/initialized":
+			// This is a notification, no response needed
+			// Just acknowledge it silently
+			continue
 		case "tools/list":
-			sendResult(req.ID, toolsList)
+			// Return tools wrapped in proper MCP format
+			sendResult(req.ID, map[string]interface{}{
+				"tools": toolsList,
+			})
 		case "tools/call":
 			handleCall(req)
 		default:
@@ -93,16 +110,24 @@ func handleCall(req JSONRPCRequest) {
 		sendError(req.ID, -32000, "Weather fetch error: "+err.Error())
 		return
 	}
-	// Wrap in markdown code block
-	md := fmt.Sprintf("```\n%s\n```", weather)
-	sendResult(req.ID, md)
+	
+	// Return proper MCP tools/call response format
+	sendResult(req.ID, map[string]interface{}{
+		"content": []interface{}{
+			map[string]interface{}{
+				"type": "text",
+				"text": weather,
+			},
+		},
+	})
 }
 
 func fetchWeather(location string) (string, error) {
 	esc := url.QueryEscape(location)
 	
 	// Create a new request with the curl User-Agent
-	req, err := http.NewRequest("GET", fmt.Sprintf("https://wttr.in/%s?1FqT", esc), nil)
+	// req, err := http.NewRequest("GET", fmt.Sprintf("https://wttr.in/%s?1FqT", esc), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://wttr.in/%s?format=%%l:+%%m+%%c+%%C+%%t+%%f'", esc), nil)
 	if err != nil {
 		return "", err
 	}
