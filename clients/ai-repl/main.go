@@ -714,7 +714,9 @@ func callOpenAPI(config *Config, input string) error {
 }
 
 func showHelp() {
-	fmt.Print(`$ ai [--] | [-h] | [prompt] < INPUT
+	fmt.Print(`$ ai-repl [--] | [-h] | [prompt] < INPUT
+Flags:
+
 -h = show this help message
 -r = enter the repl mode (default)
 -s = don't display the ---8<--- lines in the output
@@ -723,22 +725,33 @@ func showHelp() {
 -p <provider> = select the provider to use
 -m <model> = select the model for the given provider
 -- = stdin mode
+
+Environment:
+
 PROVIDER= ollama | gemini | deepseek | claude | openai | mistral | bedrock
-AI= same as PROVIDER (deprecated)
-OLLAMA_MODEL=mannix/jan-nano:latest
+
+Local:
+
 OLLAMA_HOST=localhost
 OLLAMA_PORT=11434
+OLLAMA_MODEL=gemma3:1b
+OLLAMA_MODEL=mannix/jan-nano:latest
+
+Other:
+
 GEMINI_API_KEY=(or set in ~/.r2ai.gemini-key)
 OPENAI_API_KEY=(or set in ~/.r2ai.openai-key)
 CLAUDE_API_KEY=(or set in ~/.r2ai.anthropic-key)
 DEEPSEEK_API_KEY=(or set in ~/.r2ai.deepseek-key)
 MISTRAL_API_KEY=(or set in ~/.r2ai.mistral-key)
-AWS_ACCESS_KEY_ID=(or set in ~/.r2ai.bedrock-key)
-AWS_REGION=us-west-2
 # Model Selection
-OLLAMA_MODEL=gemma3:1b
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
 MISTRAL_MODEL=mistral-large-latest
+
+Bedrock:
+
+AWS_ACCESS_KEY_ID=(or set in ~/.r2ai.bedrock-key)
+AWS_REGION=us-west-2
 BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 `)
 }
