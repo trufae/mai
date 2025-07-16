@@ -10,8 +10,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -34,6 +36,7 @@ type REPL struct {
 	completePrefix   string
 	streamingEnabled bool
 	systemPrompt     string
+	messages         []Message
 }
 
 type StreamingClient interface {
@@ -89,9 +92,13 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /prompt <path> - Load system prompt from file\r\n")
 	fmt.Print("  /noprompt      - Remove system prompt\r\n")
 	fmt.Print("  /cancel        - Cancel current request\r\n")
+	fmt.Print("  /clear         - Clear conversation messages\r\n")
+	fmt.Print("  /log           - Display conversation messages\r\n")
+	fmt.Print("  /undo [N]      - Remove last or Nth message from conversation\r\n")
 	fmt.Print("  /stream        - Enable streaming mode\r\n")
 	fmt.Print("  /nostream      - Disable streaming mode\r\n")
 	fmt.Print("  /quit          - Exit REPL\r\n")
+	fmt.Print("  !<command>     - Execute shell command\r\n")
 	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
 	fmt.Print("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
 	fmt.Print("  Ctrl+W         - Delete last word\r\n")
@@ -130,7 +137,7 @@ func (r *REPL) setupSignalHandler() {
 			r.ctx, r.cancel = context.WithCancel(context.Background())
 		} else {
 			// Just print a new prompt instead of exiting
-			fmt.Print("\r\n^C\r\n> ")
+			fmt.Print("\r\n^C\r\n>>> ")
 		}
 	}()
 }
@@ -151,6 +158,11 @@ func (r *REPL) handleInput() error {
 	// Handle commands
 	if strings.HasPrefix(input, "/") {
 		return r.handleCommand(input)
+	}
+	
+	// Handle shell commands
+	if strings.HasPrefix(input, "!") {
+		return r.executeShellCommand(input[1:])
 	}
 
 	// Add to history
@@ -240,6 +252,13 @@ func (r *REPL) readLine() (string, error) {
 func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	input := line.String()
 
+	// Check if we need to complete a file path for a command that accepts a file
+	parts := strings.SplitN(input, " ", 2)
+	if len(parts) == 2 && (parts[0] == "/image" || parts[0] == "/file" || parts[0] == "/prompt") {
+		r.handleFilePathCompletion(line, parts[0], parts[1])
+		return
+	}
+
 	// Only handle tab completion at the beginning of the line for commands
 	if !strings.HasPrefix(input, "/") {
 		return
@@ -257,6 +276,9 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/nostream",
 			"/prompt",
 			"/noprompt",
+			"/clear",
+			"/log",
+			"/undo",
 			"/quit",
 			"/exit",
 		}
@@ -398,6 +420,19 @@ func (r *REPL) handleCommand(input string) error {
 	case "/nostream":
 		r.streamingEnabled = false
 		fmt.Print("Streaming mode disabled\r\n")
+	case "/clear":
+		r.messages = []Message{}
+		fmt.Print("Conversation messages cleared\r\n")
+	case "/log":
+		r.displayConversationLog()
+	case "/undo":
+		if len(parts) > 1 {
+			// Parse the index argument
+			r.undoMessageByIndex(parts[1])
+		} else {
+			// Default behavior - remove the last message
+			r.undoLastMessage()
+		}
 	case "/prompt":
 		if len(parts) < 2 {
 			fmt.Println("Usage: /prompt <path>")
@@ -488,14 +523,48 @@ func (r *REPL) sendToAI(input string) error {
 		r.mu.Unlock()
 	}()
 
-	// Try streaming first, fall back to regular API calls
-	if r.supportsStreaming() {
-		return r.streamResponse(input)
+	// Create client
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-
-	return r.regularResponse(input)
+	
+	// Add system prompt if present
+	messages := []Message{}
+	if r.systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+	}
+	
+	// Add any existing conversation messages
+	messages = append(messages, r.messages...)
+	
+	// Add user message
+	userMessage := Message{Role: "user", Content: input}
+	messages = append(messages, userMessage)
+	
+	// Save the user message to conversation history
+	r.messages = append(r.messages, userMessage)
+	
+	// Print prompt for the AI response
+	fmt.Print("\r\nAI: ")
+	
+	// Send message with streaming based on REPL settings
+	response, err := client.SendMessage(messages, r.streamingEnabled)
+	
+	// Save the assistant's response to conversation history
+	if err == nil && response != "" {
+		// If not streaming, we need to print the response here
+		if !r.streamingEnabled {
+			fmt.Print(strings.ReplaceAll(response, "\n", "\r\n"))
+		}
+		r.messages = append(r.messages, Message{Role: "assistant", Content: response})
+	}
+	
+	fmt.Print("\r\n")
+	return err
 }
 
+// Legacy function kept for compatibility
 func (r *REPL) supportsStreaming() bool {
 	// Check if streaming mode is enabled in REPL
 	if !r.streamingEnabled {
@@ -506,134 +575,89 @@ func (r *REPL) supportsStreaming() bool {
 	return provider == "ollama" || provider == "openai" || provider == "claude"
 }
 
-func (r *REPL) streamResponse(input string) error {
-	fmt.Print("\r\nAI: ")
-
-	switch strings.ToLower(r.config.PROVIDER) {
-	case "ollama":
-		return r.streamOllama(input)
-	case "openai":
-		return r.streamOpenAI(input)
-	case "claude":
-		return r.streamClaude(input)
-	default:
-		return r.regularResponse(input)
-	}
-}
-
+// Legacy function kept for compatibility
 func (r *REPL) regularResponse(input string) error {
-	fmt.Print("\r\nAI: ")
-
-	// If system prompt is set, add it to the input in the format expected by non-streaming API calls
-	completeInput := input
+	// Create messages
+	messages := []Message{}
 	if r.systemPrompt != "" {
-		completeInput = fmt.Sprintf("<system>\n%s</system>\n%s", r.systemPrompt, input)
+		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
-
-	var err error
-	switch strings.ToLower(r.config.PROVIDER) {
-	case "gemini", "google":
-		err = callGemini(r.config, completeInput)
-	case "deepseek":
-		err = callDeepSeek(r.config, completeInput)
-	case "openapi":
-		err = callOpenAPI(r.config, completeInput)
-	case "claude":
-		err = callClaude(r.config, completeInput)
-	case "ollama":
-		err = callOllama(r.config, completeInput)
-	case "openai":
-		err = callOpenAI(r.config, completeInput)
-	case "mistral":
-		err = callMistral(r.config, completeInput)
-	case "bedrock", "aws":
-		err = callBedrock(r.config, completeInput)
-	default:
-		err = callClaude(r.config, completeInput)
+	messages = append(messages, Message{Role: "user", Content: input})
+	
+	// Create client and send message
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-
+	
+	// Print prompt for AI response
+	fmt.Print("\r\nAI: ")
+	
+	// Send message without streaming
+	_, err = client.SendMessage(messages, false)
+	
 	fmt.Print("\r\n")
 	return err
 }
 
+// Legacy function kept for compatibility
 func (r *REPL) streamOllama(input string) error {
+	// Create a new LLM client
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+	
+	// Prepare messages
 	messages := []Message{}
-
-	// Add system prompt if exists
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
-
-	// Add user message
 	messages = append(messages, Message{Role: "user", Content: input})
-
-	request := OllamaRequest{
-		Stream:   true,
-		Model:    r.config.OllamaModel,
-		Messages: messages,
-	}
-
-	return r.makeStreamingRequest("POST",
-		fmt.Sprintf("http://%s:%s/api/chat", r.config.OllamaHost, r.config.OllamaPort),
-		map[string]string{"Content-Type": "application/json"},
-		request,
-		r.parseOllamaStream)
+	
+	// Send message with streaming
+	_, err = client.SendMessage(messages, true)
+	return err
 }
 
+// Legacy function kept for compatibility
 func (r *REPL) streamOpenAI(input string) error {
+	// Create a new LLM client
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+	
+	// Prepare messages
 	messages := []Message{}
-
-	// Add system prompt if exists
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
-
-	// Add user message
 	messages = append(messages, Message{Role: "user", Content: input})
-
-	request := map[string]interface{}{
-		"model":    r.config.OpenAIModel,
-		"messages": messages,
-		"stream":   true,
-	}
-
-	return r.makeStreamingRequest("POST",
-		"https://api.openai.com/v1/chat/completions",
-		map[string]string{
-			"Content-Type":  "application/json",
-			"Authorization": "Bearer " + r.config.OpenAIKey,
-		},
-		request,
-		r.parseOpenAIStream)
+	
+	// Send message with streaming
+	_, err = client.SendMessage(messages, true)
+	return err
 }
 
+// Legacy function kept for compatibility
 func (r *REPL) streamClaude(input string) error {
+	// Create a new LLM client
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+	
+	// Prepare messages
 	messages := []Message{}
-
-	// Add system prompt if exists
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
-
-	// Add user message
 	messages = append(messages, Message{Role: "user", Content: input})
-
-	request := map[string]interface{}{
-		"model":      r.config.ClaudeModel,
-		"max_tokens": 5128,
-		"messages":   messages,
-		"stream":     true,
-	}
-
-	return r.makeStreamingRequest("POST",
-		"https://api.anthropic.com/v1/messages",
-		map[string]string{
-			"Content-Type":      "application/json",
-			"anthropic-version": "2023-06-01",
-			"x-api-key":         r.config.ClaudeKey,
-		},
-		request,
-		r.parseClaudeStream)
+	
+	// Send message with streaming
+	_, err = client.SendMessage(messages, true)
+	return err
 }
 
 func (r *REPL) makeStreamingRequest(method, url string, headers map[string]string,
@@ -790,6 +814,198 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 }
 
 // Load system prompt from a file
+// handleFilePathCompletion handles tab completion for file paths
+func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath string) {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(partialPath, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			partialPath = filepath.Join(homeDir, partialPath[1:])
+		}
+	}
+
+	// If this is the first tab press, find matching files
+	if r.completeState == 0 {
+		// Get the directory and file prefix
+		dir, prefix := filepath.Split(partialPath)
+		
+		// If no directory specified, use current directory
+		if dir == "" {
+			dir = "."
+		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(partialPath, "./") && !strings.HasPrefix(partialPath, "../") {
+			// Handle relative paths that don't start with ./ or ../
+			dir = "." + string(filepath.Separator) + dir
+		}
+
+		// Make sure dir ends with separator
+		if !strings.HasSuffix(dir, string(filepath.Separator)) {
+			dir += string(filepath.Separator)
+		}
+		
+		// Read the directory
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			return // Cannot read directory
+		}
+		
+		// Find matching files
+		r.completeOptions = nil
+		for _, file := range files {
+			name := file.Name()
+			if strings.HasPrefix(name, prefix) {
+				// Add separator if it's a directory
+				if file.IsDir() {
+					name += string(filepath.Separator)
+				}
+				r.completeOptions = append(r.completeOptions, dir+name)
+			}
+		}
+		
+		// If no matches, do nothing
+		if len(r.completeOptions) == 0 {
+			return
+		}
+		
+		r.completeState = 1
+		r.completePrefix = cmd + " "
+		
+		// Replace current input with the first match
+		currentInput := line.String()
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+		
+		// Get the first match
+		firstMatch := r.completePrefix + r.completeOptions[0]
+		
+		// Print and set the first match
+		fmt.Print(firstMatch)
+		line.Reset()
+		line.WriteString(firstMatch)
+	} else {
+		// Subsequent tab presses - cycle through options
+		if len(r.completeOptions) <= 1 {
+			return
+		}
+		
+		// Find current option
+		currentInput := line.String()
+		currentPath := strings.TrimPrefix(currentInput, r.completePrefix)
+		
+		// Find current index
+		currentIdx := -1
+		for i, opt := range r.completeOptions {
+			if opt == currentPath {
+				currentIdx = i
+				break
+			}
+		}
+		
+		// Get next option
+		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextOption := r.completePrefix + r.completeOptions[nextIdx]
+		
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+		
+		// Print next option
+		fmt.Print(nextOption)
+		line.Reset()
+		line.WriteString(nextOption)
+	}
+}
+
+// executeShellCommand executes a shell command and returns its output
+func (r *REPL) executeShellCommand(cmdString string) error {
+	// Trim leading/trailing whitespace
+	cmdString = strings.TrimSpace(cmdString)
+	if cmdString == "" {
+		return nil
+	}
+	
+	// Handle special case for cd command - change working directory
+	if strings.HasPrefix(cmdString, "cd ") {
+		dir := strings.TrimSpace(strings.TrimPrefix(cmdString, "cd "))
+		// Expand ~ to home directory if present
+		if strings.HasPrefix(dir, "~") {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error getting home directory: %v\r\n", err)
+				return nil
+			}
+			dir = filepath.Join(homeDir, dir[1:])
+		}
+		
+		// Change directory
+		err := os.Chdir(dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error changing directory: %v\r\n", err)
+		} else {
+			cwd, _ := os.Getwd()
+			fmt.Printf("Changed directory to: %s\r\n", cwd)
+		}
+		return nil
+	}
+	
+	// For other commands, create a shell command
+	cmd := exec.Command("sh", "-c", cmdString)
+	
+	// Set up pipes for stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating stdout pipe: %v\r\n", err)
+		return nil
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating stderr pipe: %v\r\n", err)
+		return nil
+	}
+	
+	// Start the command
+	err = cmd.Start()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting command: %v\r\n", err)
+		return nil
+	}
+	
+	// Set up a wait group to coordinate goroutines
+	var wg sync.WaitGroup
+	wg.Add(2)
+	
+	// Read stdout
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			fmt.Printf("%s\r\n", scanner.Text())
+		}
+	}()
+	
+	// Read stderr
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			fmt.Fprintf(os.Stderr, "%s\r\n", scanner.Text())
+		}
+	}()
+	
+	// Wait for both goroutines to finish
+	wg.Wait()
+	
+	// Wait for the command to finish
+	err = cmd.Wait()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Command exited with error: %v\r\n", err)
+	}
+	
+	return nil
+}
+
 func (r *REPL) loadSystemPrompt(path string) error {
 	// Expand ~ to home directory if present
 	if strings.HasPrefix(path, "~") {
@@ -810,4 +1026,106 @@ func (r *REPL) loadSystemPrompt(path string) error {
 	r.systemPrompt = string(content)
 	fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
 	return nil
+}
+
+// displayConversationLog prints the current conversation messages
+func (r *REPL) displayConversationLog() {
+	if len(r.messages) == 0 {
+		fmt.Print("No conversation messages yet\r\n")
+		return
+	}
+	
+	fmt.Print("Conversation log:\r\n")
+	fmt.Print("-----------------\r\n")
+	
+	for i, msg := range r.messages {
+		role := formatRole(msg.Role)
+		
+		fmt.Printf("[%d] %s: ", i+1, role)
+		
+		// For log display, use a larger truncation limit
+		content := msg.Content
+		if len(content) > 100 {
+			content = content[:97] + "..."
+		}
+		
+		// Replace newlines with space for compact display
+		content = strings.ReplaceAll(content, "\n", " ")
+		
+		fmt.Printf("%s\r\n", content)
+	}
+	
+	fmt.Printf("Total messages: %d\r\n", len(r.messages))
+}
+
+// undoLastMessage removes the last message from the conversation history
+func (r *REPL) undoLastMessage() {
+	if len(r.messages) == 0 {
+		fmt.Print("No messages to undo\r\n")
+		return
+	}
+	
+	// Get the last message to show what was removed
+	lastMsg := r.messages[len(r.messages)-1]
+	
+	// Remove the last message
+	r.messages = r.messages[:len(r.messages)-1]
+	
+	// Show information about the removed message
+	role := formatRole(lastMsg.Role)
+	content := truncateContent(lastMsg.Content)
+	
+	fmt.Printf("Removed last message (%s: %s)\r\n", role, content)
+	fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
+}
+
+// undoMessageByIndex removes a specific message by its 1-based index
+func (r *REPL) undoMessageByIndex(indexStr string) {
+	if len(r.messages) == 0 {
+		fmt.Print("No messages to undo\r\n")
+		return
+	}
+	
+	// Parse the index
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		fmt.Printf("Invalid index: %s. Please provide a number.\r\n", indexStr)
+		return
+	}
+	
+	// Convert from 1-based (displayed to user) to 0-based (array index)
+	index--
+	
+	// Check if the index is valid
+	if index < 0 || index >= len(r.messages) {
+		fmt.Printf("Invalid index: %d. Valid range is 1-%d.\r\n", index+1, len(r.messages))
+		return
+	}
+	
+	// Get the message being removed for display
+	msg := r.messages[index]
+	role := formatRole(msg.Role)
+	content := truncateContent(msg.Content)
+	
+	// Remove the message using slice operations
+	r.messages = append(r.messages[:index], r.messages[index+1:]...)
+	
+	fmt.Printf("Removed message %d (%s: %s)\r\n", index+1, role, content)
+	fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
+}
+
+// Helper function to format role for display
+func formatRole(role string) string {
+	if len(role) > 0 {
+		return strings.ToUpper(role[:1]) + role[1:]
+	}
+	return role
+}
+
+// Helper function to truncate and format content for display
+func truncateContent(content string) string {
+	if len(content) > 30 {
+		content = content[:27] + "..."
+	}
+	return strings.ReplaceAll(content, "\n", " ")
 }

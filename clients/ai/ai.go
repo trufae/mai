@@ -176,7 +176,7 @@ func loadConfig() *Config {
 		MistralModel:  "mistral-large-latest",
 		BedrockModel:  getEnvOrDefault("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-v1"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
-		ShowScissors:  true,
+		ShowScissors:  false,
 		PROVIDER:      getEnvOrDefault("PROVIDER", "ollama"),
 		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
 		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
@@ -290,7 +290,7 @@ func makeRequest(method, url string, headers map[string]string, body []byte) ([]
 		Timeout: 30 * time.Second,
 	}
 
-	fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
+	// fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -299,7 +299,7 @@ func makeRequest(method, url string, headers map[string]string, body []byte) ([]
 	}
 	defer resp.Body.Close()
 
-	fmt.Fprintf(os.Stderr, "Response status code: %d\n", resp.StatusCode)
+	// fmt.Fprintf(os.Stderr, "Response status code: %d\n", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n", resp.StatusCode, resp.Status)
 	}
@@ -791,7 +791,7 @@ func main() {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-s":
-			config.ShowScissors = false
+			config.ShowScissors = true
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-1":
@@ -836,27 +836,18 @@ func main() {
 
 	input := readInput(args)
 
-	var err error
-	switch strings.ToLower(config.PROVIDER) {
-	case "gemini", "google":
-		err = callGemini(config, input)
-	case "deepseek":
-		err = callDeepSeek(config, input)
-	case "openapi":
-		err = callOpenAPI(config, input)
-	case "claude":
-		err = callClaude(config, input)
-	case "ollama":
-		err = callOllama(config, input)
-	case "openai":
-		err = callOpenAI(config, input)
-	case "mistral":
-		err = callMistral(config, input)
-	case "bedrock", "aws":
-		err = callBedrock(config, input)
-	default:
-		err = callClaude(config, input)
+	// Create LLM client
+	client, err := NewLLMClient(config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
+		os.Exit(1)
 	}
+	
+	// Prepare messages from input
+	messages := PrepareMessages(input)
+	
+	// Send to LLM without streaming (for stdin mode)
+	_, err = client.SendMessage(messages, false)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling %s provider: %v\n", config.PROVIDER, err)
