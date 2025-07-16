@@ -41,6 +41,7 @@ type REPL struct {
 	includeReplies   bool          // Whether to include assistant replies in the context
 	pendingFiles     []pendingFile // Files and images to include in the next message
 	reasoningEnabled bool          // Whether reasoning is enabled for the AI model
+	loggingEnabled   bool          // Whether to save conversation history
 }
 
 type pendingFile struct {
@@ -70,6 +71,7 @@ func NewREPL(config *Config) (*REPL, error) {
 		includeReplies:   true,             // Include replies by default
 		pendingFiles:     []pendingFile{},  // Initialize empty pending files slice
 		reasoningEnabled: true,             // Enable reasoning by default
+		loggingEnabled:   true,             // Enable conversation logging by default
 	}, nil
 }
 
@@ -110,13 +112,15 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /noprompt      - Remove system prompt\r\n")
 	fmt.Print("  /think         - Enable AI reasoning\r\n")
 	fmt.Print("  /nothink       - Disable AI reasoning\r\n")
+	fmt.Print("  /log           - Enable conversation logging\r\n")
+	fmt.Print("  /nolog         - Disable conversation logging\r\n")
 	fmt.Print("  /model         - Show current model or change model\r\n")
 	fmt.Print("  /provider      - Show current provider or change provider\r\n")
 	fmt.Print("  /save <path>   - Save conversation history to file\r\n")
 	fmt.Print("  /load <path>   - Load conversation history from file\r\n")
 	fmt.Print("  /cancel        - Cancel current request\r\n")
 	fmt.Print("  /clear         - Clear conversation messages\r\n")
-	fmt.Print("  /log           - Display conversation messages\r\n")
+	fmt.Print("  /list          - Display conversation messages\r\n")
 	fmt.Print("  /undo [N]      - Remove last or Nth message from conversation\r\n")
 	fmt.Print("  /stream        - Enable streaming mode\r\n")
 	fmt.Print("  /nostream      - Disable streaming mode\r\n")
@@ -402,12 +406,14 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/noprompt",
 			"/think",
 			"/nothink",
+			"/log",
+			"/nolog",
 			"/model",
 			"/provider",
 			"/save",
 			"/load",
 			"/clear",
-			"/log",
+			"/list",
 			"/undo",
 			"/quit",
 			"/exit",
@@ -574,6 +580,16 @@ func (r *REPL) handleCommand(input string) error {
 	case "/nothink":
 		r.reasoningEnabled = false
 		fmt.Print("AI reasoning disabled\r\n")
+	case "/list":
+		// Display conversation log
+		r.displayConversationLog()
+	case "/log":
+		// Enable logging
+		r.loggingEnabled = true
+		fmt.Print("Conversation logging enabled\r\n")
+	case "/nolog":
+		r.loggingEnabled = false
+		fmt.Print("Conversation logging disabled\r\n")
 	case "/replies":
 		r.includeReplies = true
 		fmt.Print("Assistant replies will be included in context\r\n")
@@ -583,8 +599,6 @@ func (r *REPL) handleCommand(input string) error {
 	case "/clear":
 		r.messages = []Message{}
 		fmt.Print("Conversation messages cleared\r\n")
-	case "/log":
-		r.displayConversationLog()
 	case "/save":
 		if len(parts) < 2 {
 			fmt.Println("Usage: /save <path>")
@@ -739,18 +753,22 @@ func (r *REPL) sendToAI(input string) error {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
 
-	// Add existing conversation messages based on includeReplies setting
-	if r.includeReplies {
-		// Include all messages
-		messages = append(messages, r.messages...)
-	} else {
-		// Include only user messages
-		for _, msg := range r.messages {
-			if msg.Role == "user" {
-				messages = append(messages, msg)
+	// Handle conversation history based on logging and reply settings
+	if r.loggingEnabled {
+		// When logging is enabled, use normal message history behavior
+		if r.includeReplies {
+			// Include all messages
+			messages = append(messages, r.messages...)
+		} else {
+			// Include only user messages
+			for _, msg := range r.messages {
+				if msg.Role == "user" {
+					messages = append(messages, msg)
+				}
 			}
 		}
 	}
+	// When logging is disabled, we don't append any previous messages
 
 	// Process pending files and incorporate them into the input
 	enhancedInput := input
@@ -779,8 +797,14 @@ func (r *REPL) sendToAI(input string) error {
 	// Add user message with enhanced input
 	userMessage := Message{Role: "user", Content: enhancedInput}
 
-	// Save the original user message (without /no_think) to conversation history
-	r.messages = append(r.messages, userMessage)
+	// Handle conversation history based on logging settings
+	if r.loggingEnabled {
+		// Save the user message to conversation history when logging is enabled
+		r.messages = append(r.messages, userMessage)
+	} else {
+		// When logging is disabled, replace the entire history with just this message
+		r.messages = []Message{userMessage}
+	}
 
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM
 	if !r.reasoningEnabled {
@@ -799,13 +823,23 @@ func (r *REPL) sendToAI(input string) error {
 	// Send message with streaming based on REPL settings
 	response, err := client.SendMessageWithImages(messages, r.streamingEnabled, images)
 
-	// Save the assistant's response to conversation history
+	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
 		// If not streaming, we need to print the response here
 		if !r.streamingEnabled {
 			fmt.Print(strings.ReplaceAll(response, "\n", "\r\n"))
 		}
-		r.messages = append(r.messages, Message{Role: "assistant", Content: response})
+
+		// Create assistant message
+		assistantMessage := Message{Role: "assistant", Content: response}
+
+		if r.loggingEnabled {
+			// Save to conversation history when logging is enabled
+			r.messages = append(r.messages, assistantMessage)
+		} else {
+			// When logging is disabled, keep just the current exchange
+			r.messages = []Message{userMessage, assistantMessage}
+		}
 	}
 
 	fmt.Print("\r\n")
@@ -1304,7 +1338,8 @@ func (r *REPL) displayConversationLog() {
 	}
 
 	fmt.Printf("Total messages: %d\r\n", len(r.messages))
-	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t\r\n", r.includeReplies, r.streamingEnabled, r.reasoningEnabled)
+	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
+		r.includeReplies, r.streamingEnabled, r.reasoningEnabled, r.loggingEnabled)
 
 	// Display pending files if any
 	if len(r.pendingFiles) > 0 {
