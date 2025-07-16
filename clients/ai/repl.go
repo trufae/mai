@@ -445,6 +445,8 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			fmt.Print(r.completeOptions[0])
 			line.Reset()
 			line.WriteString(r.completeOptions[0])
+			// Update cursor position to end of line
+			r.cursorPos = line.Len()
 		}
 	} else {
 		// Subsequent tab presses - cycle through options
@@ -475,6 +477,8 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		fmt.Print(nextOption)
 		line.Reset()
 		line.WriteString(nextOption)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
 	}
 }
 
@@ -1165,6 +1169,8 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 		fmt.Print(firstMatch)
 		line.Reset()
 		line.WriteString(firstMatch)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
 	} else {
 		// Subsequent tab presses - cycle through options
 		if len(r.completeOptions) <= 1 {
@@ -1197,6 +1203,8 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 		fmt.Print(nextOption)
 		line.Reset()
 		line.WriteString(nextOption)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
 	}
 }
 
