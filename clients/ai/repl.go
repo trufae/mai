@@ -20,15 +20,20 @@ import (
 )
 
 type REPL struct {
-	config       *Config
-	history      []string
-	historyIndex int
-	currentInput strings.Builder
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.Mutex
-	isStreaming  bool
-	oldState     *term.State
+	config           *Config
+	history          []string
+	historyIndex     int
+	currentInput     strings.Builder
+	ctx              context.Context
+	cancel           context.CancelFunc
+	mu               sync.Mutex
+	isStreaming      bool
+	oldState         *term.State
+	completeState    int
+	completeOptions  []string
+	completePrefix   string
+	streamingEnabled bool
+	systemPrompt     string
 }
 
 type StreamingClient interface {
@@ -39,11 +44,14 @@ func NewREPL(config *Config) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &REPL{
-		config:       config,
-		history:      make([]string, 0),
-		historyIndex: -1,
-		ctx:          ctx,
-		cancel:       cancel,
+		config:           config,
+		history:          make([]string, 0),
+		historyIndex:     -1,
+		ctx:              ctx,
+		cancel:           cancel,
+		completeState:    0,
+		completeOptions:  []string{},
+		streamingEnabled: !config.NoStream, // Respect NoStream flag
 	}, nil
 }
 
@@ -58,15 +66,8 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	fmt.Printf("AI REPL Mode - %s\n", strings.ToUpper(r.config.API))
-	fmt.Println("Commands:")
-	fmt.Println("  /image <path>  - Send an image")
-	fmt.Println("  /file <path>   - Send a file")
-	fmt.Println("  /cancel        - Cancel current request")
-	fmt.Println("  /quit          - Exit REPL")
-	fmt.Println("  Ctrl+C         - Cancel current request or exit")
-	fmt.Println("  Up/Down arrows - Navigate history")
-	fmt.Println()
+	fmt.Print(fmt.Sprintf("AI REPL Mode - %s\r\n", strings.ToUpper(r.config.PROVIDER)))
+	r.showCommands()
 
 	for {
 		if err := r.handleInput(); err != nil {
@@ -78,6 +79,25 @@ func (r *REPL) Run() error {
 	}
 
 	return nil
+}
+
+func (r *REPL) showCommands() {
+	fmt.Print("Commands:\r\n")
+	fmt.Print("  /help          - Show available commands\r\n")
+	fmt.Print("  /image <path>  - Send an image\r\n")
+	fmt.Print("  /file <path>   - Send a file\r\n")
+	fmt.Print("  /prompt <path> - Load system prompt from file\r\n")
+	fmt.Print("  /noprompt      - Remove system prompt\r\n")
+	fmt.Print("  /cancel        - Cancel current request\r\n")
+	fmt.Print("  /stream        - Enable streaming mode\r\n")
+	fmt.Print("  /nostream      - Disable streaming mode\r\n")
+	fmt.Print("  /quit          - Exit REPL\r\n")
+	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
+	fmt.Print("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
+	fmt.Print("  Ctrl+W         - Delete last word\r\n")
+	fmt.Print("  Up/Down arrows - Navigate history\r\n")
+	fmt.Print("  Tab            - Command completion\r\n")
+	fmt.Print("\r\n")
 }
 
 func (r *REPL) setupTerminal() error {
@@ -104,20 +124,19 @@ func (r *REPL) setupSignalHandler() {
 		r.mu.Unlock()
 
 		if isStreaming {
-			fmt.Print("\n^C (Request cancelled)\n> ")
+			fmt.Print("\r\n^C (Request cancelled)\r\n> ")
 			r.cancel()
 			// Create new context for next request
 			r.ctx, r.cancel = context.WithCancel(context.Background())
 		} else {
-			fmt.Println("\nGoodbye!")
-			r.cleanup()
-			os.Exit(0)
+			// Just print a new prompt instead of exiting
+			fmt.Print("\r\n^C\r\n> ")
 		}
 	}()
 }
 
 func (r *REPL) handleInput() error {
-	fmt.Print("> ")
+	fmt.Print("\n\r>>> ")
 
 	input, err := r.readLine()
 	if err != nil {
@@ -160,6 +179,7 @@ func (r *REPL) readLine() (string, error) {
 		switch b {
 		case '\r', '\n':
 			fmt.Print("\r\n")
+			r.completeState = 0
 			return line.String(), nil
 		case 127, 8: // Backspace
 			if line.Len() > 0 {
@@ -167,19 +187,136 @@ func (r *REPL) readLine() (string, error) {
 				line.Reset()
 				line.WriteString(s[:len(s)-1])
 				fmt.Print("\b \b")
+				r.completeState = 0
+			}
+		case 23: // Ctrl+W (delete last word)
+			if line.Len() > 0 {
+				s := line.String()
+				// Find the beginning of the last word
+				lastSpace := strings.LastIndexAny(s[:len(s)], " \t")
+				if lastSpace == -1 {
+					// No spaces, delete everything
+					for i := 0; i < len(s); i++ {
+						fmt.Print("\b \b")
+					}
+					line.Reset()
+				} else {
+					// Delete from last space to end
+					for i := 0; i < len(s)-lastSpace-1; i++ {
+						fmt.Print("\b \b")
+					}
+					line.Reset()
+					line.WriteString(s[:lastSpace+1])
+				}
+				r.completeState = 0
 			}
 		case 27: // Escape sequence (arrow keys)
 			if err := r.handleEscapeSequence(&line); err != nil {
 				return "", err
 			}
+		case 9: // Tab
+			r.handleTabCompletion(&line)
 		case 3: // Ctrl+C
-			return "", fmt.Errorf("interrupted")
+			// Cancel current request but don't exit
+			r.cancel()
+			r.ctx, r.cancel = context.WithCancel(context.Background())
+			fmt.Print("\r\n^C\r\n> ")
+			line.Reset()
+		case 4: // Ctrl+D
+			if line.Len() == 0 { // Only exit if the line is empty
+				fmt.Print("\r\nGoodbye!\r\n")
+				return "", io.EOF
+			}
 		default:
 			if b >= 32 && b <= 126 { // Printable characters
 				line.WriteByte(b)
 				fmt.Printf("%c", b)
+				r.completeState = 0
 			}
 		}
+	}
+}
+
+func (r *REPL) handleTabCompletion(line *strings.Builder) {
+	input := line.String()
+
+	// Only handle tab completion at the beginning of the line for commands
+	if !strings.HasPrefix(input, "/") {
+		return
+	}
+
+	if r.completeState == 0 {
+		// First tab press - generate options
+		r.completePrefix = input
+		r.completeOptions = []string{
+			"/help",
+			"/image",
+			"/file",
+			"/cancel",
+			"/stream",
+			"/nostream",
+			"/prompt",
+			"/noprompt",
+			"/quit",
+			"/exit",
+		}
+
+		// Filter options that match the prefix
+		var filteredOptions []string
+		for _, opt := range r.completeOptions {
+			if strings.HasPrefix(opt, r.completePrefix) {
+				filteredOptions = append(filteredOptions, opt)
+			}
+		}
+		r.completeOptions = filteredOptions
+
+		if len(r.completeOptions) == 0 {
+			return // No matches
+		}
+
+		r.completeState = 1
+
+		// Replace current input with the first match
+		if len(r.completeOptions) > 0 {
+			// Clear current line
+			for i := 0; i < len(input); i++ {
+				fmt.Print("\b \b")
+			}
+
+			// Print the first match
+			fmt.Print(r.completeOptions[0])
+			line.Reset()
+			line.WriteString(r.completeOptions[0])
+		}
+	} else {
+		// Subsequent tab presses - cycle through options
+		if len(r.completeOptions) <= 1 {
+			return
+		}
+
+		// Find current option index
+		currentOption := line.String()
+		currentIdx := -1
+		for i, opt := range r.completeOptions {
+			if opt == currentOption {
+				currentIdx = i
+				break
+			}
+		}
+
+		// Get next option
+		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextOption := r.completeOptions[nextIdx]
+
+		// Clear current line
+		for i := 0; i < len(currentOption); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Print next option
+		fmt.Print(nextOption)
+		line.Reset()
+		line.WriteString(nextOption)
 	}
 }
 
@@ -251,7 +388,25 @@ func (r *REPL) handleCommand(input string) error {
 	case "/cancel":
 		r.cancel()
 		r.ctx, r.cancel = context.WithCancel(context.Background())
-		fmt.Println("Request cancelled")
+		fmt.Print("Request cancelled\r\n")
+	case "/help":
+		r.showCommands()
+		return nil
+	case "/stream":
+		r.streamingEnabled = true
+		fmt.Print("Streaming mode enabled\r\n")
+	case "/nostream":
+		r.streamingEnabled = false
+		fmt.Print("Streaming mode disabled\r\n")
+	case "/prompt":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /prompt <path>")
+			return nil
+		}
+		return r.loadSystemPrompt(parts[1])
+	case "/noprompt":
+		r.systemPrompt = ""
+		fmt.Print("System prompt removed\r\n")
 	case "/image":
 		if len(parts) < 2 {
 			fmt.Println("Usage: /image <path>")
@@ -342,14 +497,19 @@ func (r *REPL) sendToAI(input string) error {
 }
 
 func (r *REPL) supportsStreaming() bool {
-	api := strings.ToLower(r.config.API)
-	return api == "ollama" || api == "openai" || api == "claude"
+	// Check if streaming mode is enabled in REPL
+	if !r.streamingEnabled {
+		return false
+	}
+	// Check if API supports streaming
+	provider := strings.ToLower(r.config.PROVIDER)
+	return provider == "ollama" || provider == "openai" || provider == "claude"
 }
 
 func (r *REPL) streamResponse(input string) error {
-	fmt.Print("\nAI: ")
+	fmt.Print("\r\nAI: ")
 
-	switch strings.ToLower(r.config.API) {
+	switch strings.ToLower(r.config.PROVIDER) {
 	case "ollama":
 		return r.streamOllama(input)
 	case "openai":
@@ -362,39 +522,55 @@ func (r *REPL) streamResponse(input string) error {
 }
 
 func (r *REPL) regularResponse(input string) error {
-	fmt.Print("\nAI: ")
+	fmt.Print("\r\nAI: ")
 
-	var err error
-	switch strings.ToLower(r.config.API) {
-	case "gemini", "google":
-		err = callGemini(r.config, input)
-	case "deepseek":
-		err = callDeepSeek(r.config, input)
-	case "openapi":
-		err = callOpenAPI(r.config, input)
-	case "claude":
-		err = callClaude(r.config, input)
-	case "ollama":
-		err = callOllama(r.config, input)
-	case "openai":
-		err = callOpenAI(r.config, input)
-	case "mistral":
-		err = callMistral(r.config, input)
-	case "bedrock", "aws":
-		err = callBedrock(r.config, input)
-	default:
-		err = callClaude(r.config, input)
+	// If system prompt is set, add it to the input in the format expected by non-streaming API calls
+	completeInput := input
+	if r.systemPrompt != "" {
+		completeInput = fmt.Sprintf("<system>\n%s</system>\n%s", r.systemPrompt, input)
 	}
 
-	fmt.Println()
+	var err error
+	switch strings.ToLower(r.config.PROVIDER) {
+	case "gemini", "google":
+		err = callGemini(r.config, completeInput)
+	case "deepseek":
+		err = callDeepSeek(r.config, completeInput)
+	case "openapi":
+		err = callOpenAPI(r.config, completeInput)
+	case "claude":
+		err = callClaude(r.config, completeInput)
+	case "ollama":
+		err = callOllama(r.config, completeInput)
+	case "openai":
+		err = callOpenAI(r.config, completeInput)
+	case "mistral":
+		err = callMistral(r.config, completeInput)
+	case "bedrock", "aws":
+		err = callBedrock(r.config, completeInput)
+	default:
+		err = callClaude(r.config, completeInput)
+	}
+
+	fmt.Print("\r\n")
 	return err
 }
 
 func (r *REPL) streamOllama(input string) error {
+	messages := []Message{}
+
+	// Add system prompt if exists
+	if r.systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+	}
+
+	// Add user message
+	messages = append(messages, Message{Role: "user", Content: input})
+
 	request := OllamaRequest{
 		Stream:   true,
 		Model:    r.config.OllamaModel,
-		Messages: []Message{{Role: "user", Content: input}},
+		Messages: messages,
 	}
 
 	return r.makeStreamingRequest("POST",
@@ -405,9 +581,19 @@ func (r *REPL) streamOllama(input string) error {
 }
 
 func (r *REPL) streamOpenAI(input string) error {
+	messages := []Message{}
+
+	// Add system prompt if exists
+	if r.systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+	}
+
+	// Add user message
+	messages = append(messages, Message{Role: "user", Content: input})
+
 	request := map[string]interface{}{
 		"model":    r.config.OpenAIModel,
-		"messages": []Message{{Role: "user", Content: input}},
+		"messages": messages,
 		"stream":   true,
 	}
 
@@ -422,10 +608,20 @@ func (r *REPL) streamOpenAI(input string) error {
 }
 
 func (r *REPL) streamClaude(input string) error {
+	messages := []Message{}
+
+	// Add system prompt if exists
+	if r.systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+	}
+
+	// Add user message
+	messages = append(messages, Message{Role: "user", Content: input})
+
 	request := map[string]interface{}{
 		"model":      r.config.ClaudeModel,
 		"max_tokens": 5128,
-		"messages":   []Message{{Role: "user", Content: input}},
+		"messages":   messages,
 		"stream":     true,
 	}
 
@@ -498,7 +694,8 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 			continue
 		}
 
-		fmt.Print(response.Message.Content)
+		// Replace \n with \r\n in the response
+		fmt.Print(strings.ReplaceAll(response.Message.Content, "\n", "\r\n"))
 
 		if response.Done {
 			break
@@ -542,7 +739,8 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 		}
 
 		if len(response.Choices) > 0 {
-			fmt.Print(response.Choices[0].Delta.Content)
+			// Replace \n with \r\n in the response
+			fmt.Print(strings.ReplaceAll(response.Choices[0].Delta.Content, "\n", "\r\n"))
 		}
 	}
 
@@ -582,10 +780,34 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 		}
 
 		if response.Type == "content_block_delta" {
-			fmt.Print(response.Delta.Text)
+			// Replace \n with \r\n in the response
+			fmt.Print(strings.ReplaceAll(response.Delta.Text, "\n", "\r\n"))
 		}
 	}
 
 	fmt.Println()
 	return scanner.Err()
+}
+
+// Load system prompt from a file
+func (r *REPL) loadSystemPrompt(path string) error {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(path, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %v", err)
+		}
+		path = filepath.Join(homeDir, path[1:])
+	}
+
+	// Read the file
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read prompt file: %v", err)
+	}
+
+	// Set the system prompt
+	r.systemPrompt = string(content)
+	fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
+	return nil
 }

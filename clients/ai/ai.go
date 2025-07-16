@@ -33,7 +33,8 @@ type Config struct {
 	BedrockModel  string
 	BedrockRegion string
 	ShowScissors  bool
-	API           string
+	PROVIDER      string
+	NoStream      bool
 }
 
 type ClaudeRequest struct {
@@ -167,7 +168,7 @@ func loadConfig() *Config {
 		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8080"),
 		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
 		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
-		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "llama3.2:1b"),
+		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "gemma3:1b"),
 		GeminiModel:   "gemini-1.5-flash",
 		OpenAIModel:   "gpt-4o",
 		ClaudeModel:   "claude-3-5-sonnet-20241022",
@@ -176,13 +177,14 @@ func loadConfig() *Config {
 		BedrockModel:  getEnvOrDefault("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-v1"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
 		ShowScissors:  true,
-		API:           getEnvOrDefault("API", "bedrock"),
+		PROVIDER:      getEnvOrDefault("PROVIDER", "ollama"),
 		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
 		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
 		ClaudeKey:     os.Getenv("CLAUDE_API_KEY"),
 		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
+		NoStream:      false,
 	}
 
 	// Load API keys from files if environment variables are not set
@@ -269,7 +271,7 @@ func readInput(args []string) string {
 
 func printScissors(config *Config) {
 	if config.ShowScissors {
-		fmt.Println("\n------------8<------------")
+		fmt.Print("\r\n------------8<------------\r\n")
 	}
 }
 
@@ -312,10 +314,33 @@ func makeRequest(method, url string, headers map[string]string, body []byte) ([]
 }
 
 func callClaude(config *Config, input string) error {
+	// Parse input to check if it contains a system prompt
+	systemPrompt := ""
+	userPrompt := input
+
+	// Simplified parsing to extract system prompt if it's at the beginning
+	if strings.HasPrefix(input, "<system>\n") {
+		parts := strings.SplitN(input, "</system>\n", 2)
+		if len(parts) == 2 {
+			systemPrompt = strings.TrimPrefix(parts[0], "<system>\n")
+			userPrompt = parts[1]
+		}
+	}
+
+	messages := []Message{}
+
+	// Add system message if present
+	if systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	}
+
+	// Add user message
+	messages = append(messages, Message{Role: "user", Content: userPrompt})
+
 	request := ClaudeRequest{
 		Model:     config.ClaudeModel,
 		MaxTokens: 5128,
-		Messages:  []Message{{Role: "user", Content: input}},
+		Messages:  messages,
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -342,7 +367,8 @@ func callClaude(config *Config, input string) error {
 	}
 
 	if len(response.Content) > 0 {
-		fmt.Print(response.Content[0].Text)
+		// Replace \n with \r\n in the response
+		fmt.Print(strings.ReplaceAll(response.Content[0].Text, "\n", "\r\n"))
 	}
 
 	printScissors(config)
@@ -350,10 +376,33 @@ func callClaude(config *Config, input string) error {
 }
 
 func callOpenAI(config *Config, input string) error {
+	// Parse input to check if it contains a system prompt
+	systemPrompt := ""
+	userPrompt := input
+
+	// Simplified parsing to extract system prompt if it's at the beginning
+	if strings.HasPrefix(input, "<system>\n") {
+		parts := strings.SplitN(input, "</system>\n", 2)
+		if len(parts) == 2 {
+			systemPrompt = strings.TrimPrefix(parts[0], "<system>\n")
+			userPrompt = parts[1]
+		}
+	}
+
+	messages := []Message{}
+
+	// Add system message if present
+	if systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	}
+
+	// Add user message
+	messages = append(messages, Message{Role: "user", Content: userPrompt})
+
 	request := OpenAIRequest{
 		Model:               config.OpenAIModel,
 		MaxCompletionTokens: 5128,
-		Messages:            []Message{{Role: "user", Content: input}},
+		Messages:            messages,
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -379,7 +428,8 @@ func callOpenAI(config *Config, input string) error {
 	}
 
 	if len(response.Choices) > 0 {
-		fmt.Print(response.Choices[0].Message.Content)
+		// Replace \n with \r\n in the response
+		fmt.Print(strings.ReplaceAll(response.Choices[0].Message.Content, "\n", "\r\n"))
 	}
 
 	printScissors(config)
@@ -387,10 +437,33 @@ func callOpenAI(config *Config, input string) error {
 }
 
 func callOllama(config *Config, input string) error {
+	// Parse input to check if it contains a system prompt
+	systemPrompt := ""
+	userPrompt := input
+
+	// Simplified parsing to extract system prompt if it's at the beginning
+	if strings.HasPrefix(input, "<system>\n") {
+		parts := strings.SplitN(input, "</system>\n", 2)
+		if len(parts) == 2 {
+			systemPrompt = strings.TrimPrefix(parts[0], "<system>\n")
+			userPrompt = parts[1]
+		}
+	}
+
+	messages := []Message{}
+
+	// Add system message if present
+	if systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	}
+
+	// Add user message
+	messages = append(messages, Message{Role: "user", Content: userPrompt})
+
 	request := OllamaRequest{
 		Stream:   false,
 		Model:    config.OllamaModel,
-		Messages: []Message{{Role: "user", Content: input}},
+		Messages: messages,
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -435,7 +508,8 @@ func callOllama(config *Config, input string) error {
 		fmt.Fprintf(os.Stderr, "Raw response: %s\n", string(respBody))
 	}
 
-	fmt.Print(response.Message.Content)
+	// Replace \n with \r\n in the response
+	fmt.Print(strings.ReplaceAll(response.Message.Content, "\n", "\r\n"))
 
 	printScissors(config)
 	return nil
@@ -472,7 +546,8 @@ func callGemini(config *Config, input string) error {
 	}
 
 	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
-		fmt.Print(response.Candidates[0].Content.Parts[0].Text)
+		// Replace \n with \r\n in the response
+		fmt.Print(strings.ReplaceAll(response.Candidates[0].Content.Parts[0].Text, "\n", "\r\n"))
 	}
 
 	printScissors(config)
@@ -509,7 +584,8 @@ func callDeepSeek(config *Config, input string) error {
 	}
 
 	if len(response.Choices) > 0 {
-		fmt.Print(response.Choices[0].Message.Content)
+		// Replace \n with \r\n in the response
+		fmt.Print(strings.ReplaceAll(response.Choices[0].Message.Content, "\n", "\r\n"))
 	}
 
 	printScissors(config)
@@ -546,7 +622,8 @@ func callMistral(config *Config, input string) error {
 	}
 
 	if len(response.Choices) > 0 {
-		fmt.Print(response.Choices[0].Message.Content)
+		// Replace \n with \r\n in the response
+		fmt.Print(strings.ReplaceAll(response.Choices[0].Message.Content, "\n", "\r\n"))
 	}
 
 	printScissors(config)
@@ -592,7 +669,8 @@ func callBedrock(config *Config, input string) error {
 		return err
 	}
 
-	fmt.Print(response.Output.Message.Content)
+	// Replace \n with \r\n in the response
+	fmt.Print(strings.ReplaceAll(response.Output.Message.Content, "\n", "\r\n"))
 
 	printScissors(config)
 	return nil
@@ -626,7 +704,8 @@ func callOpenAPI(config *Config, input string) error {
 		return err
 	}
 
-	fmt.Print(response.Content)
+	// Replace \n with \r\n in the response
+	fmt.Print(strings.ReplaceAll(response.Content, "\n", "\r\n"))
 
 	printScissors(config)
 	return nil
@@ -635,8 +714,14 @@ func callOpenAPI(config *Config, input string) error {
 func showHelp() {
 	fmt.Print(`$ ai [--] | [-h] | [prompt] < INPUT
 -h = show this help message
--- = don't display the ---8<--- lines in the output
-AI= ollama | gemini | deepseek | claude | openai | mistral | bedrock
+-r = enter the repl mode (default)
+-s = don't display the ---8<--- lines in the output
+-1 = don't stream response, print once at the end
+-p <provider> = select the provider to use
+-m <model> = select the model for the given provider
+-- = stdin mode
+PROVIDER= ollama | gemini | deepseek | claude | openai | mistral | bedrock
+AI= same as PROVIDER (deprecated)
 OLLAMA_MODEL=mannix/jan-nano:latest
 OLLAMA_HOST=localhost
 OLLAMA_PORT=11434
@@ -655,6 +740,38 @@ BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 `)
 }
 
+// setModelForProvider sets the appropriate model field in the config based on the provider
+func setModelForProvider(config *Config, model string) {
+	// Get the current provider in lowercase for easier comparison
+	provider := strings.ToLower(config.PROVIDER)
+
+	switch provider {
+	case "ollama":
+		config.OllamaModel = model
+		fmt.Fprintf(os.Stderr, "Setting Ollama model to %s\n", model)
+	case "openai":
+		config.OpenAIModel = model
+		fmt.Fprintf(os.Stderr, "Setting OpenAI model to %s\n", model)
+	case "claude":
+		config.ClaudeModel = model
+		fmt.Fprintf(os.Stderr, "Setting Claude model to %s\n", model)
+	case "gemini", "google":
+		config.GeminiModel = model
+		fmt.Fprintf(os.Stderr, "Setting Gemini model to %s\n", model)
+	case "mistral":
+		config.MistralModel = model
+		fmt.Fprintf(os.Stderr, "Setting Mistral model to %s\n", model)
+	case "deepseek":
+		config.DeepSeekModel = model
+		fmt.Fprintf(os.Stderr, "Setting DeepSeek model to %s\n", model)
+	case "bedrock", "aws":
+		config.BedrockModel = model
+		fmt.Fprintf(os.Stderr, "Setting Bedrock model to %s\n", model)
+	default:
+		fmt.Fprintf(os.Stderr, "Warning: Unknown provider '%s', cannot set model\n", provider)
+	}
+}
+
 func main() {
 	args := os.Args[1:]
 
@@ -665,8 +782,45 @@ func main() {
 
 	config := loadConfig()
 
+	// For backwards compatibility - check if API env var is set
+	if apiVal := os.Getenv("API"); apiVal != "" && os.Getenv("PROVIDER") == "" {
+		config.PROVIDER = apiVal
+	}
+
+	// Process command line flags
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-s":
+			config.ShowScissors = false
+			args = append(args[:i], args[i+1:]...)
+			i--
+		case "-1":
+			config.NoStream = true
+			args = append(args[:i], args[i+1:]...)
+			i--
+		case "-p":
+			if i+1 < len(args) {
+				config.PROVIDER = args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -p requires a provider argument\n")
+				os.Exit(1)
+			}
+		case "-m":
+			if i+1 < len(args) {
+				setModelForProvider(config, args[i+1])
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -m requires a model argument\n")
+				os.Exit(1)
+			}
+		}
+	}
+
 	// Check for REPL mode flag
-	if len(args) > 0 && args[0] == "-r" {
+	if len(args) > 0 && args[0] == "-r" || len(args) == 0 {
 		repl, err := NewREPL(config)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
@@ -680,15 +834,10 @@ func main() {
 		return
 	}
 
-	if len(args) > 0 && args[0] == "--" {
-		config.ShowScissors = false
-		args = args[1:]
-	}
-
 	input := readInput(args)
 
 	var err error
-	switch strings.ToLower(config.API) {
+	switch strings.ToLower(config.PROVIDER) {
 	case "gemini", "google":
 		err = callGemini(config, input)
 	case "deepseek":
@@ -710,8 +859,8 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling %s API: %v\n", config.API, err)
-		if config.API == "ollama" {
+		fmt.Fprintf(os.Stderr, "Error when calling %s provider: %v\n", config.PROVIDER, err)
+		if config.PROVIDER == "ollama" {
 			fmt.Fprintf(os.Stderr, "Ollama troubleshooting tips:\n")
 			fmt.Fprintf(os.Stderr, "1. Check if Ollama is running: ps aux | grep ollama\n")
 			fmt.Fprintf(os.Stderr, "2. Verify Ollama server is accessible at %s:%s\n", config.OllamaHost, config.OllamaPort)
