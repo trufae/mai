@@ -108,6 +108,8 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /noprompt      - Remove system prompt\r\n")
 	fmt.Print("  /model         - Show current model or change model\r\n")
 	fmt.Print("  /provider      - Show current provider or change provider\r\n")
+	fmt.Print("  /save <path>   - Save conversation history to file\r\n")
+	fmt.Print("  /load <path>   - Load conversation history from file\r\n")
 	fmt.Print("  /cancel        - Cancel current request\r\n")
 	fmt.Print("  /clear         - Clear conversation messages\r\n")
 	fmt.Print("  /log           - Display conversation messages\r\n")
@@ -396,6 +398,8 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/noprompt",
 			"/model",
 			"/provider",
+			"/save",
+			"/load",
 			"/clear",
 			"/log",
 			"/undo",
@@ -569,6 +573,18 @@ func (r *REPL) handleCommand(input string) error {
 		fmt.Print("Conversation messages cleared\r\n")
 	case "/log":
 		r.displayConversationLog()
+	case "/save":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /save <path>")
+			return nil
+		}
+		return r.saveConversation(parts[1])
+	case "/load":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /load <path>")
+			return nil
+		}
+		return r.loadConversation(parts[1])
 	case "/model":
 		if len(parts) > 1 {
 			// Set new model
@@ -1500,5 +1516,92 @@ func (r *REPL) setProvider(provider string) error {
 	// Also show the current model for this provider
 	r.showCurrentModel()
 
+	return nil
+}
+
+// saveConversation saves the current conversation to a JSON file
+func (r *REPL) saveConversation(path string) error {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(path, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %v", err)
+		}
+		path = filepath.Join(homeDir, path[1:])
+	}
+
+	// Create simplified conversation data struct
+	conversationData := struct {
+		SystemPrompt string    `json:"system_prompt,omitempty"`
+		Messages     []Message `json:"messages"`
+	}{
+		SystemPrompt: r.systemPrompt,
+		Messages:     r.messages,
+	}
+
+	// Convert to JSON
+	jsonData, err := json.MarshalIndent(conversationData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal conversation data: %v", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(path, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write conversation to file: %v", err)
+	}
+
+	fmt.Printf("Conversation saved to %s (%d messages)\r\n", path, len(r.messages))
+	return nil
+}
+
+// loadConversation loads a conversation from a JSON file
+func (r *REPL) loadConversation(path string) error {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(path, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %v", err)
+		}
+		path = filepath.Join(homeDir, path[1:])
+	}
+
+	// Read file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read conversation file: %v", err)
+	}
+
+	// Try to parse as the current format first
+	var conversationData struct {
+		SystemPrompt string    `json:"system_prompt"`
+		Messages     []Message `json:"messages"`
+	}
+
+	if err := json.Unmarshal(data, &conversationData); err != nil {
+		// Try parsing legacy format that included provider and model
+		var legacyData struct {
+			SystemPrompt string    `json:"system_prompt"`
+			Messages     []Message `json:"messages"`
+			Provider     string    `json:"provider"`
+			Model        string    `json:"model"`
+		}
+
+		if err := json.Unmarshal(data, &legacyData); err != nil {
+			return fmt.Errorf("failed to parse conversation file: %v", err)
+		}
+
+		// Copy data from legacy format
+		conversationData.SystemPrompt = legacyData.SystemPrompt
+		conversationData.Messages = legacyData.Messages
+	}
+
+	// Update REPL with loaded data
+	r.systemPrompt = conversationData.SystemPrompt
+	r.messages = conversationData.Messages
+
+	fmt.Printf("Conversation loaded from %s (%d messages)\r\n", path, len(r.messages))
+	if conversationData.SystemPrompt != "" {
+		fmt.Print("System prompt loaded\r\n")
+	}
 	return nil
 }
