@@ -40,6 +40,7 @@ type REPL struct {
 	messages         []Message
 	includeReplies   bool          // Whether to include assistant replies in the context
 	pendingFiles     []pendingFile // Files and images to include in the next message
+	reasoningEnabled bool          // Whether reasoning is enabled for the AI model
 }
 
 type pendingFile struct {
@@ -68,6 +69,7 @@ func NewREPL(config *Config) (*REPL, error) {
 		streamingEnabled: !config.NoStream, // Respect NoStream flag
 		includeReplies:   true,             // Include replies by default
 		pendingFiles:     []pendingFile{},  // Initialize empty pending files slice
+		reasoningEnabled: true,             // Enable reasoning by default
 	}, nil
 }
 
@@ -106,6 +108,8 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /nofiles       - Remove pending files\r\n")
 	fmt.Print("  /prompt <path> - Load system prompt from file\r\n")
 	fmt.Print("  /noprompt      - Remove system prompt\r\n")
+	fmt.Print("  /think         - Enable AI reasoning\r\n")
+	fmt.Print("  /nothink       - Disable AI reasoning\r\n")
 	fmt.Print("  /model         - Show current model or change model\r\n")
 	fmt.Print("  /provider      - Show current provider or change provider\r\n")
 	fmt.Print("  /save <path>   - Save conversation history to file\r\n")
@@ -396,6 +400,8 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/noreplies",
 			"/prompt",
 			"/noprompt",
+			"/think",
+			"/nothink",
 			"/model",
 			"/provider",
 			"/save",
@@ -562,6 +568,12 @@ func (r *REPL) handleCommand(input string) error {
 	case "/nostream":
 		r.streamingEnabled = false
 		fmt.Print("Streaming mode disabled\r\n")
+	case "/think":
+		r.reasoningEnabled = true
+		fmt.Print("AI reasoning enabled\r\n")
+	case "/nothink":
+		r.reasoningEnabled = false
+		fmt.Print("AI reasoning disabled\r\n")
 	case "/replies":
 		r.includeReplies = true
 		fmt.Print("Assistant replies will be included in context\r\n")
@@ -766,13 +778,23 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Add user message with enhanced input
 	userMessage := Message{Role: "user", Content: enhancedInput}
-	messages = append(messages, userMessage)
 
-	// Save the user message to conversation history
+	// Save the original user message (without /no_think) to conversation history
 	r.messages = append(r.messages, userMessage)
 
-	// Print prompt for the AI response
-	// fmt.Print("\r\nAI: ")
+	// If reasoning is disabled, append /no_think to the last message sent to the LLM
+	if !r.reasoningEnabled {
+		// Create a copy of the messages for the API call with /no_think appended
+		messagesCopy := make([]Message, len(messages))
+		copy(messagesCopy, messages)
+
+		// Append the user message with /no_think to the copy
+		messagesCopy = append(messagesCopy, Message{Role: "user", Content: enhancedInput + "/no_think"})
+		messages = messagesCopy
+	} else {
+		// Add the original user message
+		messages = append(messages, userMessage)
+	}
 
 	// Send message with streaming based on REPL settings
 	response, err := client.SendMessageWithImages(messages, r.streamingEnabled, images)
@@ -1282,7 +1304,7 @@ func (r *REPL) displayConversationLog() {
 	}
 
 	fmt.Printf("Total messages: %d\r\n", len(r.messages))
-	fmt.Printf("Settings: replies=%t, streaming=%t\r\n", r.includeReplies, r.streamingEnabled)
+	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t\r\n", r.includeReplies, r.streamingEnabled, r.reasoningEnabled)
 
 	// Display pending files if any
 	if len(r.pendingFiles) > 0 {
