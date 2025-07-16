@@ -14,26 +14,26 @@ import (
 )
 
 type Config struct {
-	OpenAPIHost    string
-	OpenAPIPort    string
-	OllamaHost     string
-	OllamaPort     string
-	OllamaModel    string
-	GeminiKey      string
-	GeminiModel    string
-	OpenAIKey      string
-	OpenAIModel    string
-	ClaudeKey      string
-	ClaudeModel    string
-	DeepSeekKey    string
-	DeepSeekModel  string
-	MistralKey     string
-	MistralModel   string
-	BedrockKey     string
-	BedrockModel   string
-	BedrockRegion  string
-	ShowScissors   bool
-	API            string
+	OpenAPIHost   string
+	OpenAPIPort   string
+	OllamaHost    string
+	OllamaPort    string
+	OllamaModel   string
+	GeminiKey     string
+	GeminiModel   string
+	OpenAIKey     string
+	OpenAIModel   string
+	ClaudeKey     string
+	ClaudeModel   string
+	DeepSeekKey   string
+	DeepSeekModel string
+	MistralKey    string
+	MistralModel  string
+	BedrockKey    string
+	BedrockModel  string
+	BedrockRegion string
+	ShowScissors  bool
+	API           string
 }
 
 type ClaudeRequest struct {
@@ -126,15 +126,15 @@ type MistralRequest struct {
 }
 
 type BedrockRequest struct {
-	ModelId     string                   `json:"modelId"`
+	ModelId         string                 `json:"modelId"`
 	InferenceParams BedrockInferenceParams `json:"inferenceParams"`
-	Input       BedrockInput            `json:"input"`
+	Input           BedrockInput           `json:"input"`
 }
 
 type BedrockInferenceParams struct {
-	MaxTokens     int     `json:"maxTokenCount"`
-	Temperature   float64 `json:"temperature"`
-	TopP          float64 `json:"topP"`
+	MaxTokens   int     `json:"maxTokenCount"`
+	Temperature float64 `json:"temperature"`
+	TopP        float64 `json:"topP"`
 }
 
 type BedrockInput struct {
@@ -163,26 +163,26 @@ type OpenAPIResponse struct {
 
 func loadConfig() *Config {
 	config := &Config{
-		OpenAPIHost:    getEnvOrDefault("OPENAPI_HOST", "localhost"),
-		OpenAPIPort:    getEnvOrDefault("OPENAPI_PORT", "8080"),
-		OllamaHost:     getEnvOrDefault("OLLAMA_HOST", "localhost"),
-		OllamaPort:     getEnvOrDefault("OLLAMA_PORT", "11434"),
-		OllamaModel:    getEnvOrDefault("OLLAMA_MODEL", "llama3.2:1b"),
-		GeminiModel:    "gemini-1.5-flash",
-		OpenAIModel:    "gpt-4o",
-		ClaudeModel:    "claude-3-5-sonnet-20241022",
-		DeepSeekModel:  "claude-3-5-sonnet-20241022",
-		MistralModel:   "mistral-large-latest",
-		BedrockModel:   getEnvOrDefault("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-v1"),
-		BedrockRegion:  getEnvOrDefault("AWS_REGION", "us-west-2"),
-		ShowScissors:   true,
-		API:            getEnvOrDefault("API", "bedrock"),
-		GeminiKey:      os.Getenv("GEMINI_API_KEY"),
-		OpenAIKey:      os.Getenv("OPENAI_API_KEY"),
-		ClaudeKey:      os.Getenv("CLAUDE_API_KEY"),
-		DeepSeekKey:    os.Getenv("DEEPSEEK_API_KEY"),
-		MistralKey:     os.Getenv("MISTRAL_API_KEY"),
-		BedrockKey:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		OpenAPIHost:   getEnvOrDefault("OPENAPI_HOST", "localhost"),
+		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8080"),
+		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
+		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
+		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "llama3.2:1b"),
+		GeminiModel:   "gemini-1.5-flash",
+		OpenAIModel:   "gpt-4o",
+		ClaudeModel:   "claude-3-5-sonnet-20241022",
+		DeepSeekModel: "claude-3-5-sonnet-20241022",
+		MistralModel:  "mistral-large-latest",
+		BedrockModel:  getEnvOrDefault("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-v1"),
+		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
+		ShowScissors:  true,
+		API:           getEnvOrDefault("API", "bedrock"),
+		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
+		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
+		ClaudeKey:     os.Getenv("CLAUDE_API_KEY"),
+		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
+		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
+		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
 	}
 
 	// Load API keys from files if environment variables are not set
@@ -554,7 +554,6 @@ func callMistral(config *Config, input string) error {
 }
 
 func callBedrock(config *Config, input string) error {
-	fmt.Println("Hell rock")
 	request := BedrockRequest{
 		ModelId: config.BedrockModel,
 		InferenceParams: BedrockInferenceParams{
@@ -573,16 +572,15 @@ func callBedrock(config *Config, input string) error {
 	}
 
 	// Bedrock requires AWS signature auth, so we'll use AWS endpoint format
-	url := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke", 
+	url := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke",
 		config.BedrockRegion, config.BedrockModel)
 
 	headers := map[string]string{
-		"Content-Type": "application/json",
+		"Content-Type":       "application/json",
 		"X-Amz-Access-Token": config.BedrockKey,
 	}
 
 	printScissors(config)
-	fmt.Println("BEDROCK")
 
 	respBody, err := makeRequest("POST", url, headers, jsonData)
 	if err != nil {
@@ -674,7 +672,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
 			os.Exit(1)
 		}
-		
+
 		if err := repl.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 			os.Exit(1)
@@ -689,7 +687,6 @@ func main() {
 
 	input := readInput(args)
 
-	fmt.Println(config.API)
 	var err error
 	switch strings.ToLower(config.API) {
 	case "gemini", "google":

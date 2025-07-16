@@ -1,2 +1,2 @@
 all:
-	go build ai.go
+	go build .
