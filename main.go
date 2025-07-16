@@ -796,13 +796,6 @@ func showHelp() {
 	fmt.Println("  -o FILE\tOutput report to FILE")
 	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
 	fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
-	fmt.Println("\nTool Confirmation Options:")
-	fmt.Println("  [a] Approve execution (once)")
-	fmt.Println("  [r] Reject execution")
-	fmt.Println("  [t] Permit this tool forever")
-	fmt.Println("  [p] Permit this tool with these parameters forever")
-	fmt.Println("  [x] Reject this tool forever")
-	fmt.Println("  [*] Approve all tools forever")
 }
 
 func showVersion() {

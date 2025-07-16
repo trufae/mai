@@ -1,0 +1,2 @@
+DESTDIR?=
+PREFIX?=/usr/local

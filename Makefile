@@ -1,4 +1,6 @@
-BINARY_NAME=mcpd
+include config.mk
+
+BIN=ai-mcpd
 MAIN_FILE=main.go
 
 .PHONY: all build run clean deps
@@ -6,12 +8,19 @@ MAIN_FILE=main.go
 all: build
 
 build:
-	go build -o $(BINARY_NAME) $(MAIN_FILE)
+	go build -o $(BIN) $(MAIN_FILE)
+
+install:
+	mkdir -p $(DESTDIR)$(PREFIX)/bin
+	ln -fs $(shell pwd)/$(BIN) $(DESTDIR)$(PREFIX)/bin/$(BIN)
+	$(MAKE) -C clients/ai-repl install
+	$(MAKE) -C clients/ai-tools install
 
 full f:
 	$(MAKE)
 	$(MAKE) -C servers/wttr
-	$(MAKE) -C clients/mcpd-cli
+	$(MAKE) -C clients/ai-repl
+	$(MAKE) -C clients/ai-tools
 	./mcpd 'r2pm -r r2mcp' servers/wttr/wttr
 
 
@@ -25,9 +34,6 @@ clean:
 deps:
 	go mod tidy
 	go mod download
-
-install:
-	go install
 
 test:
 	go test ./...

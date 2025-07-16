@@ -1,9 +1,7 @@
-DESTDIR?=
-PREFIX?=/usr/local
+include ../../config.mk
 
 all:
 	go build .
 
 install:
-	sudo ln -fs $(shell pwd)/ai-repl $(DESTDIR)/$(PREFIX)/bin/ai
-
+	ln -fs $(shell pwd)/ai-repl $(DESTDIR)/$(PREFIX)/bin/ai
