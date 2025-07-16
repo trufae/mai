@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ type Config struct {
 	ShowScissors  bool
 	PROVIDER      string
 	NoStream      bool
+	ImagePath     string // Path to image to send with the message
 }
 
 type ClaudeRequest struct {
@@ -717,6 +719,7 @@ func showHelp() {
 -r = enter the repl mode (default)
 -s = don't display the ---8<--- lines in the output
 -1 = don't stream response, print once at the end
+-i <path> = attach an image to send to the model
 -p <provider> = select the provider to use
 -m <model> = select the model for the given provider
 -- = stdin mode
@@ -798,6 +801,15 @@ func main() {
 			config.NoStream = true
 			args = append(args[:i], args[i+1:]...)
 			i--
+		case "-i":
+			if i+1 < len(args) {
+				config.ImagePath = args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -i requires an image path argument\n")
+				os.Exit(1)
+			}
 		case "-p":
 			if i+1 < len(args) {
 				config.PROVIDER = args[i+1]
@@ -842,12 +854,29 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Prepare messages from input
 	messages := PrepareMessages(input)
-	
+
+	// Prepare image if specified
+	var images []string
+	if config.ImagePath != "" {
+		// Read image file
+		imageData, err := os.ReadFile(config.ImagePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading image file: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Encode image to base64
+		encoded := base64.StdEncoding.EncodeToString(imageData)
+		images = append(images, encoded)
+
+		fmt.Fprintf(os.Stderr, "Attaching image: %s (%d bytes)\n", config.ImagePath, len(imageData))
+	}
+
 	// Send to LLM without streaming (for stdin mode)
-	_, err = client.SendMessage(messages, false)
+	_, err = client.SendMessageWithImages(messages, false, images)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling %s provider: %v\n", config.PROVIDER, err)

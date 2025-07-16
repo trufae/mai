@@ -19,7 +19,7 @@ import (
 type LLMProvider interface {
 	// SendMessage sends a message to the LLM and returns the response
 	SendMessage(ctx context.Context, messages []Message, stream bool) (string, error)
-	
+
 	// GetName returns the name of the provider
 	GetName() string
 }
@@ -52,7 +52,7 @@ func NewLLMClient(config *Config) (*LLMClient, error) {
 // createProvider instantiates the appropriate provider based on config
 func createProvider(config *Config) (LLMProvider, error) {
 	provider := strings.ToLower(config.PROVIDER)
-	
+
 	switch provider {
 	case "ollama":
 		return NewOllamaProvider(config), nil
@@ -78,35 +78,106 @@ func createProvider(config *Config) (LLMProvider, error) {
 
 // SendMessage sends a message to the LLM and handles the response
 func (c *LLMClient) SendMessage(messages []Message, stream bool) (string, error) {
+	return c.SendMessageWithImages(messages, stream, nil)
+}
+
+// SendMessageWithImages sends a message with optional images to the LLM and handles the response
+func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, images []string) (string, error) {
 	// Create a context that can be canceled
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Print scissors before the response if enabled
 	if c.config.ShowScissors {
-		fmt.Print("\r\n------------8<------------\r\n")
+		fmt.Print("\n\r------------8<------------\n\r")
 	}
 
-	// Call the provider's SendMessage method
-	response, err := c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream)
-	
+	var response string
+	var err error
+
+	// Call the appropriate provider method based on whether we have images
+	if len(images) > 0 && strings.ToLower(c.config.PROVIDER) == "ollama" {
+		// Use the image-capable method for Ollama if we have images
+		response, err = c.sendOllamaWithImages(ctx, messages, stream && !c.config.NoStream, images)
+	} else {
+		// Default to the normal SendMessage method
+		response, err = c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream)
+	}
+
 	// We only need to convert newlines in the returned response string
 	// The actual printing of response is handled in streaming functions
 	// or in the REPL's sendToAI function for non-streaming mode
-	
+
 	// Print scissors after the response if enabled
 	if c.config.ShowScissors {
-		fmt.Print("\r\n------------8<------------\r\n")
+		fmt.Print("\n\r------------8<------------\n\r")
 	}
-	
+
 	return response, err
+}
+
+// sendOllamaWithImages sends a message with images to Ollama
+func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// Create request with images field
+	request := map[string]interface{}{
+		"stream":   stream,
+		"model":    c.config.OllamaModel,
+		"messages": messages,
+	}
+
+	// Only add images if we have them and the model supports them (like llava)
+	if len(images) > 0 {
+		request["images"] = images
+
+		// Check if we're using a model that supports images
+		/*
+			modelLower := strings.ToLower(c.config.OllamaModel)
+			if !strings.Contains(modelLower, "llava") && !strings.Contains(modelLower, "bakllava") {
+				fmt.Fprintf(os.Stderr, "Warning: Model %s might not support images. Consider using llava or bakllava.\n", c.config.OllamaModel)
+			}
+		*/
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return "", err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	url := fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
+
+	// Handle streaming vs non-streaming the same way as regular requests
+	if stream {
+		provider := NewOllamaProvider(c.config)
+		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
+	}
+
+	respBody, err := llmMakeRequest("POST", url, headers, jsonData)
+	if err != nil {
+		return "", err
+	}
+
+	var response struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return "", err
+	}
+
+	return response.Message.Content, nil
 }
 
 // ExtractSystemPrompt extracts a system prompt from the input if present
 func ExtractSystemPrompt(input string) (string, string) {
 	systemPrompt := ""
 	userPrompt := input
-	
+
 	// Simplified parsing to extract system prompt if it's at the beginning
 	if strings.HasPrefix(input, "<system>\n") {
 		parts := strings.SplitN(input, "</system>\n", 2)
@@ -115,24 +186,24 @@ func ExtractSystemPrompt(input string) (string, string) {
 			userPrompt = parts[1]
 		}
 	}
-	
+
 	return systemPrompt, userPrompt
 }
 
 // PrepareMessages creates a message array with optional system prompt
 func PrepareMessages(input string) []Message {
 	systemPrompt, userPrompt := ExtractSystemPrompt(input)
-	
+
 	messages := []Message{}
-	
+
 	// Add system message if present
 	if systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: systemPrompt})
 	}
-	
+
 	// Add user message
 	messages = append(messages, Message{Role: "user", Content: userPrompt})
-	
+
 	return messages
 }
 
@@ -152,7 +223,7 @@ func llmMakeRequest(method, url string, headers map[string]string, body []byte) 
 		Timeout: 30 * time.Second,
 	}
 
-//	fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
+	//	fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -176,8 +247,8 @@ func llmMakeRequest(method, url string, headers map[string]string, body []byte) 
 }
 
 // llmMakeStreamingRequest is a utility function for making streaming HTTP requests (renamed to avoid conflict)
-func llmMakeStreamingRequest(ctx context.Context, method, url string, headers map[string]string, 
-                         body []byte, parser func(io.Reader) (string, error)) (string, error) {
+func llmMakeStreamingRequest(ctx context.Context, method, url string, headers map[string]string,
+	body []byte, parser func(io.Reader) (string, error)) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
 	if err != nil {
 		return "", err
@@ -267,7 +338,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -286,7 +357,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		// Replace newlines for terminal display
-		content := strings.ReplaceAll(response.Message.Content, "\n", "\r\n")
+		content := strings.ReplaceAll(response.Message.Content, "\n", "\n\r")
 		fmt.Print(content)
 		fullResponse.WriteString(response.Message.Content)
 
@@ -299,7 +370,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
 	}
-	
+
 	return fullResponse.String(), nil
 }
 
@@ -323,7 +394,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		"model":    p.config.OpenAIModel,
 		"messages": messages,
 	}
-	
+
 	if stream {
 		request["stream"] = true
 	} else {
@@ -341,11 +412,11 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", "https://api.openai.com/v1/chat/completions", 
+		return llmMakeStreamingRequest(ctx, "POST", "https://api.openai.com/v1/chat/completions",
 			headers, jsonData, p.parseStream)
 	}
 
-	respBody, err := llmMakeRequest("POST", "https://api.openai.com/v1/chat/completions", 
+	respBody, err := llmMakeRequest("POST", "https://api.openai.com/v1/chat/completions",
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -367,14 +438,14 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		// Return raw content - newline conversion happens in the REPL
 		return response.Choices[0].Message.Content, nil
 	}
-	
+
 	return "", fmt.Errorf("no content in response")
 }
 
 func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -400,7 +471,7 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 
 		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
 			// Replace newlines for terminal display
-			content := strings.ReplaceAll(response.Choices[0].Delta.Content, "\n", "\r\n")
+			content := strings.ReplaceAll(response.Choices[0].Delta.Content, "\n", "\n\r")
 			fmt.Print(content)
 			fullResponse.WriteString(response.Choices[0].Delta.Content)
 		}
@@ -410,7 +481,7 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
 	}
-	
+
 	return fullResponse.String(), nil
 }
 
@@ -435,7 +506,7 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 		"max_tokens": 5128,
 		"messages":   messages,
 	}
-	
+
 	if stream {
 		request["stream"] = true
 	}
@@ -452,11 +523,11 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", "https://api.anthropic.com/v1/messages", 
+		return llmMakeStreamingRequest(ctx, "POST", "https://api.anthropic.com/v1/messages",
 			headers, jsonData, p.parseStream)
 	}
 
-	respBody, err := llmMakeRequest("POST", "https://api.anthropic.com/v1/messages", 
+	respBody, err := llmMakeRequest("POST", "https://api.anthropic.com/v1/messages",
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -476,14 +547,14 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 		// Return raw content - newline conversion happens in the REPL
 		return response.Content[0].Text, nil
 	}
-	
+
 	return "", fmt.Errorf("no content in response")
 }
 
 func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -508,7 +579,7 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 
 		if response.Type == "content_block_delta" && response.Delta.Text != "" {
 			// Replace newlines for terminal display
-			content := strings.ReplaceAll(response.Delta.Text, "\n", "\r\n")
+			content := strings.ReplaceAll(response.Delta.Text, "\n", "\n\r")
 			fmt.Print(content)
 			fullResponse.WriteString(response.Delta.Text)
 		}
@@ -518,7 +589,7 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
 	}
-	
+
 	return fullResponse.String(), nil
 }
 
@@ -547,7 +618,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 			content += msg.Content
 		}
 	}
-	
+
 	request := struct {
 		Contents []struct {
 			Parts []struct {
@@ -581,7 +652,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Content-Type": "application/json",
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", 
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s",
 		p.config.GeminiKey)
 
 	// Gemini doesn't support streaming in our implementation yet
@@ -608,7 +679,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		// Return raw content - newline conversion happens in the REPL
 		return response.Candidates[0].Content.Parts[0].Text, nil
 	}
-	
+
 	return "", fmt.Errorf("no content in response")
 }
 
@@ -654,7 +725,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	// Mistral doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", "https://api.mistral.ai/v1/chat/completions", 
+	respBody, err := llmMakeRequest("POST", "https://api.mistral.ai/v1/chat/completions",
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -676,7 +747,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		// Return raw content - newline conversion happens in the REPL
 		return response.Choices[0].Message.Content, nil
 	}
-	
+
 	return "", fmt.Errorf("no content in response")
 }
 
@@ -722,7 +793,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	}
 
 	// DeepSeek doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", "https://api.deepseek.com/chat/completions", 
+	respBody, err := llmMakeRequest("POST", "https://api.deepseek.com/chat/completions",
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -744,7 +815,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 		// Return raw content - newline conversion happens in the REPL
 		return response.Choices[0].Message.Content, nil
 	}
-	
+
 	return "", fmt.Errorf("no content in response")
 }
 
@@ -863,7 +934,7 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 			content += msg.Content
 		}
 	}
-	
+
 	request := struct {
 		Prompt string `json:"prompt"`
 	}{

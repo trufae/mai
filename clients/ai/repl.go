@@ -26,6 +26,7 @@ type REPL struct {
 	history          []string
 	historyIndex     int
 	currentInput     strings.Builder
+	cursorPos        int // Current cursor position in the line
 	ctx              context.Context
 	cancel           context.CancelFunc
 	mu               sync.Mutex
@@ -37,6 +38,15 @@ type REPL struct {
 	streamingEnabled bool
 	systemPrompt     string
 	messages         []Message
+	includeReplies   bool          // Whether to include assistant replies in the context
+	pendingFiles     []pendingFile // Files and images to include in the next message
+}
+
+type pendingFile struct {
+	filePath string
+	content  string
+	isImage  bool
+	imageB64 string // Base64 encoded image data
 }
 
 type StreamingClient interface {
@@ -50,11 +60,14 @@ func NewREPL(config *Config) (*REPL, error) {
 		config:           config,
 		history:          make([]string, 0),
 		historyIndex:     -1,
+		cursorPos:        0, // Initialize cursor position to 0
 		ctx:              ctx,
 		cancel:           cancel,
 		completeState:    0,
 		completeOptions:  []string{},
 		streamingEnabled: !config.NoStream, // Respect NoStream flag
+		includeReplies:   true,             // Include replies by default
+		pendingFiles:     []pendingFile{},  // Initialize empty pending files slice
 	}, nil
 }
 
@@ -69,8 +82,8 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	fmt.Print(fmt.Sprintf("AI REPL Mode - %s\r\n", strings.ToUpper(r.config.PROVIDER)))
-	r.showCommands()
+	fmt.Print(fmt.Sprintf("llm-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
+	// r.showCommands()
 
 	for {
 		if err := r.handleInput(); err != nil {
@@ -87,16 +100,22 @@ func (r *REPL) Run() error {
 func (r *REPL) showCommands() {
 	fmt.Print("Commands:\r\n")
 	fmt.Print("  /help          - Show available commands\r\n")
-	fmt.Print("  /image <path>  - Send an image\r\n")
-	fmt.Print("  /file <path>   - Send a file\r\n")
+	fmt.Print("  /image <path>  - Add an image to the next message\r\n")
+	fmt.Print("  /file <path>   - Add a file to the next message\r\n")
+	fmt.Print("  /noimage       - Remove pending images\r\n")
+	fmt.Print("  /nofiles       - Remove pending files\r\n")
 	fmt.Print("  /prompt <path> - Load system prompt from file\r\n")
 	fmt.Print("  /noprompt      - Remove system prompt\r\n")
+	fmt.Print("  /model         - Show current model or change model\r\n")
+	fmt.Print("  /provider      - Show current provider or change provider\r\n")
 	fmt.Print("  /cancel        - Cancel current request\r\n")
 	fmt.Print("  /clear         - Clear conversation messages\r\n")
 	fmt.Print("  /log           - Display conversation messages\r\n")
 	fmt.Print("  /undo [N]      - Remove last or Nth message from conversation\r\n")
 	fmt.Print("  /stream        - Enable streaming mode\r\n")
 	fmt.Print("  /nostream      - Disable streaming mode\r\n")
+	fmt.Print("  /replies       - Include assistant replies in context\r\n")
+	fmt.Print("  /noreplies     - Exclude assistant replies from context\r\n")
 	fmt.Print("  /quit          - Exit REPL\r\n")
 	fmt.Print("  !<command>     - Execute shell command\r\n")
 	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
@@ -137,15 +156,16 @@ func (r *REPL) setupSignalHandler() {
 			r.ctx, r.cancel = context.WithCancel(context.Background())
 		} else {
 			// Just print a new prompt instead of exiting
-			fmt.Print("\r\n^C\r\n>>> ")
+			fmt.Print("\r\n^C\r\n\x1b[33m>>> ")
 		}
 	}()
 }
 
 func (r *REPL) handleInput() error {
-	fmt.Print("\n\r>>> ")
+	fmt.Print("\x1b[33m>>> ")
 
 	input, err := r.readLine()
+	fmt.Print("\x1b[0m")
 	if err != nil {
 		return err
 	}
@@ -159,7 +179,7 @@ func (r *REPL) handleInput() error {
 	if strings.HasPrefix(input, "/") {
 		return r.handleCommand(input)
 	}
-	
+
 	// Handle shell commands
 	if strings.HasPrefix(input, "!") {
 		return r.executeShellCommand(input[1:])
@@ -174,6 +194,7 @@ func (r *REPL) handleInput() error {
 
 func (r *REPL) readLine() (string, error) {
 	var line strings.Builder
+	r.cursorPos = 0 // Reset cursor position
 	buf := make([]byte, 1)
 
 	for {
@@ -194,33 +215,100 @@ func (r *REPL) readLine() (string, error) {
 			r.completeState = 0
 			return line.String(), nil
 		case 127, 8: // Backspace
-			if line.Len() > 0 {
+			if line.Len() > 0 && r.cursorPos > 0 {
 				s := line.String()
+				// Remove character before cursor
+				newStr := s[:r.cursorPos-1] + s[r.cursorPos:]
+
+				// Clear the entire line and reprint
+				for i := 0; i < line.Len(); i++ {
+					fmt.Print("\b \b")
+				}
+
 				line.Reset()
-				line.WriteString(s[:len(s)-1])
-				fmt.Print("\b \b")
+				line.WriteString(newStr)
+				r.cursorPos--
+
+				// Reprint the entire line
+				fmt.Print(line.String())
+
+				// Move cursor back to the correct position if needed
+				if r.cursorPos < line.Len() {
+					// Move cursor back to position
+					fmt.Printf("\033[%dD", line.Len()-r.cursorPos)
+				}
+
 				r.completeState = 0
 			}
 		case 23: // Ctrl+W (delete last word)
-			if line.Len() > 0 {
+			if line.Len() > 0 && r.cursorPos > 0 {
 				s := line.String()
-				// Find the beginning of the last word
-				lastSpace := strings.LastIndexAny(s[:len(s)], " \t")
-				if lastSpace == -1 {
-					// No spaces, delete everything
-					for i := 0; i < len(s); i++ {
+
+				// Only consider the text before the cursor
+				beforeCursor := s[:r.cursorPos]
+				afterCursor := s[r.cursorPos:]
+
+				// Trim trailing spaces in the text before cursor
+				trimmedBeforeCursor := strings.TrimRight(beforeCursor, " \t")
+
+				if len(trimmedBeforeCursor) == 0 {
+					// If only spaces before cursor, remove all of them
+					newStr := afterCursor
+
+					// Clear the entire line and reprint
+					for i := 0; i < line.Len(); i++ {
 						fmt.Print("\b \b")
 					}
+
 					line.Reset()
+					line.WriteString(newStr)
+					r.cursorPos = 0
 				} else {
-					// Delete from last space to end
-					for i := 0; i < len(s)-lastSpace-1; i++ {
+					// Find the beginning of the last word
+					lastSpace := strings.LastIndexAny(trimmedBeforeCursor, " \t")
+
+					var newBeforeCursor string
+					if lastSpace == -1 {
+						// No spaces, remove everything before cursor
+						newBeforeCursor = ""
+					} else {
+						// Keep up to and including the last space
+						newBeforeCursor = beforeCursor[:lastSpace+1]
+					}
+
+					// Clear the entire line and reprint
+					for i := 0; i < line.Len(); i++ {
 						fmt.Print("\b \b")
 					}
+
+					newStr := newBeforeCursor + afterCursor
 					line.Reset()
-					line.WriteString(s[:lastSpace+1])
+					line.WriteString(newStr)
+					r.cursorPos = len(newBeforeCursor)
 				}
+
+				// Reprint the entire line
+				fmt.Print(line.String())
+
+				// Move cursor back to the correct position if needed
+				if r.cursorPos < line.Len() {
+					// Move cursor back to position
+					fmt.Printf("\033[%dD", line.Len()-r.cursorPos)
+				}
+
 				r.completeState = 0
+			}
+		case 1: // Ctrl+A (beginning of line)
+			if r.cursorPos > 0 {
+				// Move cursor to the beginning of the line
+				fmt.Printf("\033[%dD", r.cursorPos)
+				r.cursorPos = 0
+			}
+		case 5: // Ctrl+E (end of line)
+			if r.cursorPos < line.Len() {
+				// Move cursor to the end of the line
+				fmt.Printf("\033[%dC", line.Len()-r.cursorPos)
+				r.cursorPos = line.Len()
 			}
 		case 27: // Escape sequence (arrow keys)
 			if err := r.handleEscapeSequence(&line); err != nil {
@@ -232,17 +320,43 @@ func (r *REPL) readLine() (string, error) {
 			// Cancel current request but don't exit
 			r.cancel()
 			r.ctx, r.cancel = context.WithCancel(context.Background())
-			fmt.Print("\r\n^C\r\n> ")
+			fmt.Print("\x1b[0m\r\n^C\r\n\x1b[33m>>> ")
 			line.Reset()
+			r.cursorPos = 0
 		case 4: // Ctrl+D
 			if line.Len() == 0 { // Only exit if the line is empty
-				fmt.Print("\r\nGoodbye!\r\n")
+				fmt.Print("\x1b[0m\r\nGoodbye!\r\n")
 				return "", io.EOF
 			}
 		default:
 			if b >= 32 && b <= 126 { // Printable characters
-				line.WriteByte(b)
-				fmt.Printf("%c", b)
+				s := line.String()
+
+				// Insert character at cursor position
+				if r.cursorPos == line.Len() {
+					// Append at the end
+					line.WriteByte(b)
+					fmt.Printf("%c", b)
+				} else {
+					// Insert in the middle
+					newStr := s[:r.cursorPos] + string(b) + s[r.cursorPos:]
+
+					// Clear the entire line and reprint
+					for i := 0; i < line.Len(); i++ {
+						fmt.Print("\b \b")
+					}
+
+					line.Reset()
+					line.WriteString(newStr)
+
+					// Reprint the entire line
+					fmt.Print(line.String())
+
+					// Move cursor back to the correct position
+					fmt.Printf("\033[%dD", line.Len()-r.cursorPos-1)
+				}
+
+				r.cursorPos++
 				r.completeState = 0
 			}
 		}
@@ -271,11 +385,17 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/help",
 			"/image",
 			"/file",
+			"/noimage",
+			"/nofiles",
 			"/cancel",
 			"/stream",
 			"/nostream",
+			"/replies",
+			"/noreplies",
 			"/prompt",
 			"/noprompt",
+			"/model",
+			"/provider",
 			"/clear",
 			"/log",
 			"/undo",
@@ -355,6 +475,18 @@ func (r *REPL) handleEscapeSequence(line *strings.Builder) error {
 			r.navigateHistory(-1, line)
 		case 'B': // Down arrow
 			r.navigateHistory(1, line)
+		case 'C': // Right arrow
+			// Move cursor right if not at the end
+			if r.cursorPos < line.Len() {
+				fmt.Print("\033[1C") // Move cursor right by 1
+				r.cursorPos++
+			}
+		case 'D': // Left arrow
+			// Move cursor left if not at the beginning
+			if r.cursorPos > 0 {
+				fmt.Print("\033[1D") // Move cursor left by 1
+				r.cursorPos--
+			}
 		}
 	}
 
@@ -388,6 +520,12 @@ func (r *REPL) navigateHistory(direction int, line *strings.Builder) {
 		historyItem := r.history[r.historyIndex]
 		line.WriteString(historyItem)
 		fmt.Print(historyItem)
+
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	} else {
+		// Reset cursor position
+		r.cursorPos = 0
 	}
 }
 
@@ -420,11 +558,35 @@ func (r *REPL) handleCommand(input string) error {
 	case "/nostream":
 		r.streamingEnabled = false
 		fmt.Print("Streaming mode disabled\r\n")
+	case "/replies":
+		r.includeReplies = true
+		fmt.Print("Assistant replies will be included in context\r\n")
+	case "/noreplies":
+		r.includeReplies = false
+		fmt.Print("Assistant replies will be excluded from context\r\n")
 	case "/clear":
 		r.messages = []Message{}
 		fmt.Print("Conversation messages cleared\r\n")
 	case "/log":
 		r.displayConversationLog()
+	case "/model":
+		if len(parts) > 1 {
+			// Set new model
+			model := strings.Join(parts[1:], " ")
+			return r.setModel(model)
+		} else {
+			// Display current model
+			r.showCurrentModel()
+		}
+	case "/provider":
+		if len(parts) > 1 {
+			// Set new provider
+			provider := strings.ToLower(parts[1])
+			return r.setProvider(provider)
+		} else {
+			// Display current provider
+			r.showCurrentProvider()
+		}
 	case "/undo":
 		if len(parts) > 1 {
 			// Parse the index argument
@@ -447,13 +609,17 @@ func (r *REPL) handleCommand(input string) error {
 			fmt.Println("Usage: /image <path>")
 			return nil
 		}
-		return r.sendImage(parts[1])
+		return r.addImage(parts[1])
 	case "/file":
 		if len(parts) < 2 {
 			fmt.Println("Usage: /file <path>")
 			return nil
 		}
-		return r.sendFile(parts[1])
+		return r.addFile(parts[1])
+	case "/noimage":
+		return r.clearPendingImages()
+	case "/nofiles":
+		return r.clearPendingFiles()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}
@@ -461,7 +627,7 @@ func (r *REPL) handleCommand(input string) error {
 	return nil
 }
 
-func (r *REPL) sendImage(imagePath string) error {
+func (r *REPL) addImage(imagePath string) error {
 	// Expand ~ to home directory
 	if strings.HasPrefix(imagePath, "~") {
 		homeDir, err := os.UserHomeDir()
@@ -480,15 +646,20 @@ func (r *REPL) sendImage(imagePath string) error {
 	// Encode to base64
 	encoded := base64.StdEncoding.EncodeToString(imageData)
 
-	// Create message with image
-	message := fmt.Sprintf("I'm sending you an image from %s. Please analyze it.\n[Image data: %s]",
-		imagePath, encoded[:100]+"...") // Show first 100 chars for reference
+	// Add to pending files
+	r.pendingFiles = append(r.pendingFiles, pendingFile{
+		filePath: imagePath,
+		isImage:  true,
+		imageB64: encoded,
+	})
 
 	r.addToHistory(fmt.Sprintf("/image %s", imagePath))
-	return r.sendToAI(message)
+	fmt.Printf("Image added: %s (%d bytes). Send a message to analyze it.\r\n",
+		filepath.Base(imagePath), len(imageData))
+	return nil
 }
 
-func (r *REPL) sendFile(filePath string) error {
+func (r *REPL) addFile(filePath string) error {
 	// Expand ~ to home directory
 	if strings.HasPrefix(filePath, "~") {
 		homeDir, err := os.UserHomeDir()
@@ -504,12 +675,17 @@ func (r *REPL) sendFile(filePath string) error {
 		return fmt.Errorf("failed to read file: %v", err)
 	}
 
-	// Create message with file content
-	message := fmt.Sprintf("Here's the content of file %s:\n\n```\n%s\n```\n\nPlease analyze or help with this file.",
-		filePath, string(content))
+	// Add to pending files
+	r.pendingFiles = append(r.pendingFiles, pendingFile{
+		filePath: filePath,
+		content:  string(content),
+		isImage:  false,
+	})
 
 	r.addToHistory(fmt.Sprintf("/file %s", filePath))
-	return r.sendToAI(message)
+	fmt.Printf("File added: %s (%d bytes). Send a message to analyze it.\r\n",
+		filepath.Base(filePath), len(content))
+	return nil
 }
 
 func (r *REPL) sendToAI(input string) error {
@@ -528,29 +704,63 @@ func (r *REPL) sendToAI(input string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-	
+
 	// Add system prompt if present
 	messages := []Message{}
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
-	
-	// Add any existing conversation messages
-	messages = append(messages, r.messages...)
-	
-	// Add user message
-	userMessage := Message{Role: "user", Content: input}
+
+	// Add existing conversation messages based on includeReplies setting
+	if r.includeReplies {
+		// Include all messages
+		messages = append(messages, r.messages...)
+	} else {
+		// Include only user messages
+		for _, msg := range r.messages {
+			if msg.Role == "user" {
+				messages = append(messages, msg)
+			}
+		}
+	}
+
+	// Process pending files and incorporate them into the input
+	enhancedInput := input
+	var images []string // For storing base64 encoded images for Ollama
+
+	if len(r.pendingFiles) > 0 {
+		// Add file contents to the input
+		enhancedInput += "\n\n"
+
+		for _, file := range r.pendingFiles {
+			if file.isImage {
+				// For images, we'll collect them separately for providers that support image attachments
+				images = append(images, file.imageB64)
+				enhancedInput += fmt.Sprintf("[Image attached: %s]\n", filepath.Base(file.filePath))
+			} else {
+				// For regular files, add the content
+				enhancedInput += fmt.Sprintf("File content from %s:\n```\n%s\n```\n\n",
+					file.filePath, file.content)
+			}
+		}
+
+		// Clear pending files after use
+		r.pendingFiles = []pendingFile{}
+	}
+
+	// Add user message with enhanced input
+	userMessage := Message{Role: "user", Content: enhancedInput}
 	messages = append(messages, userMessage)
-	
+
 	// Save the user message to conversation history
 	r.messages = append(r.messages, userMessage)
-	
+
 	// Print prompt for the AI response
-	fmt.Print("\r\nAI: ")
-	
+	// fmt.Print("\r\nAI: ")
+
 	// Send message with streaming based on REPL settings
-	response, err := client.SendMessage(messages, r.streamingEnabled)
-	
+	response, err := client.SendMessageWithImages(messages, r.streamingEnabled, images)
+
 	// Save the assistant's response to conversation history
 	if err == nil && response != "" {
 		// If not streaming, we need to print the response here
@@ -559,7 +769,7 @@ func (r *REPL) sendToAI(input string) error {
 		}
 		r.messages = append(r.messages, Message{Role: "assistant", Content: response})
 	}
-	
+
 	fmt.Print("\r\n")
 	return err
 }
@@ -583,19 +793,19 @@ func (r *REPL) regularResponse(input string) error {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
 	messages = append(messages, Message{Role: "user", Content: input})
-	
+
 	// Create client and send message
 	client, err := NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-	
+
 	// Print prompt for AI response
 	fmt.Print("\r\nAI: ")
-	
+
 	// Send message without streaming
 	_, err = client.SendMessage(messages, false)
-	
+
 	fmt.Print("\r\n")
 	return err
 }
@@ -607,14 +817,14 @@ func (r *REPL) streamOllama(input string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-	
+
 	// Prepare messages
 	messages := []Message{}
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
 	messages = append(messages, Message{Role: "user", Content: input})
-	
+
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
 	return err
@@ -627,14 +837,14 @@ func (r *REPL) streamOpenAI(input string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-	
+
 	// Prepare messages
 	messages := []Message{}
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
 	messages = append(messages, Message{Role: "user", Content: input})
-	
+
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
 	return err
@@ -647,14 +857,14 @@ func (r *REPL) streamClaude(input string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
-	
+
 	// Prepare messages
 	messages := []Message{}
 	if r.systemPrompt != "" {
 		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
 	}
 	messages = append(messages, Message{Role: "user", Content: input})
-	
+
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
 	return err
@@ -828,7 +1038,7 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 	if r.completeState == 0 {
 		// Get the directory and file prefix
 		dir, prefix := filepath.Split(partialPath)
-		
+
 		// If no directory specified, use current directory
 		if dir == "" {
 			dir = "."
@@ -841,13 +1051,13 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 		if !strings.HasSuffix(dir, string(filepath.Separator)) {
 			dir += string(filepath.Separator)
 		}
-		
+
 		// Read the directory
 		files, err := os.ReadDir(dir)
 		if err != nil {
 			return // Cannot read directory
 		}
-		
+
 		// Find matching files
 		r.completeOptions = nil
 		for _, file := range files {
@@ -860,25 +1070,25 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 				r.completeOptions = append(r.completeOptions, dir+name)
 			}
 		}
-		
+
 		// If no matches, do nothing
 		if len(r.completeOptions) == 0 {
 			return
 		}
-		
+
 		r.completeState = 1
 		r.completePrefix = cmd + " "
-		
+
 		// Replace current input with the first match
 		currentInput := line.String()
 		// Clear current line
 		for i := 0; i < len(currentInput); i++ {
 			fmt.Print("\b \b")
 		}
-		
+
 		// Get the first match
 		firstMatch := r.completePrefix + r.completeOptions[0]
-		
+
 		// Print and set the first match
 		fmt.Print(firstMatch)
 		line.Reset()
@@ -888,11 +1098,11 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 		if len(r.completeOptions) <= 1 {
 			return
 		}
-		
+
 		// Find current option
 		currentInput := line.String()
 		currentPath := strings.TrimPrefix(currentInput, r.completePrefix)
-		
+
 		// Find current index
 		currentIdx := -1
 		for i, opt := range r.completeOptions {
@@ -901,16 +1111,16 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 				break
 			}
 		}
-		
+
 		// Get next option
 		nextIdx := (currentIdx + 1) % len(r.completeOptions)
 		nextOption := r.completePrefix + r.completeOptions[nextIdx]
-		
+
 		// Clear current line
 		for i := 0; i < len(currentInput); i++ {
 			fmt.Print("\b \b")
 		}
-		
+
 		// Print next option
 		fmt.Print(nextOption)
 		line.Reset()
@@ -925,7 +1135,7 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 	if cmdString == "" {
 		return nil
 	}
-	
+
 	// Handle special case for cd command - change working directory
 	if strings.HasPrefix(cmdString, "cd ") {
 		dir := strings.TrimSpace(strings.TrimPrefix(cmdString, "cd "))
@@ -938,7 +1148,7 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 			}
 			dir = filepath.Join(homeDir, dir[1:])
 		}
-		
+
 		// Change directory
 		err := os.Chdir(dir)
 		if err != nil {
@@ -949,10 +1159,10 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 		}
 		return nil
 	}
-	
+
 	// For other commands, create a shell command
 	cmd := exec.Command("sh", "-c", cmdString)
-	
+
 	// Set up pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -964,18 +1174,18 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 		fmt.Fprintf(os.Stderr, "Error creating stderr pipe: %v\r\n", err)
 		return nil
 	}
-	
+
 	// Start the command
 	err = cmd.Start()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting command: %v\r\n", err)
 		return nil
 	}
-	
+
 	// Set up a wait group to coordinate goroutines
 	var wg sync.WaitGroup
 	wg.Add(2)
-	
+
 	// Read stdout
 	go func() {
 		defer wg.Done()
@@ -984,7 +1194,7 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 			fmt.Printf("%s\r\n", scanner.Text())
 		}
 	}()
-	
+
 	// Read stderr
 	go func() {
 		defer wg.Done()
@@ -993,16 +1203,16 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 			fmt.Fprintf(os.Stderr, "%s\r\n", scanner.Text())
 		}
 	}()
-	
+
 	// Wait for both goroutines to finish
 	wg.Wait()
-	
+
 	// Wait for the command to finish
 	err = cmd.Wait()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Command exited with error: %v\r\n", err)
 	}
-	
+
 	return nil
 }
 
@@ -1034,28 +1244,48 @@ func (r *REPL) displayConversationLog() {
 		fmt.Print("No conversation messages yet\r\n")
 		return
 	}
-	
+
 	fmt.Print("Conversation log:\r\n")
 	fmt.Print("-----------------\r\n")
-	
+
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
-		
+
 		fmt.Printf("[%d] %s: ", i+1, role)
-		
+
 		// For log display, use a larger truncation limit
 		content := msg.Content
 		if len(content) > 100 {
 			content = content[:97] + "..."
 		}
-		
+
 		// Replace newlines with space for compact display
 		content = strings.ReplaceAll(content, "\n", " ")
-		
+
 		fmt.Printf("%s\r\n", content)
 	}
-	
+
 	fmt.Printf("Total messages: %d\r\n", len(r.messages))
+	fmt.Printf("Settings: replies=%t, streaming=%t\r\n", r.includeReplies, r.streamingEnabled)
+
+	// Display pending files if any
+	if len(r.pendingFiles) > 0 {
+		fmt.Print("\r\nPending files for next message:\r\n")
+		imageCount := 0
+		fileCount := 0
+
+		for _, file := range r.pendingFiles {
+			if file.isImage {
+				imageCount++
+				fmt.Printf(" - Image: %s\r\n", file.filePath)
+			} else {
+				fileCount++
+				fmt.Printf(" - File: %s\r\n", file.filePath)
+			}
+		}
+
+		fmt.Printf("Total pending: %d images, %d files\r\n", imageCount, fileCount)
+	}
 }
 
 // undoLastMessage removes the last message from the conversation history
@@ -1064,19 +1294,69 @@ func (r *REPL) undoLastMessage() {
 		fmt.Print("No messages to undo\r\n")
 		return
 	}
-	
+
 	// Get the last message to show what was removed
 	lastMsg := r.messages[len(r.messages)-1]
-	
+
 	// Remove the last message
 	r.messages = r.messages[:len(r.messages)-1]
-	
+
 	// Show information about the removed message
 	role := formatRole(lastMsg.Role)
 	content := truncateContent(lastMsg.Content)
-	
+
 	fmt.Printf("Removed last message (%s: %s)\r\n", role, content)
 	fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
+}
+
+// clearPendingImages removes all pending images
+func (r *REPL) clearPendingImages() error {
+	imageCount := 0
+
+	// Count images and remove them from pendingFiles
+	var remainingFiles []pendingFile
+	for _, file := range r.pendingFiles {
+		if file.isImage {
+			imageCount++
+		} else {
+			remainingFiles = append(remainingFiles, file)
+		}
+	}
+
+	r.pendingFiles = remainingFiles
+
+	if imageCount > 0 {
+		fmt.Printf("Removed %d pending image(s)\r\n", imageCount)
+	} else {
+		fmt.Print("No pending images to remove\r\n")
+	}
+
+	return nil
+}
+
+// clearPendingFiles removes all pending non-image files
+func (r *REPL) clearPendingFiles() error {
+	fileCount := 0
+
+	// Count regular files and remove them from pendingFiles
+	var remainingFiles []pendingFile
+	for _, file := range r.pendingFiles {
+		if !file.isImage {
+			fileCount++
+		} else {
+			remainingFiles = append(remainingFiles, file)
+		}
+	}
+
+	r.pendingFiles = remainingFiles
+
+	if fileCount > 0 {
+		fmt.Printf("Removed %d pending file(s)\r\n", fileCount)
+	} else {
+		fmt.Print("No pending files to remove\r\n")
+	}
+
+	return nil
 }
 
 // undoMessageByIndex removes a specific message by its 1-based index
@@ -1085,31 +1365,31 @@ func (r *REPL) undoMessageByIndex(indexStr string) {
 		fmt.Print("No messages to undo\r\n")
 		return
 	}
-	
+
 	// Parse the index
 	index, err := strconv.Atoi(indexStr)
 	if err != nil {
 		fmt.Printf("Invalid index: %s. Please provide a number.\r\n", indexStr)
 		return
 	}
-	
+
 	// Convert from 1-based (displayed to user) to 0-based (array index)
 	index--
-	
+
 	// Check if the index is valid
 	if index < 0 || index >= len(r.messages) {
 		fmt.Printf("Invalid index: %d. Valid range is 1-%d.\r\n", index+1, len(r.messages))
 		return
 	}
-	
+
 	// Get the message being removed for display
 	msg := r.messages[index]
 	role := formatRole(msg.Role)
 	content := truncateContent(msg.Content)
-	
+
 	// Remove the message using slice operations
 	r.messages = append(r.messages[:index], r.messages[index+1:]...)
-	
+
 	fmt.Printf("Removed message %d (%s: %s)\r\n", index+1, role, content)
 	fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
 }
@@ -1128,4 +1408,97 @@ func truncateContent(content string) string {
 		content = content[:27] + "..."
 	}
 	return strings.ReplaceAll(content, "\n", " ")
+}
+
+// showCurrentModel displays the current model based on the provider
+func (r *REPL) showCurrentModel() {
+	switch strings.ToLower(r.config.PROVIDER) {
+	case "ollama":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.OllamaModel, r.config.PROVIDER)
+	case "openai":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.OpenAIModel, r.config.PROVIDER)
+	case "claude":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.ClaudeModel, r.config.PROVIDER)
+	case "gemini", "google":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.GeminiModel, r.config.PROVIDER)
+	case "mistral":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.MistralModel, r.config.PROVIDER)
+	case "deepseek":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.DeepSeekModel, r.config.PROVIDER)
+	case "bedrock", "aws":
+		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.BedrockModel, r.config.PROVIDER)
+	default:
+		fmt.Printf("Unknown provider: %s\r\n", r.config.PROVIDER)
+	}
+}
+
+// setModel changes the model for the current provider
+func (r *REPL) setModel(model string) error {
+	switch strings.ToLower(r.config.PROVIDER) {
+	case "ollama":
+		r.config.OllamaModel = model
+		fmt.Printf("Ollama model set to %s\r\n", model)
+	case "openai":
+		r.config.OpenAIModel = model
+		fmt.Printf("OpenAI model set to %s\r\n", model)
+	case "claude":
+		r.config.ClaudeModel = model
+		fmt.Printf("Claude model set to %s\r\n", model)
+	case "gemini", "google":
+		r.config.GeminiModel = model
+		fmt.Printf("Gemini model set to %s\r\n", model)
+	case "mistral":
+		r.config.MistralModel = model
+		fmt.Printf("Mistral model set to %s\r\n", model)
+	case "deepseek":
+		r.config.DeepSeekModel = model
+		fmt.Printf("DeepSeek model set to %s\r\n", model)
+	case "bedrock", "aws":
+		r.config.BedrockModel = model
+		fmt.Printf("Bedrock model set to %s\r\n", model)
+	default:
+		return fmt.Errorf("unknown provider: %s", r.config.PROVIDER)
+	}
+	return nil
+}
+
+// showCurrentProvider displays the current provider
+func (r *REPL) showCurrentProvider() {
+	fmt.Printf("Current provider: %s\r\n", r.config.PROVIDER)
+	// Also show the current model for this provider
+	r.showCurrentModel()
+}
+
+// setProvider changes the current provider
+func (r *REPL) setProvider(provider string) error {
+	// Check if the provider is valid
+	validProviders := map[string]bool{
+		"ollama":   true,
+		"openai":   true,
+		"claude":   true,
+		"gemini":   true,
+		"google":   true,
+		"mistral":  true,
+		"deepseek": true,
+		"bedrock":  true,
+		"aws":      true,
+	}
+
+	// Convert provider to lowercase for case-insensitive comparison
+	provider = strings.ToLower(provider)
+
+	if !validProviders[provider] {
+		fmt.Printf("Invalid provider: %s\r\n", provider)
+		fmt.Print("Valid providers: ollama, openai, claude, gemini/google, mistral, deepseek, bedrock/aws\r\n")
+		return nil
+	}
+
+	// Set the new provider
+	r.config.PROVIDER = provider
+	fmt.Printf("Provider set to %s\r\n", provider)
+
+	// Also show the current model for this provider
+	r.showCurrentModel()
+
+	return nil
 }
