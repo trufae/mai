@@ -115,6 +115,7 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /log           - Enable conversation logging\r\n")
 	fmt.Print("  /nolog         - Disable conversation logging\r\n")
 	fmt.Print("  /model         - Show current model or change model\r\n")
+	fmt.Print("  /models        - List all available models for current provider\r\n")
 	fmt.Print("  /provider      - Show current provider or change provider\r\n")
 	fmt.Print("  /save <path>   - Save conversation history to file\r\n")
 	fmt.Print("  /load <path>   - Load conversation history from file\r\n")
@@ -409,6 +410,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/log",
 			"/nolog",
 			"/model",
+			"/models",
 			"/provider",
 			"/save",
 			"/load",
@@ -605,16 +607,19 @@ func (r *REPL) handleCommand(input string) error {
 		fmt.Print("Conversation messages cleared\r\n")
 	case "/save":
 		if len(parts) < 2 {
-			fmt.Println("Usage: /save <path>")
+			fmt.Print("Usage: /save <path>\n\r")
 			return nil
 		}
 		return r.saveConversation(parts[1])
 	case "/load":
 		if len(parts) < 2 {
-			fmt.Println("Usage: /load <path>")
+			fmt.Print("Usage: /load <path>\n\r")
 			return nil
 		}
 		return r.loadConversation(parts[1])
+	case "/models":
+		// List all available models
+		return r.listModels()
 	case "/model":
 		if len(parts) > 1 {
 			// Set new model
@@ -643,7 +648,7 @@ func (r *REPL) handleCommand(input string) error {
 		}
 	case "/prompt":
 		if len(parts) < 2 {
-			fmt.Println("Usage: /prompt <path>")
+			fmt.Print("Usage: /prompt <path>\n\r")
 			return nil
 		}
 		return r.loadSystemPrompt(parts[1])
@@ -652,13 +657,13 @@ func (r *REPL) handleCommand(input string) error {
 		fmt.Print("System prompt removed\r\n")
 	case "/image":
 		if len(parts) < 2 {
-			fmt.Println("Usage: /image <path>")
+			fmt.Print("Usage: /image <path>\n\r")
 			return nil
 		}
 		return r.addImage(parts[1])
 	case "/file":
 		if len(parts) < 2 {
-			fmt.Println("Usage: /file <path>")
+			fmt.Print("Usage: /file <path>\n\r")
 			return nil
 		}
 		return r.addFile(parts[1])
@@ -1582,6 +1587,78 @@ func (r *REPL) setProvider(provider string) error {
 	r.showCurrentModel()
 
 	return nil
+}
+
+// listModels fetches and displays available models for the current provider
+func (r *REPL) listModels() error {
+	// Create client
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+
+	fmt.Printf("Fetching available models for %s...\r\n", r.config.PROVIDER)
+
+	// Get models from the provider
+	models, err := client.ListModels()
+	if err != nil {
+		return fmt.Errorf("failed to fetch models: %v", err)
+	}
+
+	if len(models) == 0 {
+		fmt.Print("No models available for this provider\r\n")
+		return nil
+	}
+
+	// Display models
+	fmt.Printf("Available %s models:\r\n", r.config.PROVIDER)
+	fmt.Print("-----------------------\r\n")
+
+	// Get current model for highlighting
+	currentModel := r.getCurrentModelForProvider()
+
+	// Format and display each model
+	for i, model := range models {
+		// Add indicator for current model
+		current := ""
+		if model.ID == currentModel {
+			current = " (current)"
+		}
+
+		// Display model with description if available
+		if model.Description != "" {
+			fmt.Printf("[%d] %s%s - %s\r\n", i+1, model.ID, current, model.Description)
+		} else {
+			fmt.Printf("[%d] %s%s\r\n", i+1, model.ID, current)
+		}
+	}
+
+	fmt.Printf("Total models: %d\r\n", len(models))
+	fmt.Print("Use '/model <model-id>' to change the model\r\n")
+
+	return nil
+}
+
+// getCurrentModelForProvider returns the current model ID for the active provider
+func (r *REPL) getCurrentModelForProvider() string {
+	switch strings.ToLower(r.config.PROVIDER) {
+	case "ollama":
+		return r.config.OllamaModel
+	case "openai":
+		return r.config.OpenAIModel
+	case "claude":
+		return r.config.ClaudeModel
+	case "gemini", "google":
+		return r.config.GeminiModel
+	case "mistral":
+		return r.config.MistralModel
+	case "deepseek":
+		return r.config.DeepSeekModel
+	case "bedrock", "aws":
+		return r.config.BedrockModel
+	default:
+		return ""
+	}
 }
 
 // saveConversation saves the current conversation to a JSON file

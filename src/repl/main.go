@@ -291,7 +291,7 @@ func makeRequest(method, url string, headers map[string]string, body []byte, con
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	
+
 	// Set User-Agent header if specified
 	if config != nil && config.UserAgent != "" {
 		req.Header.Set("User-Agent", config.UserAgent)
@@ -305,19 +305,19 @@ func makeRequest(method, url string, headers map[string]string, body []byte, con
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "HTTP request failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "HTTP request failed: %v\n\r", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	// fmt.Fprintf(os.Stderr, "Response status code: %d\n", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n", resp.StatusCode, resp.Status)
+		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n\r", resp.StatusCode, resp.Status)
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error reading response body: %v\n\r", err)
 		return nil, err
 	}
 
@@ -722,23 +722,8 @@ func callOpenAPI(config *Config, input string) error {
 	return nil
 }
 
-func showHelp() {
-	fmt.Print(`$ ai-repl [--] | [-h] | [prompt] < INPUT
-Flags:
-
--h = show this help message
--r = enter the repl mode (default)
--s = don't display the ---8<--- lines in the output
--1 = don't stream response, print once at the end
--i <path> = attach an image to send to the model
--p <provider> = select the provider to use
--m <model> = select the model for the given provider
--b <url> = specify a custom base URL for API requests
--a <string> = set the user agent for HTTP requests
--- = stdin mode
-
-Environment:
-
+func showEnvHelp() {
+	fmt.Print(`
 PROVIDER= ollama | gemini | deepseek | claude | openai | mistral | bedrock
 BASE_URL= custom API base URL (e.g., https://api.moonshot.ai/anthropic)
 USER_AGENT= custom user agent string for HTTP requests
@@ -766,6 +751,21 @@ Bedrock:
 AWS_ACCESS_KEY_ID=(or set in ~/.r2ai.bedrock-key)
 AWS_REGION=us-west-2
 BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
+`)
+}
+func showHelp() {
+	fmt.Print(`$ ai-repl [--] | [-h] | [prompt] < INPUT
+-h = show this help message
+-H = show help for the environment variables (same as -hh)
+-r = enter the repl mode (default)
+-s = don't display the ---8<--- lines in the output
+-1 = don't stream response, print once at the end
+-i <path> = attach an image to send to the model
+-p <provider> = select the provider to use
+-m <model> = select the model for the given provider
+-b <url> = specify a custom base URL for API requests
+-a <string> = set the user agent for HTTP requests
+-- = stdin mode
 `)
 }
 
@@ -806,6 +806,10 @@ func main() {
 
 	if len(args) > 0 && args[0] == "-h" {
 		showHelp()
+		return
+	}
+	if len(args) > 0 && (args[0] == "-hh" || args[0] == "-H") {
+		showEnvHelp()
 		return
 	}
 

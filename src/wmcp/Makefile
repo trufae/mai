@@ -1,13 +1,13 @@
 include ../../config.mk
 
-BIN=acli-mcpd
+BIN=acli-wmcp
 MAIN_FILE=main.go
 
 .PHONY: all build run clean deps
 
 all: build
 
-build:
+build: deps
 	go build -o $(BIN) $(MAIN_FILE)
 
 install:

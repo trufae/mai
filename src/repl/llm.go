@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -22,6 +23,9 @@ type LLMProvider interface {
 
 	// GetName returns the name of the provider
 	GetName() string
+
+	// ListModels returns a list of available models for this provider
+	ListModels(ctx context.Context) ([]Model, error)
 }
 
 // LLMResponse is a generic response handler for both streaming and non-streaming responses
@@ -30,10 +34,24 @@ type LLMResponse struct {
 	Err  error
 }
 
+// Model represents information about an available model from a provider
+type Model struct {
+	ID          string `json:"id"`          // Model identifier
+	Name        string `json:"name"`        // Human-readable name (may be the same as ID)
+	Description string `json:"description"` // Optional model description
+	Provider    string `json:"provider"`    // The provider this model belongs to
+}
+
 // LLMClient manages interactions with LLM providers
 type LLMClient struct {
 	config   *Config
 	provider LLMProvider
+}
+
+// ListModelsResult contains the list of available models with optional error
+type ListModelsResult struct {
+	Models []Model
+	Error  error
 }
 
 // NewLLMClient creates a new LLM client for the specified provider
@@ -79,6 +97,16 @@ func createProvider(config *Config) (LLMProvider, error) {
 // SendMessage sends a message to the LLM and handles the response
 func (c *LLMClient) SendMessage(messages []Message, stream bool) (string, error) {
 	return c.SendMessageWithImages(messages, stream, nil)
+}
+
+// ListModels returns a list of available models for the current provider
+func (c *LLMClient) ListModels() ([]Model, error) {
+	// Create a context that can be canceled
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Call the provider's ListModels method
+	return c.provider.ListModels(ctx)
 }
 
 // SendMessageWithImages sends a message with optional images to the LLM and handles the response
@@ -284,6 +312,16 @@ type OllamaProvider struct {
 	config *Config
 }
 
+// OllamaModelsResponse is the response structure for Ollama model list endpoint
+type OllamaModelsResponse struct {
+	Models []struct {
+		Name     string `json:"name"`
+		Digest   string `json:"digest"`
+		Size     int64  `json:"size"`
+		Modified int64  `json:"modified"`
+	} `json:"models"`
+}
+
 func NewOllamaProvider(config *Config) *OllamaProvider {
 	return &OllamaProvider{
 		config: config,
@@ -292,6 +330,57 @@ func NewOllamaProvider(config *Config) *OllamaProvider {
 
 func (p *OllamaProvider) GetName() string {
 	return "Ollama"
+}
+
+func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise construct from host/port
+	url := fmt.Sprintf("http://%s:%s/api/tags", p.config.OllamaHost, p.config.OllamaPort)
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the tags endpoint
+		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/tags"
+	}
+
+	headers := map[string]string{}
+
+	respBody, err := llmMakeRequest("GET", url, headers, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var ollamaResp OllamaModelsResponse
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
+		return nil, err
+	}
+
+	models := make([]Model, 0, len(ollamaResp.Models))
+	for _, m := range ollamaResp.Models {
+		// Convert size to a human-readable format for the description
+		sizeDesc := ""
+		if m.Size > 0 {
+			size := float64(m.Size)
+			unit := "B"
+			if size >= 1024*1024*1024 {
+				size /= 1024 * 1024 * 1024
+				unit = "GB"
+			} else if size >= 1024*1024 {
+				size /= 1024 * 1024
+				unit = "MB"
+			} else if size >= 1024 {
+				size /= 1024
+				unit = "KB"
+			}
+			sizeDesc = fmt.Sprintf("Size: %.1f %s", size, unit)
+		}
+
+		models = append(models, Model{
+			ID:          m.Name,
+			Name:        m.Name,
+			Provider:    "ollama",
+			Description: sizeDesc,
+		})
+	}
+
+	return models, nil
 }
 
 func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
@@ -387,6 +476,17 @@ type OpenAIProvider struct {
 	config *Config
 }
 
+// OpenAIModelsResponse is the response structure for OpenAI model list endpoint
+type OpenAIModelsResponse struct {
+	Object string `json:"object"`
+	Data   []struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
+	} `json:"data"`
+}
+
 func NewOpenAIProvider(config *Config) *OpenAIProvider {
 	return &OpenAIProvider{
 		config: config,
@@ -395,6 +495,54 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 
 func (p *OpenAIProvider) GetName() string {
 	return "OpenAI"
+}
+
+func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.openai.com/v1/models"
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the models endpoint
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
+	}
+
+	headers := map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + p.config.OpenAIKey,
+	}
+
+	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var openaiResp OpenAIModelsResponse
+	if err := json.Unmarshal(respBody, &openaiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v, raw: %s", err, string(respBody))
+	}
+
+	// Filter out non-chat models and sort by ID
+	chatModels := make([]Model, 0, len(openaiResp.Data))
+	for _, m := range openaiResp.Data {
+		// Focus on main models people usually use
+		if strings.Contains(m.ID, "gpt") ||
+			strings.Contains(m.ID, "dall-e") ||
+			strings.Contains(m.ID, "text-embedding") ||
+			strings.Contains(m.ID, "whisper") {
+			chatModels = append(chatModels, Model{
+				ID:          m.ID,
+				Name:        m.ID,
+				Provider:    "openai",
+				Description: "Owner: " + m.OwnedBy,
+			})
+		}
+	}
+
+	// Sort models alphabetically by ID
+	sort.Slice(chatModels, func(i, j int) bool {
+		return chatModels[i].ID < chatModels[j].ID
+	})
+
+	return chatModels, nil
 }
 
 func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
@@ -504,6 +652,18 @@ type ClaudeProvider struct {
 	config *Config
 }
 
+// ClaudeModelsResponse is the response structure for Claude model list endpoint
+type ClaudeModelsResponse struct {
+	Object string `json:"object"`
+	Data   []struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		MaxTokens     int    `json:"max_tokens,omitempty"`
+		ContextWindow int    `json:"context_window,omitempty"`
+	} `json:"data"`
+}
+
 func NewClaudeProvider(config *Config) *ClaudeProvider {
 	return &ClaudeProvider{
 		config: config,
@@ -512,6 +672,50 @@ func NewClaudeProvider(config *Config) *ClaudeProvider {
 
 func (p *ClaudeProvider) GetName() string {
 	return "Claude"
+}
+
+func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.anthropic.com/v1/models"
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the models endpoint
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
+	}
+
+	headers := map[string]string{
+		"Content-Type":      "application/json",
+		"anthropic-version": "2023-06-01",
+		"x-api-key":         p.config.ClaudeKey,
+	}
+
+	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var claudeResp ClaudeModelsResponse
+	if err := json.Unmarshal(respBody, &claudeResp); err != nil {
+		return nil, fmt.Errorf("failed to parse Claude response: %v, raw: %s", err, string(respBody))
+	}
+
+	models := make([]Model, 0, len(claudeResp.Data))
+	for _, m := range claudeResp.Data {
+		description := m.Description
+		if m.ContextWindow > 0 {
+			description += fmt.Sprintf(" (Context: %dk tokens)", m.ContextWindow/1000)
+		} else if m.MaxTokens > 0 {
+			description += fmt.Sprintf(" (Max tokens: %d)", m.MaxTokens)
+		}
+
+		models = append(models, Model{
+			ID:          m.ID,
+			Name:        m.Name,
+			Description: description,
+			Provider:    "claude",
+		})
+	}
+
+	return models, nil
 }
 
 func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
@@ -628,6 +832,128 @@ func (p *GeminiProvider) GetName() string {
 	return "Gemini"
 }
 
+func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", p.config.GeminiKey)
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the models endpoint
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models?key=" + p.config.GeminiKey
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	// First try the API endpoint
+	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+
+	// If API call fails or we don't have a key, fall back to hardcoded models
+	if err != nil || p.config.GeminiKey == "" {
+		// Gemini doesn't have a consistently available models listing endpoint
+		// Return hardcoded list of common Gemini models
+		return []Model{
+			{
+				ID:          "gemini-1.5-pro",
+				Name:        "Gemini 1.5 Pro",
+				Description: "Advanced large multimodal model with broader capabilities",
+				Provider:    "gemini",
+			},
+			{
+				ID:          "gemini-1.5-flash",
+				Name:        "Gemini 1.5 Flash",
+				Description: "Faster, more efficient multimodal model",
+				Provider:    "gemini",
+			},
+			{
+				ID:          "gemini-1.0-pro",
+				Name:        "Gemini 1.0 Pro",
+				Description: "Original Gemini professional model",
+				Provider:    "gemini",
+			},
+		}, nil
+	}
+
+	// Parse response if we got one
+	type GeminiModelsResponse struct {
+		Models []struct {
+			Name        string   `json:"name"`
+			DisplayName string   `json:"displayName"`
+			Description string   `json:"description"`
+			Versions    []string `json:"supportedGenerationMethods,omitempty"`
+		} `json:"models"`
+	}
+
+	var geminiResp GeminiModelsResponse
+	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
+		// If JSON parsing fails, fall back to hardcoded models
+		return []Model{
+			{
+				ID:          "gemini-1.5-pro",
+				Name:        "Gemini 1.5 Pro",
+				Description: "Advanced large multimodal model with broader capabilities",
+				Provider:    "gemini",
+			},
+			{
+				ID:          "gemini-1.5-flash",
+				Name:        "Gemini 1.5 Flash",
+				Description: "Faster, more efficient multimodal model",
+				Provider:    "gemini",
+			},
+			{
+				ID:          "gemini-1.0-pro",
+				Name:        "Gemini 1.0 Pro",
+				Description: "Original Gemini professional model",
+				Provider:    "gemini",
+			},
+		}, nil
+	}
+
+	models := make([]Model, 0, len(geminiResp.Models))
+	for _, m := range geminiResp.Models {
+		// Extract model ID from name (which is typically a path)
+		parts := strings.Split(m.Name, "/")
+		modelID := parts[len(parts)-1]
+
+		// Skip non-Gemini models
+		if !strings.Contains(strings.ToLower(modelID), "gemini") {
+			continue
+		}
+
+		models = append(models, Model{
+			ID:          modelID,
+			Name:        m.DisplayName,
+			Description: m.Description,
+			Provider:    "gemini",
+		})
+	}
+
+	if len(models) == 0 {
+		// If no models were found, fall back to hardcoded models
+		return []Model{
+			{
+				ID:          "gemini-1.5-pro",
+				Name:        "Gemini 1.5 Pro",
+				Description: "Advanced large multimodal model with broader capabilities",
+				Provider:    "gemini",
+			},
+			{
+				ID:          "gemini-1.5-flash",
+				Name:        "Gemini 1.5 Flash",
+				Description: "Faster, more efficient multimodal model",
+				Provider:    "gemini",
+			},
+			{
+				ID:          "gemini-1.0-pro",
+				Name:        "Gemini 1.0 Pro",
+				Description: "Original Gemini professional model",
+				Provider:    "gemini",
+			},
+		}, nil
+	}
+
+	return models, nil
+}
+
 func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	// Gemini currently doesn't use message structure like OpenAI, so we need to concat messages
 	content := ""
@@ -727,6 +1053,78 @@ func (p *MistralProvider) GetName() string {
 	return "Mistral"
 }
 
+func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.mistral.ai/v1/models"
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the models endpoint
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
+	}
+
+	headers := map[string]string{
+		"Authorization": "Bearer " + p.config.MistralKey,
+		"Content-Type":  "application/json",
+	}
+
+	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mistral API returns richer model info than OpenAI format
+	type MistralModelsResponse struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID                  string `json:"id"`
+			Name                string `json:"name,omitempty"`
+			ContextLength       int    `json:"context_length,omitempty"`
+			MaxCompletionTokens int    `json:"max_completion_tokens,omitempty"`
+			Description         string `json:"description,omitempty"`
+		} `json:"data"`
+	}
+
+	var mistralResp MistralModelsResponse
+	if err := json.Unmarshal(respBody, &mistralResp); err != nil {
+		// If parsing fails with the richer format, try the OpenAI format
+		var openAIResp OpenAIModelsResponse
+		if err2 := json.Unmarshal(respBody, &openAIResp); err2 != nil {
+			return nil, fmt.Errorf("failed to parse response: %v, raw: %s", err, string(respBody))
+		}
+
+		// Use the OpenAI format
+		models := make([]Model, 0, len(openAIResp.Data))
+		for _, m := range openAIResp.Data {
+			models = append(models, Model{
+				ID:       m.ID,
+				Name:     m.ID,
+				Provider: "mistral",
+			})
+		}
+		return models, nil
+	}
+
+	models := make([]Model, 0, len(mistralResp.Data))
+	for _, m := range mistralResp.Data {
+		// Add context window info to description if available
+		description := m.Description
+		if m.ContextLength > 0 {
+			if description != "" {
+				description += " - "
+			}
+			description += fmt.Sprintf("Context: %dk tokens", m.ContextLength/1000)
+		}
+
+		models = append(models, Model{
+			ID:          m.ID,
+			Name:        m.Name,
+			Description: description,
+			Provider:    "mistral",
+		})
+	}
+
+	return models, nil
+}
+
 func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
 		Model     string    `json:"model"`
@@ -801,6 +1199,92 @@ func (p *DeepSeekProvider) GetName() string {
 	return "DeepSeek"
 }
 
+func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.deepseek.com/v1/models"
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the models endpoint
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
+	}
+
+	headers := map[string]string{
+		"Authorization": "Bearer " + p.config.DeepSeekKey,
+		"Content-Type":  "application/json",
+	}
+
+	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	
+	// If API call fails or no key, fall back to hardcoded values
+	if err != nil || p.config.DeepSeekKey == "" {
+		// DeepSeek doesn't have a well-documented model listing endpoint
+		// Return hardcoded list of common DeepSeek models
+		return []Model{
+			{
+				ID:          "deepseek-chat",
+				Name:        "DeepSeek Chat",
+				Description: "General purpose chat model",
+				Provider:    "deepseek",
+			},
+			{
+				ID:          "deepseek-coder",
+				Name:        "DeepSeek Coder",
+				Description: "Specialized model for code generation",
+				Provider:    "deepseek",
+			},
+		}, nil
+	}
+
+	// Try parsing as OpenAI-compatible format
+	var openaiResp OpenAIModelsResponse
+	if err := json.Unmarshal(respBody, &openaiResp); err != nil {
+		return []Model{
+			{
+				ID:          "deepseek-chat",
+				Name:        "DeepSeek Chat",
+				Description: "General purpose chat model",
+				Provider:    "deepseek",
+			},
+			{
+				ID:          "deepseek-coder",
+				Name:        "DeepSeek Coder",
+				Description: "Specialized model for code generation",
+				Provider:    "deepseek",
+			},
+		}, nil
+	}
+
+	// Process the models data
+	models := make([]Model, 0, len(openaiResp.Data))
+	for _, m := range openaiResp.Data {
+		models = append(models, Model{
+			ID:          m.ID,
+			Name:        m.ID,
+			Description: m.OwnedBy,
+			Provider:    "deepseek",
+		})
+	}
+
+	// If no models found, return hardcoded ones
+	if len(models) == 0 {
+		return []Model{
+			{
+				ID:          "deepseek-chat",
+				Name:        "DeepSeek Chat",
+				Description: "General purpose chat model",
+				Provider:    "deepseek",
+			},
+			{
+				ID:          "deepseek-coder",
+				Name:        "DeepSeek Coder",
+				Description: "Specialized model for code generation",
+				Provider:    "deepseek",
+			},
+		}, nil
+	}
+
+	return models, nil
+}
+
 func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
 		Model    string    `json:"model"`
@@ -873,6 +1357,76 @@ func NewBedrockProvider(config *Config) *BedrockProvider {
 
 func (p *BedrockProvider) GetName() string {
 	return "Bedrock"
+}
+
+func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// For AWS Bedrock, we'd need to use the AWS SDK to list models properly
+	// Since that would add a dependency, we'll use hardcoded models for now
+	// Users can use any of these models or others by setting the BedrockModel config
+	
+	// Comprehensive list of models available through Bedrock
+	return []Model{
+		{
+			ID:          "anthropic.claude-3-5-sonnet-v1",
+			Name:        "Claude 3.5 Sonnet",
+			Description: "Advanced Anthropic model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "anthropic.claude-3-sonnet-v1",
+			Name:        "Claude 3 Sonnet",
+			Description: "Anthropic Claude 3 Sonnet via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "anthropic.claude-3-haiku-v1",
+			Name:        "Claude 3 Haiku",
+			Description: "Faster, more efficient Claude model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "anthropic.claude-3-opus-v1",
+			Name:        "Claude 3 Opus",
+			Description: "Most powerful Claude model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "meta.llama3-8b-instruct-v1",
+			Name:        "Meta Llama 3 8B",
+			Description: "Meta's Llama 3 8B model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "meta.llama3-70b-instruct-v1",
+			Name:        "Meta Llama 3 70B",
+			Description: "Meta's Llama 3 70B model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "amazon.titan-text-express-v1",
+			Name:        "Amazon Titan Text Express",
+			Description: "Amazon's lightweight text generation model",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "amazon.titan-text-premier-v1",
+			Name:        "Amazon Titan Text Premier",
+			Description: "Amazon's advanced text generation model",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "cohere.command-r-v1:0",
+			Name:        "Cohere Command R",
+			Description: "Cohere's reasoning-focused model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+		{
+			ID:          "cohere.command-light-v1:0",
+			Name:        "Cohere Command Light",
+			Description: "Cohere's efficient model via AWS Bedrock",
+			Provider:    "bedrock",
+		},
+	}, nil
 }
 
 func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
@@ -961,6 +1515,80 @@ func NewOpenAPIProvider(config *Config) *OpenAPIProvider {
 
 func (p *OpenAPIProvider) GetName() string {
 	return "OpenAPI"
+}
+
+func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Try to query the OpenAPI server for available models
+	apiURL := fmt.Sprintf("http://%s:%s/models", p.config.OpenAPIHost, p.config.OpenAPIPort)
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the models endpoint
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
+	}
+
+	headers := map[string]string{
+		"Content-Type":  "application/json",
+	}
+
+	// Attempt to get models list
+	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	
+	// If the endpoint doesn't exist or returns an error, return default model
+	if err != nil {
+		return []Model{
+			{
+				ID:          "default",
+				Name:        "Default Model",
+				Description: "Default model for OpenAPI provider",
+				Provider:    "openapi",
+			},
+		}, nil
+	}
+
+	// Try to parse response as a list of models
+	var modelsList []string
+	if err := json.Unmarshal(respBody, &modelsList); err == nil && len(modelsList) > 0 {
+		models := make([]Model, 0, len(modelsList))
+		for _, name := range modelsList {
+			models = append(models, Model{
+				ID:       name,
+				Name:     name,
+				Provider: "openapi",
+			})
+		}
+		return models, nil
+	}
+
+	// Try to parse as a more complex response format with model objects
+	type ModelObject struct {
+		ID   string `json:"id"`
+		Name string `json:"name,omitempty"`
+	}
+	var modelObjects []ModelObject
+	if err := json.Unmarshal(respBody, &modelObjects); err == nil && len(modelObjects) > 0 {
+		models := make([]Model, 0, len(modelObjects))
+		for _, model := range modelObjects {
+			name := model.Name
+			if name == "" {
+				name = model.ID
+			}
+			models = append(models, Model{
+				ID:       model.ID,
+				Name:     name,
+				Provider: "openapi",
+			})
+		}
+		return models, nil
+	}
+
+	// If we can't parse the response, return default model
+	return []Model{
+		{
+			ID:          "default",
+			Name:        "Default Model",
+			Description: "Default model for OpenAPI provider",
+			Provider:    "openapi",
+		},
+	}, nil
 }
 
 func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {

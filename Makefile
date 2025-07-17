@@ -1,22 +1,25 @@
 include config.mk
 
-BIN=ai-mcpd
-MAIN_FILE=main.go
-
 .PHONY: all run clean deps
 
 all:
-	$(MAKE) -C src/mcpd
-	$(MAKE) -C src/servers/wttr
+	$(MAKE) -C src/wmcp
+	$(MAKE) -C src/mcps/wttr
 	$(MAKE) -C src/repl
 	$(MAKE) -C src/tool
-	./src/mcpd/acli-mcpd 'r2pm -r r2mcp' src/servers/wttr/acli-mcp-wttr
+	./src/wmcp/acli-wmcp 'r2pm -r r2mcp' src/mcps/wttr/acli-mcp-wttr
+
+fmt:
+	go fmt $(shell ls src/repl/*.go )
+	go fmt $(shell ls src/wmcp/*.go )
+	go fmt $(shell ls src/tool/*.go )
+	go fmt $(shell ls src/mcps/wttr/*.go )
 
 install:
-	$(MAKE) -C src/mcpd install
+	$(MAKE) -C src/wmcp install
 	$(MAKE) -C src/repl install
 	$(MAKE) -C src/tool install
-	$(MAKE) -C src/servers install
+	$(MAKE) -C src/mcps install
 
 run:
 	go run $(MAIN_FILE)
