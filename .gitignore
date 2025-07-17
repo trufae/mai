@@ -1,0 +1,5 @@
+clients/ai/ai
+clients/mcpd-cli/mcpd-cli
+servers/wttr/wttr
+clients/ai-repl/ai-repl
+ai-mcpd/ai-mcpd

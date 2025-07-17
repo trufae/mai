@@ -38,6 +38,7 @@ type Config struct {
 	NoStream      bool
 	ImagePath     string // Path to image to send with the message
 	BaseURL       string // Base URL to connect to LLM API
+	UserAgent     string // User agent for HTTP requests
 }
 
 type ClaudeRequest struct {
@@ -188,6 +189,7 @@ func loadConfig() *Config {
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
 		BaseURL:       getEnvOrDefault("BASE_URL", ""),
+		UserAgent:     getEnvOrDefault("USER_AGENT", "ai-repl/1.0"),
 		NoStream:      false,
 	}
 
@@ -279,7 +281,7 @@ func printScissors(config *Config) {
 	}
 }
 
-func makeRequest(method, url string, headers map[string]string, body []byte) ([]byte, error) {
+func makeRequest(method, url string, headers map[string]string, body []byte, config *Config) ([]byte, error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating HTTP request: %v\n", err)
@@ -288,6 +290,11 @@ func makeRequest(method, url string, headers map[string]string, body []byte) ([]
 
 	for key, value := range headers {
 		req.Header.Set(key, value)
+	}
+	
+	// Set User-Agent header if specified
+	if config != nil && config.UserAgent != "" {
+		req.Header.Set("User-Agent", config.UserAgent)
 	}
 
 	client := &http.Client{
@@ -360,7 +367,7 @@ func callClaude(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", "https://api.anthropic.com/v1/messages", headers, jsonData)
+	respBody, err := makeRequest("POST", "https://api.anthropic.com/v1/messages", headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -421,7 +428,7 @@ func callOpenAI(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", "https://api.openai.com/v1/chat/completions", headers, jsonData)
+	respBody, err := makeRequest("POST", "https://api.openai.com/v1/chat/completions", headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -486,7 +493,7 @@ func callOllama(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", url, headers, jsonData)
+	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to Ollama API: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Check if Ollama server is running at %s:%s\n", config.OllamaHost, config.OllamaPort)
@@ -539,7 +546,7 @@ func callGemini(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", url, headers, jsonData)
+	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -577,7 +584,7 @@ func callDeepSeek(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", "https://api.deepseek.com/chat/completions", headers, jsonData)
+	respBody, err := makeRequest("POST", "https://api.deepseek.com/chat/completions", headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -615,7 +622,7 @@ func callMistral(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", "https://api.mistral.ai/v1/chat/completions", headers, jsonData)
+	respBody, err := makeRequest("POST", "https://api.mistral.ai/v1/chat/completions", headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -663,7 +670,7 @@ func callBedrock(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", url, headers, jsonData)
+	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -698,7 +705,7 @@ func callOpenAPI(config *Config, input string) error {
 
 	printScissors(config)
 
-	respBody, err := makeRequest("POST", url, headers, jsonData)
+	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		return err
 	}
@@ -727,12 +734,14 @@ Flags:
 -p <provider> = select the provider to use
 -m <model> = select the model for the given provider
 -b <url> = specify a custom base URL for API requests
+-a <string> = set the user agent for HTTP requests
 -- = stdin mode
 
 Environment:
 
 PROVIDER= ollama | gemini | deepseek | claude | openai | mistral | bedrock
 BASE_URL= custom API base URL (e.g., https://api.moonshot.ai/anthropic)
+USER_AGENT= custom user agent string for HTTP requests
 
 Local:
 
@@ -852,6 +861,15 @@ func main() {
 				i--
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: -m requires a model argument\n")
+				os.Exit(1)
+			}
+		case "-a":
+			if i+1 < len(args) {
+				config.UserAgent = args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -a requires a user agent string\n")
 				os.Exit(1)
 			}
 		}

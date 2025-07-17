@@ -1,8 +1,14 @@
-# MCP REST Bridge
+# ACLI
 
-A REST API bridge for Model Context Protocol (MCP) servers written in Go. This service allows you to interact with multiple MCP servers through HTTP endpoints, converting JSONRPC calls to simple REST API calls.
+Artificial Command Line Intelligence
+
+Set of commandline tools to use local or remote AI models with advanced customizable features to research, use MCP agents and much more.
 
 --pancake
+
+## Features
+
+A REST API bridge for Model Context Protocol (MCP) servers written in Go. This service allows you to interact with multiple MCP servers through HTTP endpoints, converting JSONRPC calls to simple REST API calls.
 
 ## Features
 
