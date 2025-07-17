@@ -88,6 +88,14 @@ func NewREPL(config *Config) (*REPL, error) {
 	repl.reasoningEnabled = repl.config.options.GetBool("reasoning")
 	repl.loggingEnabled = repl.config.options.GetBool("logging")
 
+	// Load system prompt from promptfile if set
+	if promptFile := repl.config.options.Get("promptfile"); promptFile != "" {
+		content, err := os.ReadFile(promptFile)
+		if err == nil {
+			repl.systemPrompt = string(content)
+		}
+	}
+
 	return repl, nil
 }
 
@@ -124,8 +132,8 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /file <path>   - Add a file to the next message\r\n")
 	fmt.Print("  /noimage       - Remove pending images\r\n")
 	fmt.Print("  /nofiles       - Remove pending files\r\n")
-	fmt.Print("  /prompt <path> - Load system prompt from file\r\n")
-	fmt.Print("  /noprompt      - Remove system prompt\r\n")
+	fmt.Print("  /set promptfile <path> - Load system prompt from file\r\n")
+	fmt.Print("  /unset promptfile     - Remove system prompt\r\n")
 	fmt.Print("  /model         - Show current model or change model\r\n")
 	fmt.Print("  /models        - List all available models for current provider\r\n")
 	fmt.Print("  /provider      - Show current provider or change provider\r\n")
@@ -404,9 +412,23 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 	// Check if we need to complete a file path for a command that accepts a file
 	parts := strings.SplitN(input, " ", 2)
-	if len(parts) == 2 && (parts[0] == "/image" || parts[0] == "/file" || parts[0] == "/prompt") {
+	if len(parts) == 2 && (parts[0] == "/image" || parts[0] == "/file") {
 		r.handleFilePathCompletion(line, parts[0], parts[1])
 		return
+	}
+
+	// Check for /set promptfile and promptdir value completion
+	if len(parts) == 3 && parts[0] == "/set" {
+		switch parts[1] {
+		case "promptfile":
+			// Complete file paths for promptfile
+			r.handleFilePathCompletion(line, "/set promptfile", parts[2])
+			return
+		case "promptdir":
+			// Complete directory paths for promptdir
+			r.handleDirectoryCompletion(line, "/set promptdir", parts[2])
+			return
+		}
 	}
 
 	// Check for /set, /get, and /unset option completion
@@ -1215,6 +1237,112 @@ func (r *REPL) listPrompts() error {
 }
 
 // handleFilePathCompletion handles tab completion for file paths
+// handleDirectoryCompletion handles tab completion for directory paths
+func (r *REPL) handleDirectoryCompletion(line *strings.Builder, cmd, partialPath string) {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(partialPath, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			partialPath = filepath.Join(homeDir, partialPath[1:])
+		}
+	}
+
+	// If this is the first tab press, find matching directories
+	if r.completeState == 0 {
+		// Get the directory and file prefix
+		dir, prefix := filepath.Split(partialPath)
+
+		// If no directory specified, use current directory
+		if dir == "" {
+			dir = "."
+		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(partialPath, "./") && !strings.HasPrefix(partialPath, "../") {
+			// Handle relative paths that don't start with ./ or ../
+			dir = "." + string(filepath.Separator) + dir
+		}
+
+		// Make sure dir ends with separator
+		if !strings.HasSuffix(dir, string(filepath.Separator)) {
+			dir += string(filepath.Separator)
+		}
+
+		// Read the directory
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			return // Cannot read directory
+		}
+
+		// Find matching directories only
+		r.completeOptions = nil
+		for _, file := range files {
+			name := file.Name()
+			if strings.HasPrefix(name, prefix) && file.IsDir() {
+				// Add separator for directories
+				name += string(filepath.Separator)
+				r.completeOptions = append(r.completeOptions, dir+name)
+			}
+		}
+
+		// If no matches, do nothing
+		if len(r.completeOptions) == 0 {
+			return
+		}
+
+		r.completeState = 1
+		r.completePrefix = cmd + " "
+
+		// Replace current input with the first match
+		currentInput := line.String()
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Get the first match
+		firstMatch := r.completePrefix + r.completeOptions[0]
+
+		// Print and set the first match
+		fmt.Print(firstMatch)
+		line.Reset()
+		line.WriteString(firstMatch)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	} else {
+		// Subsequent tab presses - cycle through options
+		if len(r.completeOptions) <= 1 {
+			return
+		}
+
+		// Find current option
+		currentInput := line.String()
+		currentPath := strings.TrimPrefix(currentInput, r.completePrefix)
+
+		// Find current index
+		currentIdx := -1
+		for i, opt := range r.completeOptions {
+			if opt == currentPath {
+				currentIdx = i
+				break
+			}
+		}
+
+		// Get next option
+		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextOption := r.completePrefix + r.completeOptions[nextIdx]
+
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Print next option
+		fmt.Print(nextOption)
+		line.Reset()
+		line.WriteString(nextOption)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	}
+}
+
 func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath string) {
 	// Expand ~ to home directory if present
 	if strings.HasPrefix(partialPath, "~") {
@@ -1429,10 +1557,10 @@ func (r *REPL) loadSystemPrompt(path string) error {
 
 	// Set the system prompt
 	r.systemPrompt = string(content)
-	
+
 	// Update the promptfile configuration
 	r.config.options.Set("promptfile", path)
-	
+
 	fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
 	return nil
 }

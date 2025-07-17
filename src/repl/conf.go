@@ -269,6 +269,11 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) error {
+	// Special handling for /set promptfile <path>
+	if len(args) >= 3 && args[1] == "promptfile" {
+		filePath := args[2]
+		return r.loadSystemPrompt(filePath)
+	}
 	if len(args) < 2 {
 		fmt.Print("Usage: /set <option> [value]\r\n")
 		fmt.Print("Available options:\r\n")
@@ -322,15 +327,28 @@ func (r *REPL) handleSetCommand(args []string) error {
 		return nil
 	}
 
-	// If setting 'stream', update the streaming flag
-	if option == "stream" {
+	// Handle special options that require updating REPL state
+	switch option {
+	case "stream":
 		r.streamingEnabled = r.config.options.GetBool("stream")
 		streamStatus := "enabled"
 		if !r.streamingEnabled {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s\r\n", streamStatus)
-	} else {
+	case "include_replies":
+		r.includeReplies = r.config.options.GetBool("include_replies")
+		fmt.Printf("Set %s = %s\r\n", option, value)
+	case "reasoning":
+		r.reasoningEnabled = r.config.options.GetBool("reasoning")
+		fmt.Printf("Set %s = %s\r\n", option, value)
+	case "logging":
+		r.loggingEnabled = r.config.options.GetBool("logging")
+		fmt.Printf("Set %s = %s\r\n", option, value)
+	case "promptfile":
+		// Already handled above
+		return nil
+	default:
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	}
 
@@ -408,14 +426,29 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	r.config.options.Unset(option)
 	fmt.Printf("Unset %s\r\n", option)
 
-	// If unsetting 'stream', revert to default value (true)
-	if option == "stream" {
+	// Handle special options that require updating REPL state
+	switch option {
+	case "stream":
 		r.streamingEnabled = r.config.options.GetBool("stream")
 		streamStatus := "enabled"
 		if !r.streamingEnabled {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
+	case "include_replies":
+		r.includeReplies = r.config.options.GetBool("include_replies")
+		fmt.Printf("Include replies reverted to default\r\n")
+	case "reasoning":
+		r.reasoningEnabled = r.config.options.GetBool("reasoning")
+		fmt.Printf("AI reasoning reverted to default\r\n")
+	case "logging":
+		r.loggingEnabled = r.config.options.GetBool("logging")
+		fmt.Printf("Logging reverted to default\r\n")
+	case "promptfile":
+		r.systemPrompt = ""
+		fmt.Print("System prompt removed\r\n")
+	default:
+		fmt.Printf("Unset %s\r\n", option)
 	}
 
 	return nil
