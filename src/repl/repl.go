@@ -58,21 +58,37 @@ type StreamingClient interface {
 func NewREPL(config *Config) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &REPL{
-		config:           config,
-		history:          make([]string, 0),
-		historyIndex:     -1,
-		cursorPos:        0, // Initialize cursor position to 0
-		ctx:              ctx,
-		cancel:           cancel,
-		completeState:    0,
-		completeOptions:  []string{},
-		streamingEnabled: !config.NoStream, // Respect NoStream flag
-		includeReplies:   true,             // Include replies by default
-		pendingFiles:     []pendingFile{},  // Initialize empty pending files slice
-		reasoningEnabled: true,             // Enable reasoning by default
-		loggingEnabled:   true,             // Enable conversation logging by default
-	}, nil
+	// Initialize the REPL
+	repl := &REPL{
+		config:          config,
+		history:         make([]string, 0),
+		historyIndex:    -1,
+		cursorPos:       0, // Initialize cursor position to 0
+		ctx:             ctx,
+		cancel:          cancel,
+		completeState:   0,
+		completeOptions: []string{},
+		pendingFiles:    []pendingFile{}, // Initialize empty pending files slice
+	}
+
+	// Initialize streaming from options with the NoStream flag as a fallback
+	streamDefault := "true"
+	if config.NoStream {
+		streamDefault = "false"
+	}
+
+	// Override defaults based on command line flags if needed
+	if _, exists := repl.config.options.GetOptionInfo("stream"); !exists {
+		repl.config.options.RegisterOption("stream", BooleanOption, "Enable streaming mode", streamDefault)
+	}
+
+	// Initialize all settings from options
+	repl.streamingEnabled = repl.config.options.GetBool("stream")
+	repl.includeReplies = repl.config.options.GetBool("include_replies")
+	repl.reasoningEnabled = repl.config.options.GetBool("reasoning")
+	repl.loggingEnabled = repl.config.options.GetBool("logging")
+
+	return repl, nil
 }
 
 func (r *REPL) Run() error {
@@ -110,24 +126,22 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /nofiles       - Remove pending files\r\n")
 	fmt.Print("  /prompt <path> - Load system prompt from file\r\n")
 	fmt.Print("  /noprompt      - Remove system prompt\r\n")
-	fmt.Print("  /think         - Enable AI reasoning\r\n")
-	fmt.Print("  /nothink       - Disable AI reasoning\r\n")
-	fmt.Print("  /log           - Enable conversation logging\r\n")
-	fmt.Print("  /nolog         - Disable conversation logging\r\n")
 	fmt.Print("  /model         - Show current model or change model\r\n")
 	fmt.Print("  /models        - List all available models for current provider\r\n")
 	fmt.Print("  /provider      - Show current provider or change provider\r\n")
+	fmt.Print("  /set <opt> [val] - Set or display configuration option\r\n")
+	fmt.Print("  /get <opt>      - Display configuration option value\r\n")
+	fmt.Print("  /unset <opt>   - Unset configuration option\r\n")
 	fmt.Print("  /save <path>   - Save conversation history to file\r\n")
 	fmt.Print("  /load <path>   - Load conversation history from file\r\n")
+	fmt.Print("  /compact       - Compact conversation into a single message\r\n")
 	fmt.Print("  /cancel        - Cancel current request\r\n")
 	fmt.Print("  /clear         - Clear conversation messages\r\n")
 	fmt.Print("  /list          - Display conversation messages\r\n")
 	fmt.Print("  /undo [N]      - Remove last or Nth message from conversation\r\n")
-	fmt.Print("  /stream        - Enable streaming mode\r\n")
-	fmt.Print("  /nostream      - Disable streaming mode\r\n")
-	fmt.Print("  /replies       - Include assistant replies in context\r\n")
-	fmt.Print("  /noreplies     - Exclude assistant replies from context\r\n")
 	fmt.Print("  /quit          - Exit REPL\r\n")
+	fmt.Print("  #              - List available prompt files (.md)\r\n")
+	fmt.Print("  #<name> <text> - Use content from prompt file with text\r\n")
 	fmt.Print("  !<command>     - Execute shell command\r\n")
 	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
 	fmt.Print("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
@@ -188,11 +202,22 @@ func (r *REPL) handleInput() error {
 
 	// Handle commands
 	if strings.HasPrefix(input, "/") {
+		// Add to history
+		r.addToHistory(input)
 		return r.handleCommand(input)
+	}
+
+	// Handle # prompt commands
+	if strings.HasPrefix(input, "#") {
+		// Add to history (also added in handlePromptCommand, but keep here for consistency)
+		r.addToHistory(input)
+		return r.handlePromptCommand(input)
 	}
 
 	// Handle shell commands
 	if strings.HasPrefix(input, "!") {
+		// Add to history
+		r.addToHistory(input)
 		return r.executeShellCommand(input[1:])
 	}
 
@@ -384,6 +409,12 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		return
 	}
 
+	// Check for /set, /get, and /unset option completion
+	if len(parts) == 2 && (parts[0] == "/set" || parts[0] == "/get" || parts[0] == "/unset") {
+		r.handleOptionCompletion(line, parts[0], parts[1])
+		return
+	}
+
 	// Only handle tab completion at the beginning of the line for commands
 	if !strings.HasPrefix(input, "/") {
 		return
@@ -412,9 +443,13 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			"/model",
 			"/models",
 			"/provider",
+			"/set",
+			"/get",
+			"/unset",
 			"/save",
 			"/load",
 			"/clear",
+			"/compact",
 			"/list",
 			"/undo",
 			"/quit",
@@ -574,37 +609,28 @@ func (r *REPL) handleCommand(input string) error {
 	case "/help":
 		r.showCommands()
 		return nil
-	case "/stream":
-		r.streamingEnabled = true
-		fmt.Print("Streaming mode enabled\r\n")
-	case "/nostream":
-		r.streamingEnabled = false
-		fmt.Print("Streaming mode disabled\r\n")
-	case "/think":
-		r.reasoningEnabled = true
-		fmt.Print("AI reasoning enabled\r\n")
-	case "/nothink":
-		r.reasoningEnabled = false
-		fmt.Print("AI reasoning disabled\r\n")
+	// Stream/nostream commands removed - functionality in conf.go
+	// Think/nothink commands removed - functionality in conf.go
 	case "/list":
 		// Display conversation log
 		r.displayConversationLog()
-	case "/log":
-		// Enable logging
-		r.loggingEnabled = true
-		fmt.Print("Conversation logging enabled\r\n")
-	case "/nolog":
-		r.loggingEnabled = false
-		fmt.Print("Conversation logging disabled\r\n")
-	case "/replies":
-		r.includeReplies = true
-		fmt.Print("Assistant replies will be included in context\r\n")
-	case "/noreplies":
-		r.includeReplies = false
-		fmt.Print("Assistant replies will be excluded from context\r\n")
+	// Log/nolog commands removed - functionality in conf.go
+	// Replies/noreplies commands removed - functionality in conf.go
 	case "/clear":
 		r.messages = []Message{}
 		fmt.Print("Conversation messages cleared\r\n")
+	case "/set":
+		// Handle set command
+		return r.handleSetCommand(parts)
+	case "/get":
+		// Handle get command
+		return r.handleGetCommand(parts)
+	case "/unset":
+		// Handle unset command
+		return r.handleUnsetCommand(parts)
+	case "/compact":
+		// Handle compact command
+		return r.handleCompactCommand()
 	case "/save":
 		if len(parts) < 2 {
 			fmt.Print("Usage: /save <path>\n\r")
@@ -646,15 +672,7 @@ func (r *REPL) handleCommand(input string) error {
 			// Default behavior - remove the last message
 			r.undoLastMessage()
 		}
-	case "/prompt":
-		if len(parts) < 2 {
-			fmt.Print("Usage: /prompt <path>\n\r")
-			return nil
-		}
-		return r.loadSystemPrompt(parts[1])
-	case "/noprompt":
-		r.systemPrompt = ""
-		fmt.Print("System prompt removed\r\n")
+	// /prompt and /noprompt commands removed - functionality in conf.go
 	case "/image":
 		if len(parts) < 2 {
 			fmt.Print("Usage: /image <path>\n\r")
@@ -672,7 +690,7 @@ func (r *REPL) handleCommand(input string) error {
 	case "/nofiles":
 		return r.clearPendingFiles()
 	default:
-		fmt.Printf("Unknown command: %s\n", command)
+		fmt.Printf("Unknown command: %s\n\r", command)
 	}
 
 	return nil
@@ -1105,6 +1123,97 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 }
 
 // Load system prompt from a file
+
+// handlePromptCommand handles the # command for prompt expansion
+func (r *REPL) handlePromptCommand(input string) error {
+	// Split the input into command and arguments
+	parts := strings.SplitN(input, " ", 2)
+	promptName := parts[0][1:] // Remove the # prefix
+
+	// If no prompt name is provided, list all .md files from promptdir
+	if promptName == "" {
+		return r.listPrompts()
+	}
+
+	// Load the prompt file content
+	promptPath, err := r.resolvePromptPath(promptName)
+	if err != nil {
+		fmt.Printf("Error: %v\r\n", err)
+		return nil
+	}
+
+	// Read the prompt file content
+	promptContent, err := os.ReadFile(promptPath)
+	if err != nil {
+		fmt.Printf("Error: %v\r\n", err)
+		return nil
+	}
+
+	// Replace the #command with the file content in the input
+	expandedInput := string(promptContent)
+	if len(parts) > 1 && parts[1] != "" {
+		expandedInput += "\n\n" + parts[1]
+	}
+
+	// Send expanded input to AI
+	return r.sendToAI(expandedInput)
+}
+
+// listPrompts lists all .md files in the promptdir
+func (r *REPL) listPrompts() error {
+	// Get the prompt directory from config
+	promptDir := r.config.options.Get("promptdir")
+	if promptDir == "" {
+		// Try common locations
+		commonLocations := []string{
+			"./prompts",
+			"../prompts",
+		}
+
+		found := false
+		for _, loc := range commonLocations {
+			if _, err := os.Stat(loc); err == nil {
+				promptDir = loc
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			fmt.Print("No prompt directory found. Set one with /set promptdir <path>\r\n")
+			return nil
+		}
+	}
+
+	// List all .md files in the directory
+	files, err := os.ReadDir(promptDir)
+	if err != nil {
+		fmt.Printf("Error reading prompt directory: %v\r\n", err)
+		return nil
+	}
+
+	// Filter for .md files and display
+	mdFiles := []string{}
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".md") {
+			baseName := strings.TrimSuffix(file.Name(), ".md")
+			mdFiles = append(mdFiles, baseName)
+		}
+	}
+
+	if len(mdFiles) == 0 {
+		fmt.Printf("No prompt files (.md) found in %s\r\n", promptDir)
+		return nil
+	}
+
+	fmt.Printf("Available prompts (use # followed by name):\r\n")
+	for _, file := range mdFiles {
+		fmt.Printf("  %s\r\n", file)
+	}
+
+	return nil
+}
+
 // handleFilePathCompletion handles tab completion for file paths
 func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath string) {
 	// Expand ~ to home directory if present
@@ -1301,6 +1410,7 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 	return nil
 }
 
+// loadSystemPrompt loads a system prompt from a file and updates the config
 func (r *REPL) loadSystemPrompt(path string) error {
 	// Expand ~ to home directory if present
 	if strings.HasPrefix(path, "~") {
@@ -1319,6 +1429,10 @@ func (r *REPL) loadSystemPrompt(path string) error {
 
 	// Set the system prompt
 	r.systemPrompt = string(content)
+	
+	// Update the promptfile configuration
+	r.config.options.Set("promptfile", path)
+	
 	fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
 	return nil
 }
@@ -1659,6 +1773,172 @@ func (r *REPL) getCurrentModelForProvider() string {
 	default:
 		return ""
 	}
+}
+
+// handleCompactCommand processes the /compact command
+// It loads the compact.txt prompt and submits the entire conversation history
+// to the AI, then replaces all messages with the AI's response
+// handleOptionCompletion handles tab completion for configuration options
+func (r *REPL) handleOptionCompletion(line *strings.Builder, cmd, partialOption string) {
+	var options []string
+
+	if cmd == "/set" || cmd == "/get" {
+		// For /set and /get, show all available options
+		options = GetAvailableOptions()
+	} else if cmd == "/unset" {
+		// For /unset, show only options that are currently set
+		options = r.config.options.GetKeys()
+	}
+
+	// Filter options by the partial input
+	var filteredOptions []string
+	for _, opt := range options {
+		if strings.HasPrefix(opt, partialOption) {
+			filteredOptions = append(filteredOptions, opt)
+		}
+	}
+
+	// If no matches, return
+	if len(filteredOptions) == 0 {
+		return
+	}
+
+	// If this is the first tab press, set the state and show the first match
+	if r.completeState == 0 {
+		r.completeState = 1
+		r.completeOptions = filteredOptions
+		r.completePrefix = cmd + " "
+
+		// Replace current input with the first match
+		currentInput := line.String()
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Get the first match
+		firstMatch := r.completePrefix + filteredOptions[0]
+
+		// Print and set the first match
+		fmt.Print(firstMatch)
+		line.Reset()
+		line.WriteString(firstMatch)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	} else {
+		// Subsequent tab presses - cycle through options
+		if len(r.completeOptions) <= 1 {
+			return
+		}
+
+		// Find current option
+		currentInput := line.String()
+		currentOption := strings.TrimPrefix(currentInput, r.completePrefix)
+
+		// Find current index
+		currentIdx := -1
+		for i, opt := range r.completeOptions {
+			if opt == currentOption {
+				currentIdx = i
+				break
+			}
+		}
+
+		// Get next option
+		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextOption := r.completePrefix + r.completeOptions[nextIdx]
+
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Print next option
+		fmt.Print(nextOption)
+		line.Reset()
+		line.WriteString(nextOption)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	}
+}
+
+func (r *REPL) handleCompactCommand() error {
+	// Check if there are enough messages to compact
+	if len(r.messages) < 2 {
+		fmt.Print("Not enough messages to compact. Need at least one exchange.\r\n")
+		return nil
+	}
+
+	// Try to find the compact prompt using resolvePromptPath
+	promptPath, err := r.resolvePromptPath("compact")
+	if err != nil {
+		return fmt.Errorf("failed to find compact prompt: %v", err)
+	}
+
+	// Load the compact prompt from file
+	compactPrompt, err := os.ReadFile(promptPath)
+	if err != nil {
+		return fmt.Errorf("failed to read compact prompt: %v", err)
+	}
+
+	// Create a serialized version of the conversation for the AI
+	var conversationText strings.Builder
+	conversationText.WriteString("# Conversation History\n\n")
+
+	for i, msg := range r.messages {
+		role := formatRole(msg.Role)
+		conversationText.WriteString(fmt.Sprintf("## %s %d:\n\n%s\n\n", role, i+1, msg.Content))
+	}
+
+	// Create a new message with the compact prompt and conversation history
+	compactMessage := Message{
+		Role:    "user",
+		Content: string(compactPrompt) + "\n\n" + conversationText.String(),
+	}
+
+	// Save original messages for recovery if needed
+	originalMessages := r.messages
+
+	// Replace messages with just the compact message
+	r.messages = []Message{compactMessage}
+
+	fmt.Print("Compacting conversation...\r\n")
+
+	// Create client and send message
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		// Restore original messages on error
+		r.messages = originalMessages
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+
+	// Prepare messages for the API
+	apiMessages := []Message{}
+	if r.systemPrompt != "" {
+		apiMessages = append(apiMessages, Message{Role: "system", Content: r.systemPrompt})
+	}
+	apiMessages = append(apiMessages, compactMessage)
+
+	// Send the message to the AI (non-streaming mode for this operation)
+	response, err := client.SendMessage(apiMessages, false)
+	if err != nil {
+		// Restore original messages on error
+		r.messages = originalMessages
+		return fmt.Errorf("failed to compact conversation: %v", err)
+	}
+
+	// Create the assistant response message
+	assistantMessage := Message{Role: "assistant", Content: response}
+
+	// Replace the conversation with just the compact message and response
+	r.messages = []Message{
+		Message{Role: "user", Content: "Please provide a compact response to my questions and needs."},
+		assistantMessage,
+	}
+
+	fmt.Print("Conversation compacted successfully.\r\n")
+
+	return nil
 }
 
 // saveConversation saves the current conversation to a JSON file

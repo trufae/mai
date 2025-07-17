@@ -1,0 +1,422 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+// OptionType represents the type of a configuration option
+type OptionType string
+
+const (
+	StringOption  OptionType = "string"
+	BooleanOption OptionType = "boolean"
+	NumberOption  OptionType = "number"
+)
+
+// OptionInfo stores metadata about a configuration option
+type OptionInfo struct {
+	Type        OptionType
+	Description string
+	Default     string // Default value as a string
+}
+
+// ConfigOptions stores the key-value pairs for configuration
+type ConfigOptions struct {
+	values      map[string]string
+	optionInfos map[string]OptionInfo
+	initialized bool
+}
+
+// NewConfigOptions creates and initializes a new ConfigOptions
+func NewConfigOptions() *ConfigOptions {
+	co := &ConfigOptions{
+		values:      make(map[string]string),
+		optionInfos: make(map[string]OptionInfo),
+	}
+
+	// Define built-in options
+	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
+	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
+	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
+	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
+	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
+	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "true")
+	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
+	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
+
+	co.initialized = true
+
+	// Set the global reference to this config
+	globalConfig = co
+
+	return co
+}
+
+// RegisterOption registers a new configuration option with type information
+func (c *ConfigOptions) RegisterOption(name string, optType OptionType, description, defaultValue string) {
+	c.optionInfos[name] = OptionInfo{
+		Type:        optType,
+		Description: description,
+		Default:     defaultValue,
+	}
+
+	// If we're already initialized and this is a new option, set the default value
+	if c.initialized && c.Get(name) == "" && defaultValue != "" {
+		c.Set(name, defaultValue)
+	}
+}
+
+// GetOptionInfo returns type information for an option
+func (c *ConfigOptions) GetOptionInfo(key string) (OptionInfo, bool) {
+	info, exists := c.optionInfos[key]
+	return info, exists
+}
+
+// Get retrieves a configuration value as string
+func (c *ConfigOptions) Get(key string) string {
+	if value, exists := c.values[key]; exists && value != "" {
+		return value
+	}
+
+	// Return default if defined
+	if info, exists := c.optionInfos[key]; exists {
+		return info.Default
+	}
+
+	return ""
+}
+
+// GetBool retrieves a configuration value as boolean
+func (c *ConfigOptions) GetBool(key string) bool {
+	value := strings.ToLower(c.Get(key))
+	return value == "true" || value == "yes" || value == "1" || value == "on"
+}
+
+// GetNumber retrieves a configuration value as float64
+func (c *ConfigOptions) GetNumber(key string) (float64, error) {
+	value := c.Get(key)
+	if value == "" {
+		return 0, nil
+	}
+	return strconv.ParseFloat(value, 64)
+}
+
+// Set stores a configuration value
+// Returns an error if the value doesn't match the expected type
+func (c *ConfigOptions) Set(key, value string) error {
+	// Check if the option is registered and validate based on type
+	if info, exists := c.optionInfos[key]; exists {
+		switch info.Type {
+		case BooleanOption:
+			normalizedValue := strings.ToLower(value)
+			if normalizedValue != "true" && normalizedValue != "false" {
+				return fmt.Errorf("invalid boolean value: %s (must be 'true' or 'false')", value)
+			}
+			c.values[key] = normalizedValue
+		case NumberOption:
+			_, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return fmt.Errorf("invalid number value: %s", value)
+			}
+			c.values[key] = value
+		default: // StringOption or unknown type
+			c.values[key] = value
+		}
+	} else {
+		// For unregistered options, just store as string
+		c.values[key] = value
+	}
+	return nil
+}
+
+// Unset removes a configuration value
+func (c *ConfigOptions) Unset(key string) {
+	delete(c.values, key)
+}
+
+// GetKeys returns a list of all configuration keys that have values set
+func (c *ConfigOptions) GetKeys() []string {
+	keys := make([]string, 0, len(c.values))
+	for key := range c.values {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// Global reference to the config options for static functions
+var globalConfig *ConfigOptions
+
+// GetAvailableOptions returns a list of all available configuration options
+func GetAvailableOptions() []string {
+	if globalConfig != nil {
+		// Return dynamically from registered options
+		options := make([]string, 0, len(globalConfig.optionInfos))
+		for key := range globalConfig.optionInfos {
+			options = append(options, key)
+		}
+		return options
+	}
+
+	// Fallback to static list
+	return []string{
+		"promptdir",
+		"stream",
+		"include_replies",
+		"logging",
+		"reasoning",
+		"max_tokens",
+		"temperature",
+	}
+}
+
+// GetOptionDescription returns a description for the given option
+func GetOptionDescription(option string) string {
+	// Check if we can get description from registered options
+	if globalConfig != nil {
+		if info, exists := globalConfig.GetOptionInfo(option); exists {
+			return info.Description
+		}
+	}
+
+	// Fallback to static descriptions
+	descriptions := map[string]string{
+		"promptdir":       "Directory to read prompts from",
+		"stream":          "Enable streaming mode (true/false)",
+		"include_replies": "Include assistant replies in context (true/false)",
+		"logging":         "Enable conversation logging (true/false)",
+		"reasoning":       "Enable AI reasoning (true/false)",
+		"max_tokens":      "Maximum tokens for AI response",
+		"temperature":     "Temperature for AI response (0.0-1.0)",
+	}
+
+	if desc, exists := descriptions[option]; exists {
+		return desc
+	}
+	return "No description available"
+}
+
+// GetOptionType returns the type of a given option
+func GetOptionType(option string) OptionType {
+	// Check if we can get type from registered options
+	if globalConfig != nil {
+		if info, exists := globalConfig.GetOptionInfo(option); exists {
+			return info.Type
+		}
+	}
+
+	// Fallback to static types
+	types := map[string]OptionType{
+		"promptdir":       StringOption,
+		"stream":          BooleanOption,
+		"include_replies": BooleanOption,
+		"logging":         BooleanOption,
+		"reasoning":       BooleanOption,
+		"max_tokens":      NumberOption,
+		"temperature":     NumberOption,
+	}
+
+	if optType, exists := types[option]; exists {
+		return optType
+	}
+	return StringOption // Default to string type
+}
+
+// resolvePromptPath resolves the path to a prompt file
+// It checks in the promptdir configuration if set, otherwise it tries common locations
+func (r *REPL) resolvePromptPath(promptName string) (string, error) {
+	// If the prompt path is absolute or contains path separators, use it directly
+	if filepath.IsAbs(promptName) || strings.ContainsAny(promptName, "/\\") {
+		return promptName, nil
+	}
+
+	// First try the promptdir configuration if set
+	if promptDir := r.config.options.Get("promptdir"); promptDir != "" {
+		promptPath := filepath.Join(promptDir, promptName)
+		// Try with and without .md extension
+		if _, err := os.Stat(promptPath); err == nil {
+			return promptPath, nil
+		}
+		if _, err := os.Stat(promptPath + ".md"); err == nil {
+			return promptPath + ".md", nil
+		}
+	}
+
+	// Next, try common locations for prompts
+	commonLocations := []string{
+		"./prompts",                   // Current directory's prompts folder
+		"../prompts",                  // Parent directory's prompts folder
+		filepath.Join(".", "prompts"), // Explicitly using filepath.Join
+	}
+
+	// Try each location
+	for _, location := range commonLocations {
+		promptPath := filepath.Join(location, promptName)
+		// Try with and without .md extension
+		if _, err := os.Stat(promptPath); err == nil {
+			return promptPath, nil
+		}
+		if _, err := os.Stat(promptPath + ".md"); err == nil {
+			return promptPath + ".md", nil
+		}
+	}
+
+	return "", fmt.Errorf("prompt not found: %s", promptName)
+}
+
+// handleSetCommand handles the /set command with auto-completion and type validation
+func (r *REPL) handleSetCommand(args []string) error {
+	if len(args) < 2 {
+		fmt.Print("Usage: /set <option> [value]\r\n")
+		fmt.Print("Available options:\r\n")
+		for _, option := range GetAvailableOptions() {
+			optType := GetOptionType(option)
+			fmt.Printf("  %s (%s) - %s\r\n", option, optType, GetOptionDescription(option))
+		}
+		return nil
+	}
+
+	option := args[1]
+
+	if len(args) < 3 {
+		// Display current value if no value argument is provided
+		value := r.config.options.Get(option)
+
+		// Get option type and status
+		optType := GetOptionType(option)
+		var status string
+		if value == "" {
+			status = "not set"
+
+			// Check for default value
+			if info, exists := r.config.options.GetOptionInfo(option); exists && info.Default != "" {
+				status = fmt.Sprintf("default: %s", info.Default)
+			}
+		} else {
+			status = value
+		}
+
+		fmt.Printf("%s = %s (type: %s)\r\n", option, status, optType)
+		return nil
+	}
+
+	value := args[2]
+
+	// Set the option value with validation
+	if err := r.config.options.Set(option, value); err != nil {
+		fmt.Printf("Error: %v\r\n", err)
+
+		// Show expected format for the type
+		if optType := GetOptionType(option); optType != "" {
+			switch optType {
+			case BooleanOption:
+				fmt.Print("Boolean options accept: true, false\r\n")
+			case NumberOption:
+				fmt.Print("Number options accept numeric values\r\n")
+			}
+		}
+
+		return nil
+	}
+
+	// If setting 'stream', update the streaming flag
+	if option == "stream" {
+		r.streamingEnabled = r.config.options.GetBool("stream")
+		streamStatus := "enabled"
+		if !r.streamingEnabled {
+			streamStatus = "disabled"
+		}
+		fmt.Printf("Streaming mode %s\r\n", streamStatus)
+	} else {
+		fmt.Printf("Set %s = %s\r\n", option, value)
+	}
+
+	return nil
+}
+
+// handleGetCommand handles the /get command
+func (r *REPL) handleGetCommand(args []string) error {
+	if len(args) < 2 {
+		fmt.Print("Usage: /get <option>\r\n")
+		fmt.Print("Available options:\r\n")
+		// List all available options and their current values
+		for _, option := range GetAvailableOptions() {
+			value := r.config.options.Get(option)
+			optType := GetOptionType(option)
+
+			var status string
+			if value == "" {
+				status = "not set"
+
+				// Check for default value
+				if info, exists := r.config.options.GetOptionInfo(option); exists && info.Default != "" {
+					status = fmt.Sprintf("default: %s", info.Default)
+				}
+			} else {
+				status = value
+			}
+
+			fmt.Printf("  %s = %s (type: %s) - %s\r\n",
+				option, status, optType, GetOptionDescription(option))
+		}
+		return nil
+	}
+
+	option := args[1]
+	value := r.config.options.Get(option)
+	optType := GetOptionType(option)
+
+	// Get detailed status
+	var status string
+	if value == "" {
+		status = "not set"
+
+		// Check for default value
+		if info, exists := r.config.options.GetOptionInfo(option); exists && info.Default != "" {
+			status = fmt.Sprintf("default: %s", info.Default)
+		}
+	} else {
+		status = value
+	}
+
+	fmt.Printf("%s = %s (type: %s)\r\n", option, status, optType)
+	fmt.Printf("Description: %s\r\n", GetOptionDescription(option))
+
+	return nil
+}
+
+// handleUnsetCommand handles the /unset command with auto-completion
+func (r *REPL) handleUnsetCommand(args []string) error {
+	if len(args) < 2 {
+		fmt.Print("Usage: /unset <option>\r\n")
+		fmt.Print("Available options:\r\n")
+		for _, key := range r.config.options.GetKeys() {
+			if value := r.config.options.Get(key); value != "" {
+				optType := GetOptionType(key)
+				fmt.Printf("  %s = %s (type: %s)\r\n", key, value, optType)
+			}
+		}
+		return nil
+	}
+
+	option := args[1]
+
+	// Unset the option
+	r.config.options.Unset(option)
+	fmt.Printf("Unset %s\r\n", option)
+
+	// If unsetting 'stream', revert to default value (true)
+	if option == "stream" {
+		r.streamingEnabled = r.config.options.GetBool("stream")
+		streamStatus := "enabled"
+		if !r.streamingEnabled {
+			streamStatus = "disabled"
+		}
+		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
+	}
+
+	return nil
+}

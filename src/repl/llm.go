@@ -1213,7 +1213,7 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
-	
+
 	// If API call fails or no key, fall back to hardcoded values
 	if err != nil || p.config.DeepSeekKey == "" {
 		// DeepSeek doesn't have a well-documented model listing endpoint
@@ -1363,7 +1363,7 @@ func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// For AWS Bedrock, we'd need to use the AWS SDK to list models properly
 	// Since that would add a dependency, we'll use hardcoded models for now
 	// Users can use any of these models or others by setting the BedrockModel config
-	
+
 	// Comprehensive list of models available through Bedrock
 	return []Model{
 		{
@@ -1526,12 +1526,12 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	headers := map[string]string{
-		"Content-Type":  "application/json",
+		"Content-Type": "application/json",
 	}
 
 	// Attempt to get models list
 	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
-	
+
 	// If the endpoint doesn't exist or returns an error, return default model
 	if err != nil {
 		return []Model{

@@ -36,9 +36,10 @@ type Config struct {
 	ShowScissors  bool
 	PROVIDER      string
 	NoStream      bool
-	ImagePath     string // Path to image to send with the message
-	BaseURL       string // Base URL to connect to LLM API
-	UserAgent     string // User agent for HTTP requests
+	ImagePath     string         // Path to image to send with the message
+	BaseURL       string         // Base URL to connect to LLM API
+	UserAgent     string         // User agent for HTTP requests
+	options       *ConfigOptions // Configuration options
 }
 
 type ClaudeRequest struct {
@@ -191,6 +192,7 @@ func loadConfig() *Config {
 		BaseURL:       getEnvOrDefault("BASE_URL", ""),
 		UserAgent:     getEnvOrDefault("USER_AGENT", "ai-repl/1.0"),
 		NoStream:      false,
+		options:       NewConfigOptions(), // Initialize configuration options
 	}
 
 	// Load API keys from files if environment variables are not set
