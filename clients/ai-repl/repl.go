@@ -86,7 +86,7 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	fmt.Print(fmt.Sprintf("llm-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
+	fmt.Print(fmt.Sprintf("ai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 	// r.showCommands()
 
 	for {

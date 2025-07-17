@@ -37,6 +37,7 @@ type Config struct {
 	PROVIDER      string
 	NoStream      bool
 	ImagePath     string // Path to image to send with the message
+	BaseURL       string // Base URL to connect to LLM API
 }
 
 type ClaudeRequest struct {
@@ -186,6 +187,7 @@ func loadConfig() *Config {
 		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
+		BaseURL:       getEnvOrDefault("BASE_URL", ""),
 		NoStream:      false,
 	}
 
@@ -724,11 +726,13 @@ Flags:
 -i <path> = attach an image to send to the model
 -p <provider> = select the provider to use
 -m <model> = select the model for the given provider
+-b <url> = specify a custom base URL for API requests
 -- = stdin mode
 
 Environment:
 
 PROVIDER= ollama | gemini | deepseek | claude | openai | mistral | bedrock
+BASE_URL= custom API base URL (e.g., https://api.moonshot.ai/anthropic)
 
 Local:
 
@@ -832,6 +836,15 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -p requires a provider argument\n")
 				os.Exit(1)
 			}
+		case "-b":
+			if i+1 < len(args) {
+				config.BaseURL = args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -b requires a base URL argument\n")
+				os.Exit(1)
+			}
 		case "-m":
 			if i+1 < len(args) {
 				setModelForProvider(config, args[i+1])
@@ -889,7 +902,8 @@ func main() {
 	}
 
 	// Send to LLM without streaming (for stdin mode)
-	_, err = client.SendMessageWithImages(messages, false, images)
+	res, err := client.SendMessageWithImages(messages, false, images)
+	fmt.Println(res)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling %s provider: %v\n", config.PROVIDER, err)

@@ -147,7 +147,11 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		"Content-Type": "application/json",
 	}
 
+	// Use the configured base URL if available, otherwise construct from host/port
 	url := fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
+	if c.config.BaseURL != "" {
+		url = c.config.BaseURL
+	}
 
 	// Handle streaming vs non-streaming the same way as regular requests
 	if stream {
@@ -310,7 +314,11 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Content-Type": "application/json",
 	}
 
+	// Use the configured base URL if available, otherwise construct from host/port
 	url := fmt.Sprintf("http://%s:%s/api/chat", p.config.OllamaHost, p.config.OllamaPort)
+	if p.config.BaseURL != "" {
+		url = p.config.BaseURL
+	}
 
 	if stream {
 		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
@@ -411,12 +419,18 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Authorization": "Bearer " + p.config.OpenAIKey,
 	}
 
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.openai.com/v1/chat/completions"
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
+
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", "https://api.openai.com/v1/chat/completions",
+		return llmMakeStreamingRequest(ctx, "POST", apiURL,
 			headers, jsonData, p.parseStream)
 	}
 
-	respBody, err := llmMakeRequest("POST", "https://api.openai.com/v1/chat/completions",
+	respBody, err := llmMakeRequest("POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -522,12 +536,18 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 		"x-api-key":         p.config.ClaudeKey,
 	}
 
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.anthropic.com/v1/messages"
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
+
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", "https://api.anthropic.com/v1/messages",
+		return llmMakeStreamingRequest(ctx, "POST", apiURL,
 			headers, jsonData, p.parseStream)
 	}
 
-	respBody, err := llmMakeRequest("POST", "https://api.anthropic.com/v1/messages",
+	respBody, err := llmMakeRequest("POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -652,11 +672,15 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Content-Type": "application/json",
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s",
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s",
 		p.config.GeminiKey)
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
 
 	// Gemini doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", url, headers, jsonData)
+	respBody, err := llmMakeRequest("POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -724,8 +748,14 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		"Content-Type":  "application/json",
 	}
 
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.mistral.ai/v1/chat/completions"
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
+
 	// Mistral doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", "https://api.mistral.ai/v1/chat/completions",
+	respBody, err := llmMakeRequest("POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -792,8 +822,14 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 		"Content-Type":  "application/json",
 	}
 
+	// Use the configured base URL if available, otherwise use the default API URL
+	apiURL := "https://api.deepseek.com/chat/completions"
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
+
 	// DeepSeek doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", "https://api.deepseek.com/chat/completions",
+	respBody, err := llmMakeRequest("POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -873,9 +909,12 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 		return "", err
 	}
 
-	// Bedrock requires AWS signature auth, so we'll use AWS endpoint format
-	url := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke",
+	// Use the configured base URL if available, otherwise use the default AWS endpoint format
+	apiURL := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke",
 		p.config.BedrockRegion, p.config.BedrockModel)
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
 
 	headers := map[string]string{
 		"Content-Type":       "application/json",
@@ -883,7 +922,7 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	// Bedrock doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", url, headers, jsonData)
+	respBody, err := llmMakeRequest("POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -950,10 +989,14 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 		"Content-Type": "application/json",
 	}
 
-	url := fmt.Sprintf("http://%s:%s/completion", p.config.OpenAPIHost, p.config.OpenAPIPort)
+	// Use the configured base URL if available, otherwise construct from host/port
+	apiURL := fmt.Sprintf("http://%s:%s/completion", p.config.OpenAPIHost, p.config.OpenAPIPort)
+	if p.config.BaseURL != "" {
+		apiURL = p.config.BaseURL
+	}
 
 	// OpenAPI doesn't support streaming in our implementation
-	respBody, err := llmMakeRequest("POST", url, headers, jsonData)
+	respBody, err := llmMakeRequest("POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}

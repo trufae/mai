@@ -212,7 +212,7 @@ func (s *MCPService) initializeServer(server *MCPServer) error {
 				"tools": map[string]interface{}{},
 			},
 			"clientInfo": map[string]interface{}{
-				"name":    "mcp-rest-bridge",
+				"name":    "ai-mcpd",
 				"version": "1.0.0",
 			},
 		},
