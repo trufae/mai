@@ -39,6 +39,7 @@ type Config struct {
 	ImagePath     string         // Path to image to send with the message
 	BaseURL       string         // Base URL to connect to LLM API
 	UserAgent     string         // User agent for HTTP requests
+	IsStdinMode   bool           // Whether running in stdin mode
 	options       *ConfigOptions // Configuration options
 }
 
@@ -883,6 +884,9 @@ func main() {
 
 	// Check for REPL mode flag
 	if len(args) > 0 && args[0] == "-r" || len(args) == 0 {
+		// Not stdin mode, will load .aclirc
+		config.IsStdinMode = false
+
 		repl, err := NewREPL(config)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
@@ -895,6 +899,9 @@ func main() {
 		}
 		return
 	}
+
+	// If we got here, we're in stdin mode
+	config.IsStdinMode = true
 
 	input := readInput(args)
 

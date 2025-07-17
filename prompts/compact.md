@@ -1,16 +1,13 @@
-        1 +  I'm going to provide you with a conversation history between a user and an AI assistant. Your task is
-          + to analyze the entire conversation and provide a concise, focused response that addresses the core of
-          + the user's questions and needs.
-        2 +
-        3 +  This response should:
-        4 +  1. Synthesize all the important information from the conversation
-        5 +  2. Remove repetitive or redundant elements
-        6 +  3. Maintain all key insights and valuable content
-        7 +  4. Be presented as a single, coherent response
-        8 +  5. Focus on providing the most helpful answer to what the user is ultimately trying to accomplish
-        9 +
-       10 +  This helps create a cleaner, more efficient conversation that delivers the same value in a more
-          + concise format.
+I'm going to provide you with a conversation history between a user and an AI assistant. Your task is to analyze the entire conversation and provide a concise, focused response that addresses the core of the user's questions and needs.
+
+ This response should:
+ 1. Synthesize all the important information from the conversation
+ 2. Remove repetitive or redundant elements
+ 3. Maintain all key insights and valuable content
+ 4. Be presented as a single, coherent response
+ 5. Focus on providing the most helpful answer to what the user is ultimately trying to accomplish
+
+This helps create a cleaner, more efficient conversation that delivers the same value in a more concise format.
 
 Okay, here are a few prompt options, varying in detail and tone, suitable for a language mode query focused on compacting a conversation log. I've categorized them by increasing complexity:
 

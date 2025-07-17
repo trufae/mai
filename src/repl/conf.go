@@ -47,6 +47,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "true")
 	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
 	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
+	co.RegisterOption("model", StringOption, "AI model to use", "")
+	co.RegisterOption("provider", StringOption, "AI provider to use", "")
 
 	co.initialized = true
 
@@ -269,10 +271,22 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) error {
-	// Special handling for /set promptfile <path>
-	if len(args) >= 3 && args[1] == "promptfile" {
-		filePath := args[2]
-		return r.loadSystemPrompt(filePath)
+	// Special handling for specific config options
+	if len(args) >= 3 {
+		switch args[1] {
+		case "promptfile":
+			// Load system prompt
+			filePath := args[2]
+			return r.loadSystemPrompt(filePath)
+		case "model":
+			// Set model
+			model := strings.Join(args[2:], " ")
+			return r.setModel(model)
+		case "provider":
+			// Set provider
+			provider := strings.ToLower(args[2])
+			return r.setProvider(provider)
+		}
 	}
 	if len(args) < 2 {
 		fmt.Print("Usage: /set <option> [value]\r\n")
@@ -346,6 +360,12 @@ func (r *REPL) handleSetCommand(args []string) error {
 		r.loggingEnabled = r.config.options.GetBool("logging")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "promptfile":
+		// Already handled above
+		return nil
+	case "model":
+		// Already handled above
+		return nil
+	case "provider":
 		// Already handled above
 		return nil
 	default:
@@ -447,6 +467,10 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	case "promptfile":
 		r.systemPrompt = ""
 		fmt.Print("System prompt removed\r\n")
+	case "model":
+		fmt.Print("Model setting reverted to default\r\n")
+	case "provider":
+		fmt.Print("Provider setting reverted to default\r\n")
 	default:
 		fmt.Printf("Unset %s\r\n", option)
 	}

@@ -99,6 +99,51 @@ func NewREPL(config *Config) (*REPL, error) {
 	return repl, nil
 }
 
+// loadRCFile loads and processes commands from ~/.aclirc file
+func (r *REPL) loadRCFile() error {
+	// Get user's home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	// Form the path to the .aclirc file
+	rcFilePath := filepath.Join(homeDir, ".aclirc")
+
+	// Check if the file exists
+	if _, err := os.Stat(rcFilePath); os.IsNotExist(err) {
+		// File doesn't exist, not an error
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("error checking .aclirc file: %v", err)
+	}
+
+	// Read the file
+	rcFileContent, err := os.ReadFile(rcFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read .aclirc file: %v", err)
+	}
+
+	// Process each line in the file
+	lines := strings.Split(string(rcFileContent), "\n")
+	for _, line := range lines {
+		// Trim whitespace
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and lines that don't start with /
+		if line == "" || !strings.HasPrefix(line, "/") {
+			continue
+		}
+
+		// Process the command
+		if err := r.handleCommand(line); err != nil {
+			fmt.Printf("Error in .aclirc: %v\r\n", err)
+		}
+	}
+
+	return nil
+}
+
 func (r *REPL) Run() error {
 	defer r.cleanup()
 
@@ -112,6 +157,13 @@ func (r *REPL) Run() error {
 
 	fmt.Print(fmt.Sprintf("ai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 	// r.showCommands()
+
+	// Load and process ~/.aclirc if not in stdin mode
+	if !r.config.IsStdinMode {
+		if err := r.loadRCFile(); err != nil {
+			fmt.Printf("Error loading .aclirc: %v\r\n", err)
+		}
+	}
 
 	for {
 		if err := r.handleInput(); err != nil {
@@ -132,21 +184,13 @@ func (r *REPL) showCommands() {
 	fmt.Print("  /file <path>   - Add a file to the next message\r\n")
 	fmt.Print("  /noimage       - Remove pending images\r\n")
 	fmt.Print("  /nofiles       - Remove pending files\r\n")
-	fmt.Print("  /set promptfile <path> - Load system prompt from file\r\n")
-	fmt.Print("  /unset promptfile     - Remove system prompt\r\n")
-	fmt.Print("  /model         - Show current model or change model\r\n")
-	fmt.Print("  /models        - List all available models for current provider\r\n")
-	fmt.Print("  /provider      - Show current provider or change provider\r\n")
 	fmt.Print("  /set <opt> [val] - Set or display configuration option\r\n")
 	fmt.Print("  /get <opt>      - Display configuration option value\r\n")
 	fmt.Print("  /unset <opt>   - Unset configuration option\r\n")
-	fmt.Print("  /save <path>   - Save conversation history to file\r\n")
-	fmt.Print("  /load <path>   - Load conversation history from file\r\n")
+	fmt.Print("  /chat          - Manage conversation (save, load, clear, list, undo)\r\n")
 	fmt.Print("  /compact       - Compact conversation into a single message\r\n")
 	fmt.Print("  /cancel        - Cancel current request\r\n")
 	fmt.Print("  /clear         - Clear conversation messages\r\n")
-	fmt.Print("  /list          - Display conversation messages\r\n")
-	fmt.Print("  /undo [N]      - Remove last or Nth message from conversation\r\n")
 	fmt.Print("  /quit          - Exit REPL\r\n")
 	fmt.Print("  #              - List available prompt files (.md)\r\n")
 	fmt.Print("  #<name> <text> - Use content from prompt file with text\r\n")
@@ -437,6 +481,20 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		return
 	}
 
+	// Handle tab completion for /chat subcommands
+	if strings.HasPrefix(input, "/chat ") && len(parts) >= 2 {
+		if len(parts) == 2 {
+			// Complete /chat subcommands
+			subcmd := parts[1]
+			r.handleChatSubcommandCompletion(line, subcmd)
+			return
+		} else if len(parts) == 3 && (parts[1] == "save" || parts[1] == "load") {
+			// Complete file paths for save/load
+			r.handleFilePathCompletion(line, "/chat "+parts[1], parts[2])
+			return
+		}
+	}
+
 	// Only handle tab completion at the beginning of the line for commands
 	if !strings.HasPrefix(input, "/") {
 		return
@@ -613,6 +671,57 @@ func (r *REPL) addToHistory(input string) {
 	r.historyIndex = -1
 }
 
+// handleChatCommand handles the /chat command and its subcommands
+func (r *REPL) handleChatCommand(args []string) error {
+	// Show help if no arguments provided
+	if len(args) < 2 {
+		fmt.Print("Chat conversation management commands:\r\n")
+		fmt.Print("  /chat save <path> - Save conversation history to file\r\n")
+		fmt.Print("  /chat load <path> - Load conversation history from file\r\n")
+		fmt.Print("  /chat clear      - Clear conversation messages\r\n")
+		fmt.Print("  /chat list       - Display conversation messages\r\n")
+		fmt.Print("  /chat undo [N]   - Remove last or Nth message\r\n")
+		return nil
+	}
+
+	// Handle subcommands
+	action := args[1]
+	switch action {
+	case "save":
+		if len(args) < 3 {
+			fmt.Print("Usage: /chat save <path>\r\n")
+			return nil
+		}
+		return r.saveConversation(args[2])
+	case "load":
+		if len(args) < 3 {
+			fmt.Print("Usage: /chat load <path>\r\n")
+			return nil
+		}
+		return r.loadConversation(args[2])
+	case "clear":
+		r.messages = []Message{}
+		fmt.Print("Conversation messages cleared\r\n")
+		return nil
+	case "list":
+		r.displayConversationLog()
+		return nil
+	case "undo":
+		if len(args) > 2 {
+			// Parse the index argument
+			r.undoMessageByIndex(args[2])
+		} else {
+			// Default behavior - remove the last message
+			r.undoLastMessage()
+		}
+		return nil
+	default:
+		fmt.Printf("Unknown action: %s\r\n", action)
+		fmt.Print("Available actions: save, load, clear, list, undo\r\n")
+		return nil
+	}
+}
+
 func (r *REPL) handleCommand(input string) error {
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
@@ -638,6 +747,9 @@ func (r *REPL) handleCommand(input string) error {
 		r.displayConversationLog()
 	// Log/nolog commands removed - functionality in conf.go
 	// Replies/noreplies commands removed - functionality in conf.go
+	case "/chat":
+		// Handle chat command
+		return r.handleChatCommand(parts)
 	case "/clear":
 		r.messages = []Message{}
 		fmt.Print("Conversation messages cleared\r\n")
@@ -665,27 +777,7 @@ func (r *REPL) handleCommand(input string) error {
 			return nil
 		}
 		return r.loadConversation(parts[1])
-	case "/models":
-		// List all available models
-		return r.listModels()
-	case "/model":
-		if len(parts) > 1 {
-			// Set new model
-			model := strings.Join(parts[1:], " ")
-			return r.setModel(model)
-		} else {
-			// Display current model
-			r.showCurrentModel()
-		}
-	case "/provider":
-		if len(parts) > 1 {
-			// Set new provider
-			provider := strings.ToLower(parts[1])
-			return r.setProvider(provider)
-		} else {
-			// Display current provider
-			r.showCurrentProvider()
-		}
+	// /models, /model, and /provider commands removed - functionality in conf.go
 	case "/undo":
 		if len(parts) > 1 {
 			// Parse the index argument
@@ -1237,6 +1329,83 @@ func (r *REPL) listPrompts() error {
 }
 
 // handleFilePathCompletion handles tab completion for file paths
+// handleChatSubcommandCompletion handles tab completion for /chat subcommands
+func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
+	// Available chat subcommands
+	subcommands := []string{"save", "load", "clear", "list", "undo"}
+
+	// Filter subcommands by the partial input
+	var filteredCommands []string
+	for _, cmd := range subcommands {
+		if strings.HasPrefix(cmd, partialCmd) {
+			filteredCommands = append(filteredCommands, cmd)
+		}
+	}
+
+	// If no matches, return
+	if len(filteredCommands) == 0 {
+		return
+	}
+
+	// If this is the first tab press, set the state and show the first match
+	if r.completeState == 0 {
+		r.completeState = 1
+		r.completeOptions = filteredCommands
+		r.completePrefix = "/chat "
+
+		// Replace current input with the first match
+		currentInput := line.String()
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Get the first match
+		firstMatch := r.completePrefix + filteredCommands[0]
+
+		// Print and set the first match
+		fmt.Print(firstMatch)
+		line.Reset()
+		line.WriteString(firstMatch)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	} else {
+		// Subsequent tab presses - cycle through options
+		if len(r.completeOptions) <= 1 {
+			return
+		}
+
+		// Find current option
+		currentInput := line.String()
+		currentCmd := strings.TrimPrefix(currentInput, r.completePrefix)
+
+		// Find current index
+		currentIdx := -1
+		for i, opt := range r.completeOptions {
+			if opt == currentCmd {
+				currentIdx = i
+				break
+			}
+		}
+
+		// Get next option
+		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextOption := r.completePrefix + r.completeOptions[nextIdx]
+
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Print next option
+		fmt.Print(nextOption)
+		line.Reset()
+		line.WriteString(nextOption)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	}
+}
+
 // handleDirectoryCompletion handles tab completion for directory paths
 func (r *REPL) handleDirectoryCompletion(line *strings.Builder, cmd, partialPath string) {
 	// Expand ~ to home directory if present
