@@ -49,6 +49,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
 	co.RegisterOption("model", StringOption, "AI model to use", "")
 	co.RegisterOption("provider", StringOption, "AI provider to use", "")
+	co.RegisterOption("baseurl", StringOption, "Custom base URL for API requests", "")
 
 	co.initialized = true
 

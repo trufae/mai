@@ -96,6 +96,14 @@ func NewREPL(config *Config) (*REPL, error) {
 		}
 	}
 
+	// Set baseurl from command line flag if provided
+	if repl.config.BaseURL != "" {
+		repl.config.options.Set("baseurl", repl.config.BaseURL)
+	} else if baseURL := repl.config.options.Get("baseurl"); baseURL != "" {
+		// Or use the config option if set
+		repl.config.BaseURL = baseURL
+	}
+
 	return repl, nil
 }
 
@@ -1329,6 +1337,7 @@ func (r *REPL) listPrompts() error {
 }
 
 // handleFilePathCompletion handles tab completion for file paths
+
 // handleChatSubcommandCompletion handles tab completion for /chat subcommands
 func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
 	// Available chat subcommands
