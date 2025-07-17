@@ -1,4 +1,4 @@
 src/repl/acli-repl
 src/tool/acli-tool
-src/wmcp/acli-mcpd
-src/mcps/wttr/acli-mcpd-wttr
+src/wmcp/acli-wmcp
+src/mcps/wttr/acli-mcp-wttr
