@@ -1,9 +1,9 @@
 include ../../config.mk
 
-BIN=ai-tools
+BIN=acli-tool
 
 all:
-	go build .
+	go build -o $(BIN) .
 
 install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

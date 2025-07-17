@@ -1,6 +1,6 @@
-include ../config.mk
+include ../../config.mk
 
-BIN=ai-mcpd
+BIN=acli-mcpd
 MAIN_FILE=main.go
 
 .PHONY: all build run clean deps

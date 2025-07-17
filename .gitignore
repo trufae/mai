@@ -1,5 +1,4 @@
-clients/ai/ai
-clients/mcpd-cli/mcpd-cli
-servers/wttr/wttr
-clients/ai-repl/ai-repl
-ai-mcpd/ai-mcpd
+src/repl/acli-repl
+src/tool/acli-tool
+src/mcpd/acli-mcpd
+src/servers/wttr/acli-mcpd-wttr

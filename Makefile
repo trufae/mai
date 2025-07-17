@@ -6,17 +6,17 @@ MAIN_FILE=main.go
 .PHONY: all run clean deps
 
 all:
-	$(MAKE) -C ai-mcpd
-	$(MAKE) -C servers/wttr
-	$(MAKE) -C clients/ai-repl
-	$(MAKE) -C clients/ai-tools
-	./ai-mcpd/ai-mcpd 'r2pm -r r2mcp' servers/wttr/wttr
+	$(MAKE) -C src/mcpd
+	$(MAKE) -C src/servers/wttr
+	$(MAKE) -C src/repl
+	$(MAKE) -C src/tool
+	./src/mcpd/acli-mcpd 'r2pm -r r2mcp' src/servers/wttr/acli-mcp-wttr
 
 install:
-	$(MAKE) -C ai-mcpd install
-	$(MAKE) -C clients/ai-repl install
-	$(MAKE) -C clients/ai-tools install
-
+	$(MAKE) -C src/mcpd install
+	$(MAKE) -C src/repl install
+	$(MAKE) -C src/tool install
+	$(MAKE) -C src/servers install
 
 run:
 	go run $(MAIN_FILE)
