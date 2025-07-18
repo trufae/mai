@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,13 @@ import (
 
 	"golang.org/x/term"
 )
+
+// Command represents a REPL command with its description and handler
+type Command struct {
+	Name        string
+	Description string
+	Handler     func(r *REPL, args []string) error
+}
 
 type REPL struct {
 	config           *Config
@@ -38,10 +46,11 @@ type REPL struct {
 	streamingEnabled bool
 	systemPrompt     string
 	messages         []Message
-	includeReplies   bool          // Whether to include assistant replies in the context
-	pendingFiles     []pendingFile // Files and images to include in the next message
-	reasoningEnabled bool          // Whether reasoning is enabled for the AI model
-	loggingEnabled   bool          // Whether to save conversation history
+	includeReplies   bool               // Whether to include assistant replies in the context
+	pendingFiles     []pendingFile      // Files and images to include in the next message
+	reasoningEnabled bool               // Whether reasoning is enabled for the AI model
+	loggingEnabled   bool               // Whether to save conversation history
+	commands         map[string]Command // Registry of available commands
 }
 
 type pendingFile struct {
@@ -68,7 +77,8 @@ func NewREPL(config *Config) (*REPL, error) {
 		cancel:          cancel,
 		completeState:   0,
 		completeOptions: []string{},
-		pendingFiles:    []pendingFile{}, // Initialize empty pending files slice
+		pendingFiles:    []pendingFile{},          // Initialize empty pending files slice
+		commands:        make(map[string]Command), // Initialize command registry
 	}
 
 	// Initialize streaming from options with the NoStream flag as a fallback
@@ -87,6 +97,41 @@ func NewREPL(config *Config) (*REPL, error) {
 	repl.includeReplies = repl.config.options.GetBool("include_replies")
 	repl.reasoningEnabled = repl.config.options.GetBool("reasoning")
 	repl.loggingEnabled = repl.config.options.GetBool("logging")
+
+	// Synchronize provider and model settings with config options
+	if provider := repl.config.options.Get("provider"); provider != "" {
+		repl.config.PROVIDER = provider
+	} else if repl.config.PROVIDER != "" {
+		// Set the provider option if it's not set but PROVIDER is
+		repl.config.options.Set("provider", repl.config.PROVIDER)
+	}
+
+	// Synchronize model setting based on current provider
+	if model := repl.config.options.Get("model"); model != "" {
+		// Set the appropriate model based on provider
+		switch strings.ToLower(repl.config.PROVIDER) {
+		case "ollama":
+			repl.config.OllamaModel = model
+		case "openai":
+			repl.config.OpenAIModel = model
+		case "claude":
+			repl.config.ClaudeModel = model
+		case "gemini", "google":
+			repl.config.GeminiModel = model
+		case "mistral":
+			repl.config.MistralModel = model
+		case "deepseek":
+			repl.config.DeepSeekModel = model
+		case "bedrock", "aws":
+			repl.config.BedrockModel = model
+		}
+	} else {
+		// Set the model option based on the current provider's model
+		currentModel := repl.getCurrentModelForProvider()
+		if currentModel != "" {
+			repl.config.options.Set("model", currentModel)
+		}
+	}
 
 	// Load system prompt from promptfile if set
 	if promptFile := repl.config.options.Get("promptfile"); promptFile != "" {
@@ -111,6 +156,9 @@ func NewREPL(config *Config) (*REPL, error) {
 		// Or use the config option if set
 		repl.config.UserAgent = userAgent
 	}
+
+	// Initialize command registry
+	repl.initCommands()
 
 	return repl, nil
 }
@@ -195,22 +243,26 @@ func (r *REPL) Run() error {
 
 func (r *REPL) showCommands() {
 	fmt.Print("Commands:\r\n")
-	fmt.Print("  /help          - Show available commands\r\n")
-	fmt.Print("  /image <path>  - Add an image to the next message\r\n")
-	fmt.Print("  /file <path>   - Add a file to the next message\r\n")
-	fmt.Print("  /noimage       - Remove pending images\r\n")
-	fmt.Print("  /nofiles       - Remove pending files\r\n")
-	fmt.Print("  /set <opt> [val] - Set or display configuration option\r\n")
-	fmt.Print("  /get <opt>      - Display configuration option value\r\n")
-	fmt.Print("  /unset <opt>   - Unset configuration option\r\n")
-	fmt.Print("  /chat          - Manage conversation (save, load, clear, list, undo)\r\n")
-	fmt.Print("  /compact       - Compact conversation into a single message\r\n")
-	fmt.Print("  /cancel        - Cancel current request\r\n")
-	fmt.Print("  /clear         - Clear conversation messages\r\n")
-	fmt.Print("  /quit          - Exit REPL\r\n")
+
+	// Sort commands for consistent display
+	var cmdNames []string
+	for name := range r.commands {
+		cmdNames = append(cmdNames, name)
+	}
+	sort.Strings(cmdNames)
+
+	// Display all registered commands with descriptions
+	for _, name := range cmdNames {
+		cmd := r.commands[name]
+		fmt.Printf("  %-15s - %s\r\n", name, cmd.Description)
+	}
+
+	// Display special commands that aren't in the registry
 	fmt.Print("  #              - List available prompt files (.md)\r\n")
-	fmt.Print("  #<name> <text> - Use content from prompt file with text\r\n")
+	fmt.Print("  #<n> <text>    - Use content from prompt file with text\r\n")
 	fmt.Print("  !<command>     - Execute shell command\r\n")
+
+	// Display keyboard shortcuts
 	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
 	fmt.Print("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
 	fmt.Print("  Ctrl+W         - Delete last word\r\n")
@@ -519,37 +571,11 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	if r.completeState == 0 {
 		// First tab press - generate options
 		r.completePrefix = input
-		r.completeOptions = []string{
-			"/help",
-			"/image",
-			"/file",
-			"/noimage",
-			"/nofiles",
-			"/cancel",
-			"/stream",
-			"/nostream",
-			"/replies",
-			"/noreplies",
-			"/prompt",
-			"/noprompt",
-			"/think",
-			"/nothink",
-			"/log",
-			"/nolog",
-			"/model",
-			"/models",
-			"/provider",
-			"/set",
-			"/get",
-			"/unset",
-			"/save",
-			"/load",
-			"/clear",
-			"/compact",
-			"/list",
-			"/undo",
-			"/quit",
-			"/exit",
+		r.completeOptions = []string{}
+
+		// Get commands from the registry
+		for cmdName := range r.commands {
+			r.completeOptions = append(r.completeOptions, cmdName)
 		}
 
 		// Filter options that match the prefix
@@ -746,80 +772,11 @@ func (r *REPL) handleCommand(input string) error {
 
 	command := parts[0]
 
-	switch command {
-	case "/quit", "/exit":
-		return io.EOF
-	case "/cancel":
-		r.cancel()
-		r.ctx, r.cancel = context.WithCancel(context.Background())
-		fmt.Print("Request cancelled\r\n")
-	case "/help":
-		r.showCommands()
-		return nil
-	// Stream/nostream commands removed - functionality in conf.go
-	// Think/nothink commands removed - functionality in conf.go
-	case "/list":
-		// Display conversation log
-		r.displayConversationLog()
-	// Log/nolog commands removed - functionality in conf.go
-	// Replies/noreplies commands removed - functionality in conf.go
-	case "/chat":
-		// Handle chat command
-		return r.handleChatCommand(parts)
-	case "/clear":
-		r.messages = []Message{}
-		fmt.Print("Conversation messages cleared\r\n")
-	case "/set":
-		// Handle set command
-		return r.handleSetCommand(parts)
-	case "/get":
-		// Handle get command
-		return r.handleGetCommand(parts)
-	case "/unset":
-		// Handle unset command
-		return r.handleUnsetCommand(parts)
-	case "/compact":
-		// Handle compact command
-		return r.handleCompactCommand()
-	case "/save":
-		if len(parts) < 2 {
-			fmt.Print("Usage: /save <path>\n\r")
-			return nil
-		}
-		return r.saveConversation(parts[1])
-	case "/load":
-		if len(parts) < 2 {
-			fmt.Print("Usage: /load <path>\n\r")
-			return nil
-		}
-		return r.loadConversation(parts[1])
-	// /models, /model, and /provider commands removed - functionality in conf.go
-	case "/undo":
-		if len(parts) > 1 {
-			// Parse the index argument
-			r.undoMessageByIndex(parts[1])
-		} else {
-			// Default behavior - remove the last message
-			r.undoLastMessage()
-		}
-	// /prompt and /noprompt commands removed - functionality in conf.go
-	case "/image":
-		if len(parts) < 2 {
-			fmt.Print("Usage: /image <path>\n\r")
-			return nil
-		}
-		return r.addImage(parts[1])
-	case "/file":
-		if len(parts) < 2 {
-			fmt.Print("Usage: /file <path>\n\r")
-			return nil
-		}
-		return r.addFile(parts[1])
-	case "/noimage":
-		return r.clearPendingImages()
-	case "/nofiles":
-		return r.clearPendingFiles()
-	default:
+	// Check if the command exists in the registry
+	if cmd, exists := r.commands[command]; exists {
+		// Execute the command handler
+		return cmd.Handler(r, parts)
+	} else {
 		fmt.Printf("Unknown command: %s\n\r", command)
 	}
 
@@ -1097,6 +1054,221 @@ func (r *REPL) streamClaude(input string) error {
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
 	return err
+}
+
+// initCommands initializes the command registry with all available commands
+func (r *REPL) initCommands() {
+	// Helper commands
+	r.commands["/help"] = Command{
+		Name:        "/help",
+		Description: "Show available commands",
+		Handler: func(r *REPL, args []string) error {
+			r.showCommands()
+			return nil
+		},
+	}
+
+	// File handling commands
+	r.commands["/image"] = Command{
+		Name:        "/image",
+		Description: "Add an image to the next message",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: /image <path>\n\r")
+				return nil
+			}
+			return r.addImage(args[1])
+		},
+	}
+
+	r.commands["/file"] = Command{
+		Name:        "/file",
+		Description: "Add a file to the next message",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: /file <path>\n\r")
+				return nil
+			}
+			return r.addFile(args[1])
+		},
+	}
+
+	r.commands["/noimage"] = Command{
+		Name:        "/noimage",
+		Description: "Remove pending images",
+		Handler: func(r *REPL, args []string) error {
+			return r.clearPendingImages()
+		},
+	}
+
+	r.commands["/nofiles"] = Command{
+		Name:        "/nofiles",
+		Description: "Remove pending files",
+		Handler: func(r *REPL, args []string) error {
+			return r.clearPendingFiles()
+		},
+	}
+
+	// Configuration commands
+	r.commands["/set"] = Command{
+		Name:        "/set",
+		Description: "Set or display configuration option",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleSetCommand(args)
+		},
+	}
+
+	r.commands["/get"] = Command{
+		Name:        "/get",
+		Description: "Display configuration option value",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleGetCommand(args)
+		},
+	}
+
+	r.commands["/unset"] = Command{
+		Name:        "/unset",
+		Description: "Unset configuration option",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleUnsetCommand(args)
+		},
+	}
+
+	// Conversation management commands
+	r.commands["/chat"] = Command{
+		Name:        "/chat",
+		Description: "Manage conversation (save, load, clear, list, undo)",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleChatCommand(args)
+		},
+	}
+
+	r.commands["/compact"] = Command{
+		Name:        "/compact",
+		Description: "Compact conversation into a single message",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleCompactCommand()
+		},
+	}
+
+	r.commands["/cancel"] = Command{
+		Name:        "/cancel",
+		Description: "Cancel current request",
+		Handler: func(r *REPL, args []string) error {
+			r.cancel()
+			r.ctx, r.cancel = context.WithCancel(context.Background())
+			fmt.Print("Request cancelled\r\n")
+			return nil
+		},
+	}
+
+	r.commands["/clear"] = Command{
+		Name:        "/clear",
+		Description: "Clear conversation messages",
+		Handler: func(r *REPL, args []string) error {
+			r.messages = []Message{}
+			fmt.Print("Conversation messages cleared\r\n")
+			return nil
+		},
+	}
+
+	// Shorthand commands for chat operations
+	r.commands["/save"] = Command{
+		Name:        "/save",
+		Description: "Save conversation to file",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: /save <path>\n\r")
+				return nil
+			}
+			return r.saveConversation(args[1])
+		},
+	}
+
+	r.commands["/load"] = Command{
+		Name:        "/load",
+		Description: "Load conversation from file",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: /load <path>\n\r")
+				return nil
+			}
+			return r.loadConversation(args[1])
+		},
+	}
+
+	r.commands["/undo"] = Command{
+		Name:        "/undo",
+		Description: "Remove last or Nth message",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) > 1 {
+				r.undoMessageByIndex(args[1])
+			} else {
+				r.undoLastMessage()
+			}
+			return nil
+		},
+	}
+
+	r.commands["/list"] = Command{
+		Name:        "/list",
+		Description: "Display conversation messages",
+		Handler: func(r *REPL, args []string) error {
+			r.displayConversationLog()
+			return nil
+		},
+	}
+
+	// Exit commands
+	r.commands["/quit"] = Command{
+		Name:        "/quit",
+		Description: "Exit REPL",
+		Handler: func(r *REPL, args []string) error {
+			return io.EOF
+		},
+	}
+
+	r.commands["/exit"] = Command{
+		Name:        "/exit",
+		Description: "Exit REPL",
+		Handler: func(r *REPL, args []string) error {
+			return io.EOF
+		},
+	}
+
+	// System prompt shortcuts
+	r.commands["/prompt"] = Command{
+		Name:        "/prompt",
+		Description: "Show current system prompt",
+		Handler: func(r *REPL, args []string) error {
+			if r.systemPrompt == "" {
+				fmt.Print("No system prompt set\r\n")
+			} else {
+				fmt.Printf("System prompt (%d chars):\r\n%s\r\n", len(r.systemPrompt), r.systemPrompt)
+			}
+			return nil
+		},
+	}
+
+	r.commands["/noprompt"] = Command{
+		Name:        "/noprompt",
+		Description: "Clear system prompt",
+		Handler: func(r *REPL, args []string) error {
+			r.systemPrompt = ""
+			r.config.options.Unset("promptfile")
+			fmt.Print("System prompt cleared\r\n")
+			return nil
+		},
+	}
+
+	// Only keep the models command for listing available models
+	r.commands["/models"] = Command{
+		Name:        "/models",
+		Description: "List available models",
+		Handler: func(r *REPL, args []string) error {
+			return r.listModels()
+		},
+	}
 }
 
 func (r *REPL) makeStreamingRequest(method, url string, headers map[string]string,
@@ -1951,24 +2123,31 @@ func (r *REPL) setModel(model string) error {
 	switch strings.ToLower(r.config.PROVIDER) {
 	case "ollama":
 		r.config.OllamaModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("Ollama model set to %s\r\n", model)
 	case "openai":
 		r.config.OpenAIModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("OpenAI model set to %s\r\n", model)
 	case "claude":
 		r.config.ClaudeModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("Claude model set to %s\r\n", model)
 	case "gemini", "google":
 		r.config.GeminiModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("Gemini model set to %s\r\n", model)
 	case "mistral":
 		r.config.MistralModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("Mistral model set to %s\r\n", model)
 	case "deepseek":
 		r.config.DeepSeekModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("DeepSeek model set to %s\r\n", model)
 	case "bedrock", "aws":
 		r.config.BedrockModel = model
+		r.config.options.Set("model", model)
 		fmt.Printf("Bedrock model set to %s\r\n", model)
 	default:
 		return fmt.Errorf("unknown provider: %s", r.config.PROVIDER)
@@ -2009,6 +2188,9 @@ func (r *REPL) setProvider(provider string) error {
 
 	// Set the new provider
 	r.config.PROVIDER = provider
+	// Update the provider in the config options
+	r.config.options.Set("provider", provider)
+
 	fmt.Printf("Provider set to %s\r\n", provider)
 
 	// Also show the current model for this provider
@@ -2062,7 +2244,7 @@ func (r *REPL) listModels() error {
 	}
 
 	fmt.Printf("Total models: %d\r\n", len(models))
-	fmt.Print("Use '/model <model-id>' to change the model\r\n")
+	fmt.Print("Use '/set model <model-id>' to change the model\r\n")
 
 	return nil
 }
