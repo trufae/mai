@@ -1211,53 +1211,6 @@ func (r *REPL) initCommands() {
 		},
 	}
 
-	// Shorthand commands for chat operations
-	r.commands["/save"] = Command{
-		Name:        "/save",
-		Description: "Save conversation to file",
-		Handler: func(r *REPL, args []string) error {
-			if len(args) < 2 {
-				fmt.Print("Usage: /save <path>\n\r")
-				return nil
-			}
-			return r.saveConversation(args[1])
-		},
-	}
-
-	r.commands["/load"] = Command{
-		Name:        "/load",
-		Description: "Load conversation from file",
-		Handler: func(r *REPL, args []string) error {
-			if len(args) < 2 {
-				fmt.Print("Usage: /load <path>\n\r")
-				return nil
-			}
-			return r.loadConversation(args[1])
-		},
-	}
-
-	r.commands["/undo"] = Command{
-		Name:        "/undo",
-		Description: "Remove last or Nth message",
-		Handler: func(r *REPL, args []string) error {
-			if len(args) > 1 {
-				r.undoMessageByIndex(args[1])
-			} else {
-				r.undoLastMessage()
-			}
-			return nil
-		},
-	}
-
-	r.commands["/list"] = Command{
-		Name:        "/list",
-		Description: "Display conversation messages",
-		Handler: func(r *REPL, args []string) error {
-			r.displayConversationLog()
-			return nil
-		},
-	}
-
 	// Last reply command
 	r.commands["_"] = Command{
 		Name:        "_",
