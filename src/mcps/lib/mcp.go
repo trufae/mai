@@ -33,9 +33,10 @@ type RPCError struct {
 
 // ToolDefinition represents a tool that can be used by the MCP
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"inputSchema"`
+	Name          string                 `json:"name"`
+	Description   string                 `json:"description"`
+	InputSchema   map[string]interface{} `json:"inputSchema"`
+	UsageExamples string                 `json:"usageExamples,omitempty"`
 }
 
 // ToolCallParams represents the parameters for a tool call
@@ -54,6 +55,15 @@ type MCPServer struct {
 
 // ToolHandler is a function that handles a tool call
 type ToolHandler func(args map[string]interface{}) (interface{}, error)
+
+// Tool represents a complete tool definition with handler
+type Tool struct {
+	Name          string
+	Description   string
+	InputSchema   map[string]interface{}
+	UsageExamples string
+	Handler       ToolHandler
+}
 
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {

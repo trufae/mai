@@ -6,13 +6,7 @@ import (
 	"time"
 )
 
-// Tool represents a complete tool definition with handler
-type Tool struct {
-	Name        string
-	Description string
-	InputSchema map[string]interface{}
-	Handler     mcplib.ToolHandler
-}
+// Using mcplib.Tool instead of local Tool definition
 
 // TimeService handles all time-related operations
 type TimeService struct{}
@@ -28,8 +22,8 @@ func (s *TimeService) formatTime(t time.Time) string {
 }
 
 // GetTools returns all available tools
-func (s *TimeService) GetTools() []Tool {
-	return []Tool{
+func (s *TimeService) GetTools() []mcplib.Tool {
+	return []mcplib.Tool{
 		{
 			Name:        "current_time",
 			Description: "Get the current time in the specified timezone",
@@ -42,7 +36,8 @@ func (s *TimeService) GetTools() []Tool {
 					},
 				},
 			},
-			Handler: s.handleCurrentTime,
+			UsageExamples: "Example: {\"timezone\": \"America/New_York\"} - Returns current time in New York",
+			Handler:       s.handleCurrentTime,
 		},
 		{
 			Name:        "sunrise_sunset",
@@ -60,12 +55,13 @@ func (s *TimeService) GetTools() []Tool {
 					},
 					"date": map[string]interface{}{
 						"type":        "string",
-						"description": "Date in YYYY:MM:DD format. Defaults to today if not provided.",
+						"description": "Date in YYYY-MM-DD format. Defaults to today if not provided.",
 					},
 				},
 				"required": []string{"latitude", "longitude"},
 			},
-			Handler: s.handleSunriseSunset,
+			UsageExamples: "Example: {\"latitude\": 40.7128, \"longitude\": -74.0060} - Returns sunrise/sunset times for New York City",
+			Handler:       s.handleSunriseSunset,
 		},
 		{
 			Name:        "moon_phase",
@@ -75,11 +71,12 @@ func (s *TimeService) GetTools() []Tool {
 				"properties": map[string]interface{}{
 					"date": map[string]interface{}{
 						"type":        "string",
-						"description": "Date in YYYY:MM:DD format. Defaults to today if not provided.",
+						"description": "Date in YYYY-MM-DD format. Defaults to today if not provided.",
 					},
 				},
 			},
-			Handler: s.handleMoonPhase,
+			UsageExamples: "Example: {\"date\": \"2023-12-25\"} - Returns moon phase for Christmas 2023",
+			Handler:       s.handleMoonPhase,
 		},
 		{
 			Name:        "timezone_info",
@@ -98,7 +95,8 @@ func (s *TimeService) GetTools() []Tool {
 				},
 				"required": []string{"latitude", "longitude"},
 			},
-			Handler: s.handleTimezone,
+			UsageExamples: "Example: {\"latitude\": 51.5074, \"longitude\": -0.1278} - Returns timezone information for London",
+			Handler:       s.handleTimezone,
 		},
 	}
 }
@@ -148,9 +146,9 @@ func (s *TimeService) handleSunriseSunset(args map[string]interface{}) (interfac
 		date = time.Now().UTC()
 	} else {
 		var err error
-		date, err = time.Parse("2006:01:02", dateStr)
+		date, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date format, use YYYY:MM:DD: %v", err)
+			return nil, fmt.Errorf("invalid date format, use YYYY-MM-DD: %v", err)
 		}
 	}
 
@@ -160,7 +158,7 @@ func (s *TimeService) handleSunriseSunset(args map[string]interface{}) (interfac
 	return map[string]interface{}{
 		"sunrise": s.formatTime(sunrise),
 		"sunset":  s.formatTime(sunset),
-		"date":    date.Format("2006:01:02"),
+		"date":    date.Format("2006-01-02"),
 	}, nil
 }
 
@@ -173,9 +171,9 @@ func (s *TimeService) handleMoonPhase(args map[string]interface{}) (interface{},
 		date = time.Now().UTC()
 	} else {
 		var err error
-		date, err = time.Parse("2006:01:02", dateStr)
+		date, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid date format, use YYYY:MM:DD: %v", err)
+			return nil, fmt.Errorf("invalid date format, use YYYY-MM-DD: %v", err)
 		}
 	}
 

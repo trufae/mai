@@ -14,9 +14,10 @@ func main() {
 	var toolDefs []mcplib.ToolDefinition
 	for _, tool := range tools {
 		toolDefs = append(toolDefs, mcplib.ToolDefinition{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
+			Name:          tool.Name,
+			Description:   tool.Description,
+			InputSchema:   tool.InputSchema,
+			UsageExamples: tool.UsageExamples,
 		})
 	}
 
