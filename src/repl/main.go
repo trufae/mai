@@ -770,6 +770,9 @@ func showHelp() {
 -b <url> = specify a custom base URL for API requests
 -a <string> = set the user agent for HTTP requests
 -- = stdin mode
+Files:
+~/.aclirc : script to be loaded before the repl is shown
+./prompts : directory containing custom prompts
 `)
 }
 

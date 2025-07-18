@@ -726,6 +726,7 @@ func (r *REPL) handleChatCommand(args []string) error {
 		fmt.Print("  /chat clear      - Clear conversation messages\r\n")
 		fmt.Print("  /chat list       - Display conversation messages\r\n")
 		fmt.Print("  /chat undo [N]   - Remove last or Nth message\r\n")
+		fmt.Print("  /chat compact    - Compact conversation into a single message\r\n")
 		return nil
 	}
 
@@ -760,9 +761,11 @@ func (r *REPL) handleChatCommand(args []string) error {
 			r.undoLastMessage()
 		}
 		return nil
+	case "compact":
+		return r.handleCompactCommand()
 	default:
 		fmt.Printf("Unknown action: %s\r\n", action)
-		fmt.Print("Available actions: save, load, clear, list, undo\r\n")
+		fmt.Print("Available actions: save, load, clear, list, undo, compact\r\n")
 		return nil
 	}
 }
@@ -1146,13 +1149,7 @@ func (r *REPL) initCommands() {
 		},
 	}
 
-	r.commands["/compact"] = Command{
-		Name:        "/compact",
-		Description: "Compact conversation into a single message",
-		Handler: func(r *REPL, args []string) error {
-			return r.handleCompactCommand()
-		},
-	}
+	// /compact command moved under /chat
 
 	r.commands["/cancel"] = Command{
 		Name:        "/cancel",
@@ -1524,7 +1521,7 @@ func (r *REPL) listPrompts() error {
 // handleChatSubcommandCompletion handles tab completion for /chat subcommands
 func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
 	// Available chat subcommands
-	subcommands := []string{"save", "load", "clear", "list", "undo"}
+	subcommands := []string{"save", "load", "clear", "list", "undo", "compact"}
 
 	// Filter subcommands by the partial input
 	var filteredCommands []string
