@@ -56,9 +56,10 @@ type OpenAIRequest struct {
 }
 
 type OllamaRequest struct {
-	Stream   bool      `json:"stream"`
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Stream   bool               `json:"stream"`
+	Model    string             `json:"model"`
+	Messages []Message          `json:"messages"`
+	Options  map[string]float64 `json:"options,omitempty"`
 }
 
 type GeminiRequest struct {

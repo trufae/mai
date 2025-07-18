@@ -104,6 +104,14 @@ func NewREPL(config *Config) (*REPL, error) {
 		repl.config.BaseURL = baseURL
 	}
 
+	// Set useragent from command line flag if provided
+	if repl.config.UserAgent != "ai-repl/1.0" {
+		repl.config.options.Set("useragent", repl.config.UserAgent)
+	} else if userAgent := repl.config.options.Get("useragent"); userAgent != "" {
+		// Or use the config option if set
+		repl.config.UserAgent = userAgent
+	}
+
 	return repl, nil
 }
 

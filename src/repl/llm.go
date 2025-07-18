@@ -36,10 +36,10 @@ type LLMResponse struct {
 
 // Model represents information about an available model from a provider
 type Model struct {
-	ID          string `json:"id"`          // Model identifier
-	Name        string `json:"name"`        // Human-readable name (may be the same as ID)
-	Description string `json:"description"` // Optional model description
-	Provider    string `json:"provider"`    // The provider this model belongs to
+	ID          string `json:"id""`          // Model identifier
+	Name        string `json:"name""`        // Human-readable name (may be the same as ID)
+	Description string `json:"description""` // Optional model description
+	Provider    string `json:"provider""`    // The provider this model belongs to
 }
 
 // LLMClient manages interactions with LLM providers
@@ -101,8 +101,9 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool) (string, error)
 
 // ListModels returns a list of available models for the current provider
 func (c *LLMClient) ListModels() ([]Model, error) {
-	// Create a context that can be canceled
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create a context that can be canceled and store the config
+	ctx := context.WithValue(context.Background(), "config", c.config)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Call the provider's ListModels method
@@ -111,8 +112,9 @@ func (c *LLMClient) ListModels() ([]Model, error) {
 
 // SendMessageWithImages sends a message with optional images to the LLM and handles the response
 func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, images []string) (string, error) {
-	// Create a context that can be canceled
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create a context that can be canceled and store the config
+	ctx := context.WithValue(context.Background(), "config", c.config)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Print scissors before the response if enabled
@@ -194,8 +196,8 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 
 	var response struct {
 		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
+			Content string `json:"content""`
+		} `json:"message""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -289,6 +291,11 @@ func llmMakeStreamingRequest(ctx context.Context, method, url string, headers ma
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
+	
+	// Set User-Agent header from config if available
+	if config, ok := ctx.Value("config").(*Config); ok && config.UserAgent != "" {
+		req.Header.Set("User-Agent", config.UserAgent)
+	}
 
 	client := &http.Client{Timeout: 0} // No timeout for streaming
 	resp, err := client.Do(req)
@@ -315,11 +322,11 @@ type OllamaProvider struct {
 // OllamaModelsResponse is the response structure for Ollama model list endpoint
 type OllamaModelsResponse struct {
 	Models []struct {
-		Name     string `json:"name"`
-		Digest   string `json:"digest"`
-		Size     int64  `json:"size"`
-		Modified int64  `json:"modified"`
-	} `json:"models"`
+		Name     string `json:"name""`
+		Digest   string `json:"digest""`
+		Size     int64  `json:"size""`
+		Modified int64  `json:"modified""`
+	} `json:"models""`
 }
 
 func NewOllamaProvider(config *Config) *OllamaProvider {
@@ -385,13 +392,26 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
-		Stream   bool      `json:"stream"`
-		Model    string    `json:"model"`
-		Messages []Message `json:"messages"`
+		Stream   bool               `json:"stream""`
+		Model    string             `json:"model""`
+		Messages []Message          `json:"messages""`
+		Options  map[string]float64 `json:"options,omitempty""`
 	}{
 		Stream:   stream,
 		Model:    p.config.OllamaModel,
 		Messages: messages,
+	}
+
+	// Apply deterministic settings if enabled
+	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+		request.Options = map[string]float64{
+			"repeat_last_n":  0,
+			"top_p":          0.0,
+			"top_k":          1.0,
+			"temperature":    0.0,
+			"repeat_penalty": 1.0,
+			"seed":           123,
+		}
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -420,8 +440,8 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	var response struct {
 		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
+			Content string `json:"content""`
+		} `json:"message""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -444,9 +464,9 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 
 		var response struct {
 			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-			Done bool `json:"done"`
+				Content string `json:"content""`
+			} `json:"message""`
+			Done bool `json:"done""`
 		}
 
 		if err := json.Unmarshal([]byte(line), &response); err != nil {
@@ -478,13 +498,13 @@ type OpenAIProvider struct {
 
 // OpenAIModelsResponse is the response structure for OpenAI model list endpoint
 type OpenAIModelsResponse struct {
-	Object string `json:"object"`
+	Object string `json:"object""`
 	Data   []struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
-	} `json:"data"`
+		ID      string `json:"id""`
+		Object  string `json:"object""`
+		Created int64  `json:"created""`
+		OwnedBy string `json:"owned_by""`
+	} `json:"data""`
 }
 
 func NewOpenAIProvider(config *Config) *OpenAIProvider {
@@ -557,6 +577,16 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		request["max_tokens"] = 4096
 	}
 
+	// Apply deterministic settings if enabled
+	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+		// Skip for o4 and o1 models which don't support these parameters
+		modelName := strings.ToLower(p.config.OpenAIModel)
+		if !strings.HasPrefix(modelName, "o4") && !strings.HasPrefix(modelName, "o1") {
+			request["temperature"] = 0
+			request["top_p"] = 0
+		}
+	}
+
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return "", err
@@ -587,9 +617,9 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+				Content string `json:"content""`
+			} `json:"message""`
+		} `json:"choices""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -622,9 +652,9 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 		var response struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-			} `json:"choices"`
+					Content string `json:"content""`
+				} `json:"delta""`
+			} `json:"choices""`
 		}
 
 		if err := json.Unmarshal([]byte(data), &response); err != nil {
@@ -654,14 +684,14 @@ type ClaudeProvider struct {
 
 // ClaudeModelsResponse is the response structure for Claude model list endpoint
 type ClaudeModelsResponse struct {
-	Object string `json:"object"`
+	Object string `json:"object""`
 	Data   []struct {
-		ID            string `json:"id"`
-		Name          string `json:"name"`
-		Description   string `json:"description"`
-		MaxTokens     int    `json:"max_tokens,omitempty"`
-		ContextWindow int    `json:"context_window,omitempty"`
-	} `json:"data"`
+		ID            string `json:"id""`
+		Name          string `json:"name""`
+		Description   string `json:"description""`
+		MaxTokens     int    `json:"max_tokens,omitempty""`
+		ContextWindow int    `json:"context_window,omitempty""`
+	} `json:"data""`
 }
 
 func NewClaudeProvider(config *Config) *ClaudeProvider {
@@ -729,6 +759,13 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 		request["stream"] = true
 	}
 
+	// Apply deterministic settings if enabled
+	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+		request["temperature"] = 0
+		request["top_p"] = 0
+		request["top_k"] = 1
+	}
+
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return "", err
@@ -759,8 +796,8 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	var response struct {
 		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
+			Text string `json:"text""`
+		} `json:"content""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -791,10 +828,10 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		var response struct {
-			Type  string `json:"type"`
+			Type  string `json:"type""`
 			Delta struct {
-				Text string `json:"text"`
-			} `json:"delta"`
+				Text string `json:"text""`
+			} `json:"delta""`
 		}
 
 		if err := json.Unmarshal([]byte(data), &response); err != nil {
@@ -876,11 +913,11 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Parse response if we got one
 	type GeminiModelsResponse struct {
 		Models []struct {
-			Name        string   `json:"name"`
-			DisplayName string   `json:"displayName"`
-			Description string   `json:"description"`
-			Versions    []string `json:"supportedGenerationMethods,omitempty"`
-		} `json:"models"`
+			Name        string   `json:"name""`
+			DisplayName string   `json:"displayName""`
+			Description string   `json:"description""`
+			Versions    []string `json:"supportedGenerationMethods,omitempty""`
+		} `json:"models""`
 	}
 
 	var geminiResp GeminiModelsResponse
@@ -968,18 +1005,23 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	request := struct {
 		Contents []struct {
 			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"contents"`
+				Text string `json:"text""`
+			} `json:"parts""`
+		} `json:"contents""`
+		GenerationConfig *struct {
+			Temperature float64 `json:"temperature,omitempty""`
+			TopP        float64 `json:"topP,omitempty""`
+			TopK        int     `json:"topK,omitempty""`
+		} `json:"generationConfig,omitempty""`
 	}{
 		Contents: []struct {
 			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
+				Text string `json:"text""`
+			} `json:"parts""`
 		}{
 			{
 				Parts: []struct {
-					Text string `json:"text"`
+					Text string `json:"text""`
 				}{
 					{
 						Text: content,
@@ -987,6 +1029,19 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 				},
 			},
 		},
+	}
+
+	// Apply deterministic settings if enabled
+	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+		request.GenerationConfig = &struct {
+			Temperature float64 `json:"temperature,omitempty""`
+			TopP        float64 `json:"topP,omitempty""`
+			TopK        int     `json:"topK,omitempty""`
+		}{
+			Temperature: 0.0,
+			TopP:        1.0,
+			TopK:        1,
+		}
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -1015,10 +1070,10 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
+					Text string `json:"text""`
+				} `json:"parts""`
+			} `json:"content""`
+		} `json:"candidates""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -1073,14 +1128,14 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	// Mistral API returns richer model info than OpenAI format
 	type MistralModelsResponse struct {
-		Object string `json:"object"`
+		Object string `json:"object""`
 		Data   []struct {
-			ID                  string `json:"id"`
-			Name                string `json:"name,omitempty"`
-			ContextLength       int    `json:"context_length,omitempty"`
-			MaxCompletionTokens int    `json:"max_completion_tokens,omitempty"`
-			Description         string `json:"description,omitempty"`
-		} `json:"data"`
+			ID                  string `json:"id""`
+			Name                string `json:"name,omitempty""`
+			ContextLength       int    `json:"context_length,omitempty""`
+			MaxCompletionTokens int    `json:"max_completion_tokens,omitempty""`
+			Description         string `json:"description,omitempty""`
+		} `json:"data""`
 	}
 
 	var mistralResp MistralModelsResponse
@@ -1127,13 +1182,25 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
-		Model     string    `json:"model"`
-		Messages  []Message `json:"messages"`
-		MaxTokens int       `json:"max_tokens"`
+		Model       string    `json:"model""`
+		Messages    []Message `json:"messages""`
+		MaxTokens   int       `json:"max_tokens""`
+		N           int       `json:"n,omitempty""`
+		TopP        float64   `json:"top_p,omitempty""`
+		RandomSeed  int       `json:"random_seed,omitempty""`
+		Temperature float64   `json:"temperature,omitempty""`
 	}{
 		Model:     p.config.MistralModel,
 		Messages:  messages,
 		MaxTokens: 5128,
+	}
+
+	// Apply deterministic settings if enabled
+	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+		request.N = 1
+		request.TopP = 0.001
+		request.RandomSeed = 1
+		request.Temperature = 0.001
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -1162,9 +1229,9 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+				Content string `json:"content""`
+			} `json:"message""`
+		} `json:"choices""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -1287,9 +1354,9 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
-		Model    string    `json:"model"`
-		Stream   string    `json:"stream"`
-		Messages []Message `json:"messages"`
+		Model    string    `json:"model""`
+		Stream   string    `json:"stream""`
+		Messages []Message `json:"messages""`
 	}{
 		Model:    "deepseek-chat",
 		Stream:   "false",
@@ -1322,9 +1389,9 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+				Content string `json:"content""`
+			} `json:"message""`
+		} `json:"choices""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -1431,28 +1498,28 @@ func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
-		ModelId         string `json:"modelId"`
+		ModelId         string `json:"modelId""`
 		InferenceParams struct {
-			MaxTokens   int     `json:"maxTokenCount"`
-			Temperature float64 `json:"temperature"`
-			TopP        float64 `json:"topP"`
-		} `json:"inferenceParams"`
+			MaxTokens   int     `json:"maxTokenCount""`
+			Temperature float64 `json:"temperature""`
+			TopP        float64 `json:"topP""`
+		} `json:"inferenceParams""`
 		Input struct {
-			Messages []Message `json:"messages"`
-		} `json:"input"`
+			Messages []Message `json:"messages""`
+		} `json:"input""`
 	}{
 		ModelId: p.config.BedrockModel,
 		InferenceParams: struct {
-			MaxTokens   int     `json:"maxTokenCount"`
-			Temperature float64 `json:"temperature"`
-			TopP        float64 `json:"topP"`
+			MaxTokens   int     `json:"maxTokenCount""`
+			Temperature float64 `json:"temperature""`
+			TopP        float64 `json:"topP""`
 		}{
 			MaxTokens:   5128,
 			Temperature: 0.7,
 			TopP:        0.9,
 		},
 		Input: struct {
-			Messages []Message `json:"messages"`
+			Messages []Message `json:"messages""`
 		}{
 			Messages: messages,
 		},
@@ -1484,9 +1551,9 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	var response struct {
 		Output struct {
 			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"output"`
+				Content string `json:"content""`
+			} `json:"message""`
+		} `json:"output""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -1560,8 +1627,8 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	// Try to parse as a more complex response format with model objects
 	type ModelObject struct {
-		ID   string `json:"id"`
-		Name string `json:"name,omitempty"`
+		ID   string `json:"id""`
+		Name string `json:"name,omitempty""`
 	}
 	var modelObjects []ModelObject
 	if err := json.Unmarshal(respBody, &modelObjects); err == nil && len(modelObjects) > 0 {
@@ -1603,7 +1670,7 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	request := struct {
-		Prompt string `json:"prompt"`
+		Prompt string `json:"prompt""`
 	}{
 		Prompt: content,
 	}
@@ -1630,7 +1697,7 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	var response struct {
-		Content string `json:"content"`
+		Content string `json:"content""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
