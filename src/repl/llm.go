@@ -67,6 +67,19 @@ func NewLLMClient(config *Config) (*LLMClient, error) {
 	}, nil
 }
 
+// newContext returns a cancellable context carrying the client config.
+func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
+	ctx := context.WithValue(context.Background(), "config", c.config)
+	return context.WithCancel(ctx)
+}
+
+// printScissors outputs separators if enabled in config.
+func (c *LLMClient) printScissors() {
+	if c.config.ShowScissors {
+		fmt.Print("\n\r------------8<------------\n\r")
+	}
+}
+
 // createProvider instantiates the appropriate provider based on config
 func createProvider(config *Config) (LLMProvider, error) {
 	provider := strings.ToLower(config.PROVIDER)
@@ -101,48 +114,27 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool) (string, error)
 
 // ListModels returns a list of available models for the current provider
 func (c *LLMClient) ListModels() ([]Model, error) {
-	// Create a context that can be canceled and store the config
-	ctx := context.WithValue(context.Background(), "config", c.config)
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := c.newContext()
 	defer cancel()
-
-	// Call the provider's ListModels method
 	return c.provider.ListModels(ctx)
 }
 
 // SendMessageWithImages sends a message with optional images to the LLM and handles the response
 func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, images []string) (string, error) {
-	// Create a context that can be canceled and store the config
-	ctx := context.WithValue(context.Background(), "config", c.config)
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := c.newContext()
 	defer cancel()
 
-	// Print scissors before the response if enabled
-	if c.config.ShowScissors {
-		fmt.Print("\n\r------------8<------------\n\r")
-	}
-
+	c.printScissors()
 	var response string
 	var err error
 
-	// Call the appropriate provider method based on whether we have images
 	if len(images) > 0 && strings.ToLower(c.config.PROVIDER) == "ollama" {
-		// Use the image-capable method for Ollama if we have images
 		response, err = c.sendOllamaWithImages(ctx, messages, stream && !c.config.NoStream, images)
 	} else {
-		// Default to the normal SendMessage method
 		response, err = c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream)
 	}
 
-	// We only need to convert newlines in the returned response string
-	// The actual printing of response is handled in streaming functions
-	// or in the REPL's sendToAI function for non-streaming mode
-
-	// Print scissors after the response if enabled
-	if c.config.ShowScissors {
-		fmt.Print("\n\r------------8<------------\n\r")
-	}
-
+	c.printScissors()
 	return response, err
 }
 
@@ -177,11 +169,8 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		"Content-Type": "application/json",
 	}
 
-	// Use the configured base URL if available, otherwise construct from host/port
-	url := fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
-	if c.config.BaseURL != "" {
-		url = c.config.BaseURL
-	}
+	// Build chat endpoint URL
+	url := buildURL("", c.config.BaseURL, c.config.OllamaHost, c.config.OllamaPort, "/api/chat")
 
 	// Handle streaming vs non-streaming the same way as regular requests
 	if stream {
@@ -241,75 +230,75 @@ func PrepareMessages(input string) []Message {
 	return messages
 }
 
-// llmMakeRequest is a utility function for making HTTP requests to APIs (renamed to avoid conflict)
-func llmMakeRequest(method, url string, headers map[string]string, body []byte) ([]byte, error) {
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+// httpDo prepares and executes an HTTP request, shared by streaming and non-streaming.
+func httpDo(ctx context.Context, method, url string, headers map[string]string, body []byte, stream bool) (*http.Response, error) {
+	var req *http.Request
+	var err error
+	if ctx != nil {
+		req, err = http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
+	} else {
+		req, err = http.NewRequest(method, url, bytes.NewBuffer(body))
+	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating HTTP request: %v\n", err)
 		return nil, err
 	}
-
-	for key, value := range headers {
-		req.Header.Set(key, value)
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
+	if ctx != nil {
+		if cfg, ok := ctx.Value("config").(*Config); ok && cfg.UserAgent != "" {
+			req.Header.Set("User-Agent", cfg.UserAgent)
+		}
 	}
-
-	//	fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
-
+	client := &http.Client{Timeout: 30 * time.Second}
+	if stream {
+		client.Timeout = 0
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "HTTP request failed: %v\n", err)
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		if stream {
+			data, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
+		}
+		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n", resp.StatusCode, resp.Status)
+	}
+	return resp, nil
+}
+
+// llmMakeRequest is a utility function for making HTTP requests to APIs (renamed to avoid conflict)
+func llmMakeRequest(method, url string, headers map[string]string, body []byte) ([]byte, error) {
+	resp, err := httpDo(nil, method, url, headers, body, false)
+	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	// fmt.Fprintf(os.Stderr, "Response status code: %d\n", resp.StatusCode)
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n", resp.StatusCode, resp.Status)
-	}
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response body: %v\n", err)
-		return nil, err
-	}
-
-	return respBody, nil
+	return io.ReadAll(resp.Body)
 }
 
 // llmMakeStreamingRequest is a utility function for making streaming HTTP requests (renamed to avoid conflict)
 func llmMakeStreamingRequest(ctx context.Context, method, url string, headers map[string]string,
 	body []byte, parser func(io.Reader) (string, error)) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
-	if err != nil {
-		return "", err
-	}
-
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	// Set User-Agent header from config if available
-	if config, ok := ctx.Value("config").(*Config); ok && config.UserAgent != "" {
-		req.Header.Set("User-Agent", config.UserAgent)
-	}
-
-	client := &http.Client{Timeout: 0} // No timeout for streaming
-	resp, err := client.Do(req)
+	resp, err := httpDo(ctx, method, url, headers, body, true)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
 	return parser(resp.Body)
+}
+
+// buildURL constructs a full URL using baseURL override, defaultURL, or host/port and path suffix
+func buildURL(defaultURL, baseURL, host, port, suffix string) string {
+	if baseURL != "" {
+		return strings.TrimRight(baseURL, "/") + suffix
+	}
+	if defaultURL != "" {
+		return defaultURL
+	}
+	return fmt.Sprintf("http://%s:%s%s", host, port, suffix)
 }
 
 // ==================== PROVIDER IMPLEMENTATIONS ====================
@@ -532,12 +521,8 @@ func (p *OpenAIProvider) GetName() string {
 }
 
 func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
-	// Use the configured base URL if available, otherwise use the default API URL
-	apiURL := "https://api.openai.com/v1/models"
-	if p.config.BaseURL != "" {
-		// Adjust the base URL to point to the models endpoint
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
-	}
+	// Build models endpoint URL
+	apiURL := buildURL("https://api.openai.com/v1/models", p.config.BaseURL, "", "", "/models")
 
 	headers := map[string]string{
 		"Content-Type":  "application/json",
@@ -611,11 +596,8 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Authorization": "Bearer " + p.config.OpenAIKey,
 	}
 
-	// Use the configured base URL if available, otherwise use the default API URL
-	apiURL := "https://api.openai.com/v1/chat/completions"
-	if p.config.BaseURL != "" {
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/v1/chat/completions"
-	}
+	// Build chat completions endpoint URL
+	apiURL := buildURL("https://api.openai.com/v1/chat/completions", p.config.BaseURL, "", "", "/v1/chat/completions")
 
 	if stream {
 		return llmMakeStreamingRequest(ctx, "POST", apiURL,

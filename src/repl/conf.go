@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -181,26 +182,14 @@ func (c *ConfigOptions) GetKeys() []string {
 var globalConfig *ConfigOptions
 
 // GetAvailableOptions returns a list of all available configuration options
+// GetAvailableOptions returns a sorted list of all available configuration options
 func GetAvailableOptions() []string {
-	if globalConfig != nil {
-		// Return dynamically from registered options
-		options := make([]string, 0, len(globalConfig.optionInfos))
-		for key := range globalConfig.optionInfos {
-			options = append(options, key)
-		}
-		return options
+	opts := make([]string, 0, len(globalConfig.optionInfos))
+	for key := range globalConfig.optionInfos {
+		opts = append(opts, key)
 	}
-
-	// Fallback to static list
-	return []string{
-		"promptdir",
-		"stream",
-		"include_replies",
-		"logging",
-		"reasoning",
-		"max_tokens",
-		"temperature",
-	}
+	sort.Strings(opts)
+	return opts
 }
 
 // RegisterOptionListener adds a listener function that will be called when an option's value changes
@@ -224,55 +213,21 @@ func (c *ConfigOptions) notifyListeners(key, value string) {
 }
 
 // GetOptionDescription returns a description for the given option
+// GetOptionDescription returns a description for the given option
 func GetOptionDescription(option string) string {
-	// Check if we can get description from registered options
-	if globalConfig != nil {
-		if info, exists := globalConfig.GetOptionInfo(option); exists {
-			return info.Description
-		}
-	}
-
-	// Fallback to static descriptions
-	descriptions := map[string]string{
-		"promptdir":       "Directory to read prompts from",
-		"stream":          "Enable streaming mode (true/false)",
-		"include_replies": "Include assistant replies in context (true/false)",
-		"logging":         "Enable conversation logging (true/false)",
-		"reasoning":       "Enable AI reasoning (true/false)",
-		"max_tokens":      "Maximum tokens for AI response",
-		"temperature":     "Temperature for AI response (0.0-1.0)",
-	}
-
-	if desc, exists := descriptions[option]; exists {
-		return desc
+	if info, exists := globalConfig.GetOptionInfo(option); exists {
+		return info.Description
 	}
 	return "No description available"
 }
 
 // GetOptionType returns the type of a given option
+// GetOptionType returns the type of a given option
 func GetOptionType(option string) OptionType {
-	// Check if we can get type from registered options
-	if globalConfig != nil {
-		if info, exists := globalConfig.GetOptionInfo(option); exists {
-			return info.Type
-		}
+	if info, exists := globalConfig.GetOptionInfo(option); exists {
+		return info.Type
 	}
-
-	// Fallback to static types
-	types := map[string]OptionType{
-		"promptdir":       StringOption,
-		"stream":          BooleanOption,
-		"include_replies": BooleanOption,
-		"logging":         BooleanOption,
-		"reasoning":       BooleanOption,
-		"max_tokens":      NumberOption,
-		"temperature":     NumberOption,
-	}
-
-	if optType, exists := types[option]; exists {
-		return optType
-	}
-	return StringOption // Default to string type
+	return StringOption
 }
 
 // resolvePromptPath resolves the path to a prompt file
@@ -297,9 +252,8 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 
 	// Next, try common locations for prompts
 	commonLocations := []string{
-		"./prompts",                   // Current directory's prompts folder
-		"../prompts",                  // Parent directory's prompts folder
-		filepath.Join(".", "prompts"), // Explicitly using filepath.Join
+		"./prompts",  // Current directory's prompts folder
+		"../prompts", // Parent directory's prompts folder
 	}
 
 	// Try each location
