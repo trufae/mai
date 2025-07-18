@@ -763,6 +763,7 @@ func showHelp() {
 -1 = don't stream response, print once at the end
 -a <string> = set the user agent for HTTP requests
 -b <url> = specify a custom base URL for API requests
+-c <key=value> = set configuration option
 -h = show this help message
 -H = show help for the environment variables (same as -hh)
 -i <path> = attach an image to send to the model
@@ -881,6 +882,24 @@ func main() {
 				i--
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: -a requires a user agent string\n")
+				os.Exit(1)
+			}
+		case "-c":
+			if i+1 < len(args) {
+				configArg := args[i+1]
+				// Parse config option in format key=value
+				parts := strings.SplitN(configArg, "=", 2)
+				if len(parts) != 2 {
+					fmt.Fprintf(os.Stderr, "Error: -c requires format 'key=value'\n")
+					os.Exit(1)
+				}
+				key, value := parts[0], parts[1]
+				// Set the option in config
+				config.options.Set(key, value)
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -c requires a config key=value pair\n")
 				os.Exit(1)
 			}
 		}
