@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -150,7 +151,7 @@ func NewREPL(config *Config) (*REPL, error) {
 	}
 
 	// Set useragent from command line flag if provided
-	if repl.config.UserAgent != "ai-repl/1.0" {
+	if repl.config.UserAgent != "acli-repl/1.0" {
 		repl.config.options.Set("useragent", repl.config.UserAgent)
 	} else if userAgent := repl.config.options.Get("useragent"); userAgent != "" {
 		// Or use the config option if set
@@ -724,7 +725,8 @@ func (r *REPL) handleChatCommand(args []string) error {
 		fmt.Print("  /chat save <path> - Save conversation history to file\r\n")
 		fmt.Print("  /chat load <path> - Load conversation history from file\r\n")
 		fmt.Print("  /chat clear      - Clear conversation messages\r\n")
-		fmt.Print("  /chat list       - Display conversation messages\r\n")
+		fmt.Print("  /chat list       - Display conversation messages (truncated)\r\n")
+		fmt.Print("  /chat log        - Display full conversation with preserved formatting\r\n")
 		fmt.Print("  /chat undo [N]   - Remove last or Nth message\r\n")
 		fmt.Print("  /chat compact    - Compact conversation into a single message\r\n")
 		return nil
@@ -752,6 +754,9 @@ func (r *REPL) handleChatCommand(args []string) error {
 	case "list":
 		r.displayConversationLog()
 		return nil
+	case "log":
+		r.displayFullConversationLog()
+		return nil
 	case "undo":
 		if len(args) > 2 {
 			// Parse the index argument
@@ -765,7 +770,7 @@ func (r *REPL) handleChatCommand(args []string) error {
 		return r.handleCompactCommand()
 	default:
 		fmt.Printf("Unknown action: %s\r\n", action)
-		fmt.Print("Available actions: save, load, clear, list, undo, compact\r\n")
+		fmt.Print("Available actions: save, load, clear, list, log, undo, compact\r\n")
 		return nil
 	}
 }
@@ -890,8 +895,10 @@ func (r *REPL) sendToAI(input string) error {
 	}
 	// When logging is disabled, we don't append any previous messages
 
+	// Process @mentions in the input
+	enhancedInput := r.processAtMentions(input)
+
 	// Process pending files and incorporate them into the input
-	enhancedInput := input
 	var images []string // For storing base64 encoded images for Ollama
 
 	if len(r.pendingFiles) > 0 {
@@ -1521,7 +1528,7 @@ func (r *REPL) listPrompts() error {
 // handleChatSubcommandCompletion handles tab completion for /chat subcommands
 func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
 	// Available chat subcommands
-	subcommands := []string{"save", "load", "clear", "list", "undo", "compact"}
+	subcommands := []string{"save", "load", "clear", "list", "log", "undo", "compact"}
 
 	// Filter subcommands by the partial input
 	var filteredCommands []string
@@ -1974,6 +1981,32 @@ func (r *REPL) displayConversationLog() {
 	}
 }
 
+// displayFullConversationLog prints the complete conversation without truncating or filtering
+func (r *REPL) displayFullConversationLog() {
+	if len(r.messages) == 0 {
+		fmt.Print("No conversation messages yet\r\n")
+		return
+	}
+
+	fmt.Print("Full conversation log:\r\n")
+	fmt.Print("====================\r\n")
+
+	for i, msg := range r.messages {
+		role := formatRole(msg.Role)
+
+		fmt.Printf("\r\n[%d] %s:\r\n", i+1, role)
+		fmt.Print("--------------------\r\n")
+
+		// Print the full content with preserved formatting
+		// Replace single newlines with \r\n for proper terminal display
+		content := strings.ReplaceAll(msg.Content, "\n", "\r\n")
+		fmt.Printf("%s\r\n", content)
+		fmt.Print("--------------------\r\n")
+	}
+
+	fmt.Printf("\r\nTotal messages: %d\r\n", len(r.messages))
+}
+
 // undoLastMessage removes the last message from the conversation history
 func (r *REPL) undoLastMessage() {
 	if len(r.messages) == 0 {
@@ -2094,6 +2127,64 @@ func truncateContent(content string) string {
 		content = content[:27] + "..."
 	}
 	return strings.ReplaceAll(content, "\n", " ")
+}
+
+// processAtMentions extracts words starting with @ from input text,
+// checks if they correspond to existing files, and returns the enhanced prompt
+func (r *REPL) processAtMentions(input string) string {
+	// Use regex to find all words starting with @
+	re := regexp.MustCompile(`@\w+`)
+	matches := re.FindAllString(input, -1)
+
+	if len(matches) == 0 {
+		return input // No @mentions found, return original input
+	}
+
+	// Process each @mention
+	var fileContents []string
+	var processedFiles []string
+
+	for _, match := range matches {
+		// Remove the @ prefix to get the filename
+		filename := match[1:] // Skip the @ character
+
+		// Check if the file exists in the current directory
+		if _, err := os.Stat(filename); err == nil {
+			// File exists, read its content
+			content, err := os.ReadFile(filename)
+			if err == nil {
+				// Format the content with markdown
+				fileContent := fmt.Sprintf("\n\n## File: %s\n\n```\n%s\n```", filename, string(content))
+				fileContents = append(fileContents, fileContent)
+				processedFiles = append(processedFiles, filename)
+			}
+		}
+	}
+
+	// If no valid files were found, return the original input
+	if len(fileContents) == 0 {
+		return input
+	}
+
+	// Notify the user about processed @mentions
+	if len(processedFiles) > 0 {
+		fmt.Print("\r\nProcessed @mentions: ")
+		for i, file := range processedFiles {
+			if i > 0 {
+				fmt.Print(", ")
+			}
+			fmt.Printf("%s", file)
+		}
+		fmt.Print("\r\n")
+	}
+
+	// Append all file contents to the original input
+	enhancedInput := input
+	for _, content := range fileContents {
+		enhancedInput += content
+	}
+
+	return enhancedInput
 }
 
 // autoDetectPromptDir attempts to find a prompts directory relative to the executable path

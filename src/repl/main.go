@@ -192,7 +192,7 @@ func loadConfig() *Config {
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
 		BaseURL:       getEnvOrDefault("BASE_URL", ""),
-		UserAgent:     getEnvOrDefault("USER_AGENT", "ai-repl/1.0"),
+		UserAgent:     getEnvOrDefault("USER_AGENT", "acli-repl/1.0"),
 		NoStream:      false,
 		options:       NewConfigOptions(), // Initialize configuration options
 	}
@@ -758,7 +758,7 @@ BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 `)
 }
 func showHelp() {
-	fmt.Print(`$ ai-repl [--] | [-h] | [prompt] < INPUT
+	fmt.Print(`$ acli-repl [--] | [-h] | [prompt] < INPUT
 -h = show this help message
 -H = show help for the environment variables (same as -hh)
 -r = enter the repl mode (default)

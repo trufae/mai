@@ -51,7 +51,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("provider", StringOption, "AI provider to use", "")
 	co.RegisterOption("baseurl", StringOption, "Custom base URL for API requests", "")
 	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
-	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "ai-repl/1.0")
+	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "acli-repl/1.0")
 
 	co.initialized = true
 
