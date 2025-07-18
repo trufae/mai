@@ -1182,7 +1182,7 @@ func (r *REPL) initCommands() {
 	// Conversation management commands
 	r.commands["/chat"] = Command{
 		Name:        "/chat",
-		Description: "Manage conversation (save, load, clear, list, undo)",
+		Description: "Manage conversation (save, load, clear, list, log, undo, compact)",
 		Handler: func(r *REPL, args []string) error {
 			return r.handleChatCommand(args)
 		},
