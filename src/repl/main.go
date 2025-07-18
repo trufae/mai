@@ -759,17 +759,17 @@ BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 }
 func showHelp() {
 	fmt.Print(`$ acli-repl [--] | [-h] | [prompt] < INPUT
+-- = stdin mode
+-1 = don't stream response, print once at the end
+-a <string> = set the user agent for HTTP requests
+-b <url> = specify a custom base URL for API requests
 -h = show this help message
 -H = show help for the environment variables (same as -hh)
--r = enter the repl mode (default)
--s = don't display the ---8<--- lines in the output
--1 = don't stream response, print once at the end
 -i <path> = attach an image to send to the model
--p <provider> = select the provider to use
 -m <model> = select the model for the given provider
--b <url> = specify a custom base URL for API requests
--a <string> = set the user agent for HTTP requests
--- = stdin mode
+-p <provider> = select the provider to use
+-r = enter the repl mode (default behaviour) (see -- for stdin mode)
+-s = don't display the ---8<--- lines in the output
 Files:
 ~/.aclirc : script to be loaded before the repl is shown
 ./prompts : directory containing custom prompts
@@ -941,7 +941,7 @@ func main() {
 	fmt.Println(res)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error when calling %s provider: %v\n", config.PROVIDER, err)
+		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 		if config.PROVIDER == "ollama" {
 			fmt.Fprintf(os.Stderr, "Ollama troubleshooting tips:\n")
 			fmt.Fprintf(os.Stderr, "1. Check if Ollama is running: ps aux | grep ollama\n")
@@ -949,6 +949,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "3. Confirm model '%s' is available: ollama list\n", config.OllamaModel)
 			fmt.Fprintf(os.Stderr, "4. Try pulling the model: ollama pull %s\n", config.OllamaModel)
 		}
-		os.Exit(1)
+		// No need to exit on connection errors - matches REPL behavior
 	}
 }

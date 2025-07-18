@@ -152,6 +152,11 @@ func NewREPL(config *Config) (*REPL, error) {
 		repl.config.BaseURL = baseURL
 	}
 
+	// Register listener to sync BaseURL when changed via config options
+	repl.config.options.RegisterOptionListener("baseurl", func(value string) {
+		repl.config.BaseURL = value
+	})
+
 	// Set useragent from command line flag if provided
 	if repl.config.UserAgent != "acli-repl/1.0" {
 		repl.config.options.Set("useragent", repl.config.UserAgent)
@@ -240,7 +245,9 @@ func (r *REPL) Run() error {
 			if err == io.EOF {
 				break
 			}
-			return err
+			// Don't exit the REPL loop for errors, just print them and continue
+			fmt.Fprintf(os.Stderr, "REPL error: %v\r\n", err)
+			continue
 		}
 	}
 

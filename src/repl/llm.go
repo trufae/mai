@@ -426,7 +426,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	// Use the configured base URL if available, otherwise construct from host/port
 	url := fmt.Sprintf("http://%s:%s/api/chat", p.config.OllamaHost, p.config.OllamaPort)
 	if p.config.BaseURL != "" {
-		url = p.config.BaseURL
+		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/chat"
 	}
 
 	if stream {
@@ -614,7 +614,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.openai.com/v1/chat/completions"
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/v1/chat/completions"
 	}
 
 	if stream {
@@ -802,7 +802,7 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.anthropic.com/v1/messages"
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/v1/messages"
 	}
 
 	if stream {
@@ -1087,7 +1087,8 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s",
 		p.config.GeminiKey)
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/v1beta/models/%s:generateContent?key=%s",
+			p.config.GeminiModel, p.config.GeminiKey)
 	}
 
 	// Gemini doesn't support streaming in our implementation yet
@@ -1246,7 +1247,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.mistral.ai/v1/chat/completions"
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/v1/chat/completions"
 	}
 
 	// Mistral doesn't support streaming in our implementation yet
@@ -1406,7 +1407,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.deepseek.com/chat/completions"
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/chat/completions"
 	}
 
 	// DeepSeek doesn't support streaming in our implementation yet
@@ -1564,7 +1565,7 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	apiURL := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke",
 		p.config.BedrockRegion, p.config.BedrockModel)
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/model/%s/invoke", p.config.BedrockModel)
 	}
 
 	headers := map[string]string{
@@ -1717,7 +1718,7 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 	// Use the configured base URL if available, otherwise construct from host/port
 	apiURL := fmt.Sprintf("http://%s:%s/completion", p.config.OpenAPIHost, p.config.OpenAPIPort)
 	if p.config.BaseURL != "" {
-		apiURL = p.config.BaseURL
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/completion"
 	}
 
 	// OpenAPI doesn't support streaming in our implementation

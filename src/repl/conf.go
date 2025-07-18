@@ -24,11 +24,15 @@ type OptionInfo struct {
 	Default     string // Default value as a string
 }
 
+// OptionChangeCallback is a function that gets called when an option value changes
+type OptionChangeCallback func(string)
+
 // ConfigOptions stores the key-value pairs for configuration
 type ConfigOptions struct {
 	values      map[string]string
 	optionInfos map[string]OptionInfo
 	initialized bool
+	listeners   map[string][]OptionChangeCallback
 }
 
 // NewConfigOptions creates and initializes a new ConfigOptions
@@ -36,6 +40,7 @@ func NewConfigOptions() *ConfigOptions {
 	co := &ConfigOptions{
 		values:      make(map[string]string),
 		optionInfos: make(map[string]OptionInfo),
+		listeners:   make(map[string][]OptionChangeCallback),
 	}
 
 	// Define built-in options
@@ -114,6 +119,8 @@ func (c *ConfigOptions) GetNumber(key string) (float64, error) {
 // Set stores a configuration value
 // Returns an error if the value doesn't match the expected type
 func (c *ConfigOptions) Set(key, value string) error {
+	oldValue := c.Get(key)
+
 	// Check if the option is registered and validate based on type
 	if info, exists := c.optionInfos[key]; exists {
 		switch info.Type {
@@ -136,12 +143,29 @@ func (c *ConfigOptions) Set(key, value string) error {
 		// For unregistered options, just store as string
 		c.values[key] = value
 	}
+
+	// If the value has changed, notify listeners
+	if oldValue != value {
+		c.notifyListeners(key, value)
+	}
+
 	return nil
 }
 
 // Unset removes a configuration value
 func (c *ConfigOptions) Unset(key string) {
+	oldValue := c.Get(key)
 	delete(c.values, key)
+
+	// Notify listeners with the default value
+	defaultValue := ""
+	if info, exists := c.optionInfos[key]; exists {
+		defaultValue = info.Default
+	}
+
+	if oldValue != defaultValue {
+		c.notifyListeners(key, defaultValue)
+	}
 }
 
 // GetKeys returns a list of all configuration keys that have values set
@@ -176,6 +200,26 @@ func GetAvailableOptions() []string {
 		"reasoning",
 		"max_tokens",
 		"temperature",
+	}
+}
+
+// RegisterOptionListener adds a listener function that will be called when an option's value changes
+func (c *ConfigOptions) RegisterOptionListener(key string, callback OptionChangeCallback) {
+	// Create listeners array if it doesn't exist
+	if c.listeners[key] == nil {
+		c.listeners[key] = make([]OptionChangeCallback, 0)
+	}
+
+	// Add the new listener
+	c.listeners[key] = append(c.listeners[key], callback)
+}
+
+// notifyListeners calls all registered listeners for a specific key
+func (c *ConfigOptions) notifyListeners(key, value string) {
+	if listeners, ok := c.listeners[key]; ok {
+		for _, listener := range listeners {
+			listener(value)
+		}
 	}
 }
 
