@@ -2202,8 +2202,8 @@ func truncateContent(content string) string {
 // processAtMentions extracts words starting with @ from input text,
 // checks if they correspond to existing files, and returns the enhanced prompt
 func (r *REPL) processAtMentions(input string) string {
-	// Use regex to find all words starting with @
-	re := regexp.MustCompile(`@\w+`)
+	// Use regex to find all words starting with @ including dots for filenames
+	re := regexp.MustCompile(`@[\w.]+`)
 	matches := re.FindAllString(input, -1)
 
 	if len(matches) == 0 {
