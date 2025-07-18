@@ -291,7 +291,7 @@ func llmMakeStreamingRequest(ctx context.Context, method, url string, headers ma
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	
+
 	// Set User-Agent header from config if available
 	if config, ok := ctx.Value("config").(*Config); ok && config.UserAgent != "" {
 		req.Header.Set("User-Agent", config.UserAgent)
@@ -456,6 +456,11 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 
+	// Check if markdown is enabled
+	markdownEnabled := false
+	if p.config.options != nil {
+		markdownEnabled = p.config.options.GetBool("markdown")
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -473,8 +478,17 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			continue
 		}
 
-		// Replace newlines for terminal display
-		content := strings.ReplaceAll(response.Message.Content, "\n", "\n\r")
+		// Format content based on markdown setting
+		content := response.Message.Content
+		if !markdownEnabled {
+			// Standard formatting - just replace newlines for terminal display
+			content = strings.ReplaceAll(content, "\n", "\n\r")
+		} else {
+			// Apply markdown formatting to the chunk
+			// This is not ideal for streaming as it might break formatting across chunks,
+			// but it's better than no formatting at all
+			content = RenderMarkdown(content)
+		}
 		fmt.Print(content)
 		fullResponse.WriteString(response.Message.Content)
 
@@ -638,6 +652,11 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 
+	// Check if markdown is enabled
+	markdownEnabled := false
+	if p.config.options != nil {
+		markdownEnabled = p.config.options.GetBool("markdown")
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -662,8 +681,11 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
-			// Replace newlines for terminal display
-			content := strings.ReplaceAll(response.Choices[0].Delta.Content, "\n", "\n\r")
+			content := response.Choices[0].Delta.Content
+
+			// Format the content using our streaming-friendly formatter
+			content = FormatStreamingChunk(content, markdownEnabled)
+
 			fmt.Print(content)
 			fullResponse.WriteString(response.Choices[0].Delta.Content)
 		}
@@ -816,6 +838,11 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 
+	// Check if markdown is enabled
+	markdownEnabled := false
+	if p.config.options != nil {
+		markdownEnabled = p.config.options.GetBool("markdown")
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -839,8 +866,11 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		if response.Type == "content_block_delta" && response.Delta.Text != "" {
-			// Replace newlines for terminal display
-			content := strings.ReplaceAll(response.Delta.Text, "\n", "\n\r")
+			content := response.Delta.Text
+
+			// Format the content using our streaming-friendly formatter
+			content = FormatStreamingChunk(content, markdownEnabled)
+
 			fmt.Print(content)
 			fullResponse.WriteString(response.Delta.Text)
 		}

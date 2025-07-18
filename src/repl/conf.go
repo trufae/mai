@@ -45,6 +45,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
 	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "true")
+	co.RegisterOption("markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
 	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
 	co.RegisterOption("model", StringOption, "AI model to use", "")
@@ -362,6 +363,13 @@ func (r *REPL) handleSetCommand(args []string) error {
 	case "logging":
 		r.loggingEnabled = r.config.options.GetBool("logging")
 		fmt.Printf("Set %s = %s\r\n", option, value)
+	case "markdown":
+		r.markdownEnabled = r.config.options.GetBool("markdown")
+		markdownStatus := "enabled"
+		if !r.markdownEnabled {
+			markdownStatus = "disabled"
+		}
+		fmt.Printf("Markdown rendering %s\r\n", markdownStatus)
 	case "promptfile":
 		// Already handled above
 		return nil
@@ -467,6 +475,9 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	case "logging":
 		r.loggingEnabled = r.config.options.GetBool("logging")
 		fmt.Printf("Logging reverted to default\r\n")
+	case "markdown":
+		r.markdownEnabled = r.config.options.GetBool("markdown")
+		fmt.Printf("Markdown rendering reverted to default\r\n")
 	case "promptfile":
 		r.systemPrompt = ""
 		fmt.Print("System prompt removed\r\n")

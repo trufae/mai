@@ -51,6 +51,7 @@ type REPL struct {
 	pendingFiles     []pendingFile      // Files and images to include in the next message
 	reasoningEnabled bool               // Whether reasoning is enabled for the AI model
 	loggingEnabled   bool               // Whether to save conversation history
+	markdownEnabled  bool               // Whether to render markdown with colors
 	commands         map[string]Command // Registry of available commands
 }
 
@@ -98,6 +99,7 @@ func NewREPL(config *Config) (*REPL, error) {
 	repl.includeReplies = repl.config.options.GetBool("include_replies")
 	repl.reasoningEnabled = repl.config.options.GetBool("reasoning")
 	repl.loggingEnabled = repl.config.options.GetBool("logging")
+	repl.markdownEnabled = repl.config.options.GetBool("markdown")
 
 	// Synchronize provider and model settings with config options
 	if provider := repl.config.options.Get("provider"); provider != "" {
@@ -265,6 +267,7 @@ func (r *REPL) showCommands() {
 	fmt.Print("  #              - List available prompt files (.md)\r\n")
 	fmt.Print("  #<n> <text>    - Use content from prompt file with text\r\n")
 	fmt.Print("  !<command>     - Execute shell command\r\n")
+	fmt.Print("  _              - Print the last assistant reply\r\n")
 
 	// Display keyboard shortcuts
 	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
@@ -325,7 +328,7 @@ func (r *REPL) handleInput() error {
 	}
 
 	// Handle commands
-	if strings.HasPrefix(input, "/") {
+	if strings.HasPrefix(input, "/") || input == "_" {
 		// Add to history
 		r.addToHistory(input)
 		return r.handleCommand(input)
@@ -947,6 +950,11 @@ func (r *REPL) sendToAI(input string) error {
 		messages = append(messages, userMessage)
 	}
 
+	// Reset the markdown processor state before starting a new streaming session
+	if r.streamingEnabled && r.markdownEnabled {
+		ResetStaticProcessor()
+	}
+
 	// Send message with streaming based on REPL settings
 	response, err := client.SendMessageWithImages(messages, r.streamingEnabled, images)
 
@@ -954,7 +962,13 @@ func (r *REPL) sendToAI(input string) error {
 	if err == nil && response != "" {
 		// If not streaming, we need to print the response here
 		if !r.streamingEnabled {
-			fmt.Print(strings.ReplaceAll(response, "\n", "\r\n"))
+			if r.markdownEnabled {
+				// Use markdown formatting
+				fmt.Print(RenderMarkdown(response))
+			} else {
+				// Use standard formatting
+				fmt.Print(strings.ReplaceAll(response, "\n", "\r\n"))
+			}
 		}
 
 		// Create assistant message
@@ -1067,6 +1081,17 @@ func (r *REPL) streamClaude(input string) error {
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
 	return err
+}
+
+// getLastAssistantReply returns the content of the last assistant reply in the conversation
+func (r *REPL) getLastAssistantReply() (string, error) {
+	// Iterate backwards through messages to find the last assistant message
+	for i := len(r.messages) - 1; i >= 0; i-- {
+		if r.messages[i].Role == "assistant" {
+			return r.messages[i].Content, nil
+		}
+	}
+	return "", fmt.Errorf("no assistant replies found in conversation history")
 }
 
 // initCommands initializes the command registry with all available commands
@@ -1226,6 +1251,30 @@ func (r *REPL) initCommands() {
 		},
 	}
 
+	// Last reply command
+	r.commands["_"] = Command{
+		Name:        "_",
+		Description: "Print the last assistant reply",
+		Handler: func(r *REPL, args []string) error {
+			content, err := r.getLastAssistantReply()
+			if err != nil {
+				fmt.Printf("%v\r\n", err)
+				return nil
+			}
+
+			// Print the content with markdown rendering if enabled
+			if r.markdownEnabled {
+				fmt.Print(RenderMarkdown(content))
+			} else {
+				// Replace single newlines with \r\n for proper terminal display
+				content = strings.ReplaceAll(content, "\n", "\r\n")
+				fmt.Print(content)
+			}
+			fmt.Print("\r\n")
+			return nil
+		},
+	}
+
 	// Exit commands
 	r.commands["/quit"] = Command{
 		Name:        "/quit",
@@ -1336,8 +1385,14 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 			continue
 		}
 
-		// Replace \n with \r\n in the response
-		fmt.Print(strings.ReplaceAll(response.Message.Content, "\n", "\r\n"))
+		// Format the content based on markdown setting
+		content := response.Message.Content
+		if r.markdownEnabled {
+			content = FormatStreamingChunk(content, true)
+		} else {
+			content = strings.ReplaceAll(content, "\n", "\r\n")
+		}
+		fmt.Print(content)
 
 		if response.Done {
 			break
@@ -1381,8 +1436,14 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 		}
 
 		if len(response.Choices) > 0 {
-			// Replace \n with \r\n in the response
-			fmt.Print(strings.ReplaceAll(response.Choices[0].Delta.Content, "\n", "\r\n"))
+			// Format the content based on markdown setting
+			content := response.Choices[0].Delta.Content
+			if r.markdownEnabled {
+				content = FormatStreamingChunk(content, true)
+			} else {
+				content = strings.ReplaceAll(content, "\n", "\r\n")
+			}
+			fmt.Print(content)
 		}
 	}
 
@@ -1422,8 +1483,14 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 		}
 
 		if response.Type == "content_block_delta" {
-			// Replace \n with \r\n in the response
-			fmt.Print(strings.ReplaceAll(response.Delta.Text, "\n", "\r\n"))
+			// Format the content based on markdown setting
+			content := response.Delta.Text
+			if r.markdownEnabled {
+				content = FormatStreamingChunk(content, true)
+			} else {
+				content = strings.ReplaceAll(content, "\n", "\r\n")
+			}
+			fmt.Print(content)
 		}
 	}
 
@@ -1988,19 +2055,22 @@ func (r *REPL) displayFullConversationLog() {
 		return
 	}
 
-	fmt.Print("Full conversation log:\r\n")
-	fmt.Print("====================\r\n")
+	fmt.Print("# Full conversation log:\r\n")
 
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
 
-		fmt.Printf("\r\n[%d] %s:\r\n", i+1, role)
-		fmt.Print("--------------------\r\n")
+		fmt.Printf("\r\n## [%d] %s:\r\n", i+1, role)
 
 		// Print the full content with preserved formatting
-		// Replace single newlines with \r\n for proper terminal display
-		content := strings.ReplaceAll(msg.Content, "\n", "\r\n")
-		fmt.Printf("%s\r\n", content)
+		// Apply markdown rendering if enabled
+		if r.markdownEnabled {
+			fmt.Printf("%s\r\n", RenderMarkdown(msg.Content))
+		} else {
+			// Replace single newlines with \r\n for proper terminal display
+			content := strings.ReplaceAll(msg.Content, "\n", "\r\n")
+			fmt.Printf("%s\r\n", content)
+		}
 		fmt.Print("--------------------\r\n")
 	}
 

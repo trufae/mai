@@ -1,4 +1,4 @@
-To solve the problem effectively, follow this step-by-step plan to guide you through understanding and addressing the issue to reach a successful resolution.
+To solve the problem effectively, follow this step-by-step plan to guide you through understanding and addressing the issue to reach a successful resolution. Do not overthink, try to go straight to the easiest and better solution.
 
 1. **Problem Understanding:**
    - Define the problem clearly, identifying key elements and constraints.
