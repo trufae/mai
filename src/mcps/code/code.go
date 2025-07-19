@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,6 +39,40 @@ func NewCodeService() *CodeService {
 // GetTools returns all available code tools
 func (s *CodeService) GetTools() []mcplib.Tool {
 	return []mcplib.Tool{
+		// Search tool for finding text in files
+		{
+			Name:        "SearchFiles",
+			Description: "Searches for text in files using ripgrep (rg), git grep, or grep.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The text pattern to search for.",
+					},
+					"directory": map[string]any{
+						"type":        "string",
+						"description": "The directory to search in. If not provided, uses the current working directory.",
+					},
+					"file_pattern": map[string]any{
+						"type":        "string",
+						"description": "Optional file pattern to filter which files are searched (e.g., '*.go', '*.js').",
+					},
+					"max_results": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of results to return. Default is 100.",
+					},
+					"case_sensitive": map[string]any{
+						"type":        "boolean",
+						"description": "Whether the search should be case sensitive. Default is false.",
+					},
+				},
+				"required": []string{"query"},
+			},
+			UsageExamples: "Example: {\"query\": \"func main\", \"directory\": \"/path/to/project\", \"file_pattern\": \"*.go\"} - Searches for 'func main' in Go files",
+			Handler:       s.handleSearchFiles,
+		},
+
 		// Base tools from original implementation
 		// 1. CommandExecutor
 		{
@@ -2873,6 +2909,200 @@ func (s *CodeService) handleMakeCmd(args map[string]any) (any, error) {
 	}
 
 	return result, nil
+}
+
+// handleSearchFiles handles searching for text patterns in files
+func (s *CodeService) handleSearchFiles(args map[string]any) (any, error) {
+	query, ok := args["query"].(string)
+	if !ok || query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+
+	// Get optional parameters
+	directory := s.getCurrentDirectory()
+	if dirArg, ok := args["directory"].(string); ok && dirArg != "" {
+		directory = dirArg
+	}
+
+	filePattern := ""
+	if patternArg, ok := args["file_pattern"].(string); ok {
+		filePattern = patternArg
+	}
+
+	maxResults := 100
+	if maxArg, ok := args["max_results"].(float64); ok {
+		maxResults = int(maxArg)
+	}
+
+	caseSensitive := false
+	if caseArg, ok := args["case_sensitive"].(bool); ok {
+		caseSensitive = caseArg
+	}
+
+	// Check which search tool is available
+	searchTool, searchArgs := s.getSearchCommand(query, filePattern, caseSensitive, maxResults, directory)
+
+	// Execute the search command
+	cmd := exec.Command(searchTool, searchArgs...)
+	cmd.Dir = directory
+	output, err := cmd.CombinedOutput()
+
+	// Check for errors but don't fail if no results were found
+	noResults := false
+	if err != nil {
+		// ripgrep returns exit code 1 when no matches are found
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			noResults = true
+		} else {
+			return nil, fmt.Errorf("search failed: %v", err)
+		}
+	}
+
+	// Parse the results
+	results := s.parseSearchResults(string(output), searchTool)
+
+	return map[string]any{
+		"results":        results,
+		"count":          len(results),
+		"no_results":     noResults,
+		"search_tool":    searchTool,
+		"search_command": strings.Join(append([]string{searchTool}, searchArgs...), " "),
+		"directory":      directory,
+	}, nil
+}
+
+// getSearchCommand determines which search tool to use and builds the command arguments
+func (s *CodeService) getSearchCommand(query, filePattern string, caseSensitive bool, maxResults int, directory string) (string, []string) {
+	// Check if ripgrep is available (preferred due to performance)
+	if _, err := exec.LookPath("rg"); err == nil {
+		args := []string{"--json"}
+		if !caseSensitive {
+			args = append(args, "-i")
+		}
+		if filePattern != "" {
+			args = append(args, "-g", filePattern)
+		}
+		args = append(args, "--max-count", fmt.Sprintf("%d", maxResults))
+		args = append(args, query)
+		return "rg", args
+	}
+
+	// Check if git grep is available and if we're in a git repository
+	if _, err := exec.LookPath("git"); err == nil {
+		// Check if we're in a git repository
+		cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+		cmd.Dir = directory
+		if err := cmd.Run(); err == nil {
+			args := []string{"grep", "-n"}
+			if !caseSensitive {
+				args = append(args, "-i")
+			}
+			if maxResults > 0 {
+				args = append(args, "-m", fmt.Sprintf("%d", maxResults))
+			}
+			args = append(args, query)
+			if filePattern != "" {
+				args = append(args, "--", filePattern)
+			}
+			return "git", args
+		}
+	}
+
+	// Fallback to regular grep
+	args := []string{"-r", "-n"}
+	if !caseSensitive {
+		args = append(args, "-i")
+	}
+	if maxResults > 0 {
+		args = append(args, "-m", fmt.Sprintf("%d", maxResults))
+	}
+	args = append(args, query)
+	if filePattern != "" {
+		args = append(args, "--include", filePattern)
+	}
+	args = append(args, ".")
+	return "grep", args
+}
+
+// parseSearchResults parses the output from the search command into a structured format
+func (s *CodeService) parseSearchResults(output, tool string) []map[string]any {
+	results := []map[string]any{}
+
+	// Split the output into lines
+	lines := strings.Split(output, "\n")
+
+	// Parse based on the tool used
+	switch tool {
+	case "rg":
+		// ripgrep with --json outputs JSON objects, one per line
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			
+			// Try to parse JSON
+			var jsonResult map[string]any
+			if err := json.Unmarshal([]byte(line), &jsonResult); err != nil {
+				continue
+			}
+			
+			// Check if it's a match line (type: "match")
+			if jsonType, ok := jsonResult["type"].(string); ok && jsonType == "match" {
+				if data, ok := jsonResult["data"].(map[string]any); ok {
+					if path, ok := data["path"].(map[string]any); ok {
+						if text, ok := data["text"].(map[string]any); ok {
+							if lines, ok := data["line_number"].(float64); ok {
+								result := map[string]any{
+									"file":      path["text"],
+									"line":      int(lines),
+									"content":   text["text"],
+								}
+								results = append(results, result)
+							}
+						}
+					}
+				}
+			}
+		}
+	case "git":
+		// Git grep format: file:line:content
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			
+			parts := strings.SplitN(line, ":", 3)
+			if len(parts) >= 3 {
+				lineNum, _ := strconv.Atoi(parts[1])
+				result := map[string]any{
+					"file":      parts[0],
+					"line":      lineNum,
+					"content":   parts[2],
+				}
+				results = append(results, result)
+			}
+		}
+	case "grep":
+		// Grep format: file:line:content
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			
+			parts := strings.SplitN(line, ":", 3)
+			if len(parts) >= 3 {
+				lineNum, _ := strconv.Atoi(parts[1])
+				result := map[string]any{
+					"file":      parts[0],
+					"line":      lineNum,
+					"content":   parts[2],
+				}
+				results = append(results, result)
+			}
+		}
+	}
+
+	return results
 }
 
 // handleMesonBuild handles building a Meson project
