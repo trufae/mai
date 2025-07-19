@@ -522,7 +522,7 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
 		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
-		output.WriteString(fmt.Sprintf("Command: `%s`\n", server.Command))
+		output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
 		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
 
 		for _, tool := range server.Tools {
@@ -555,10 +555,12 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 				for key, _ := range properties {
 					params = append(params, fmt.Sprintf("%s=value", key))
 				}
-				paramString := strings.Join(params, "&")
-				output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
+				paramString := strings.Join(params, " ")
+				output.WriteString(fmt.Sprintf("**Usage:** `acli-tool call %s %s %s`\n\n", serverName, tool.Name, paramString))
+				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
 			} else {
-				output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
+				output.WriteString(fmt.Sprintf("**Usage:** `acli-tool call %s %s`\n\n", serverName, tool.Name))
+				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
 			}
 		}
 		server.mutex.RUnlock()
