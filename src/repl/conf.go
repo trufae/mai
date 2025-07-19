@@ -58,6 +58,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("provider", StringOption, "AI provider to use", "")
 	co.RegisterOption("baseurl", StringOption, "Custom base URL for API requests", "")
 	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
+	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
 	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "acli-repl/1.0")
 
 	co.initialized = true
@@ -361,6 +362,13 @@ func (r *REPL) handleSetCommand(args []string) error {
 	case "logging":
 		r.loggingEnabled = r.config.options.GetBool("logging")
 		fmt.Printf("Set %s = %s\r\n", option, value)
+	case "usetools":
+		r.useToolsEnabled = r.config.options.GetBool("usetools")
+		toolsStatus := "enabled"
+		if !r.useToolsEnabled {
+			toolsStatus = "disabled"
+		}
+		fmt.Printf("Tools processing %s\r\n", toolsStatus)
 	case "markdown":
 		r.markdownEnabled = r.config.options.GetBool("markdown")
 		markdownStatus := "enabled"
@@ -368,6 +376,13 @@ func (r *REPL) handleSetCommand(args []string) error {
 			markdownStatus = "disabled"
 		}
 		fmt.Printf("Markdown rendering %s\r\n", markdownStatus)
+	case "usetools":
+		r.useToolsEnabled = r.config.options.GetBool("usetools")
+		toolsStatus := "enabled"
+		if !r.useToolsEnabled {
+			toolsStatus = "disabled"
+		}
+		fmt.Printf("Tools processing %s\r\n", toolsStatus)
 	case "promptfile":
 		// Already handled above
 		return nil
@@ -476,6 +491,9 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	case "markdown":
 		r.markdownEnabled = r.config.options.GetBool("markdown")
 		fmt.Printf("Markdown rendering reverted to default\r\n")
+	case "usetools":
+		r.useToolsEnabled = r.config.options.GetBool("usetools")
+		fmt.Printf("Tools processing reverted to default\r\n")
 	case "promptfile":
 		r.systemPrompt = ""
 		fmt.Print("System prompt removed\r\n")

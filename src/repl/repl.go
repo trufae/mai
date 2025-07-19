@@ -52,6 +52,7 @@ type REPL struct {
 	reasoningEnabled bool               // Whether reasoning is enabled for the AI model
 	loggingEnabled   bool               // Whether to save conversation history
 	markdownEnabled  bool               // Whether to render markdown with colors
+	useToolsEnabled  bool               // Whether to process input using tools.go functions
 	commands         map[string]Command // Registry of available commands
 }
 
@@ -100,6 +101,7 @@ func NewREPL(config *Config) (*REPL, error) {
 	repl.reasoningEnabled = repl.config.options.GetBool("reasoning")
 	repl.loggingEnabled = repl.config.options.GetBool("logging")
 	repl.markdownEnabled = repl.config.options.GetBool("markdown")
+	repl.useToolsEnabled = repl.config.options.GetBool("usetools")
 
 	// Synchronize provider and model settings with config options
 	if provider := repl.config.options.Get("provider"); provider != "" {
@@ -875,6 +877,11 @@ func (r *REPL) sendToAI(input string) error {
 		r.isStreaming = false
 		r.mu.Unlock()
 	}()
+
+	// Process input with tools.go if enabled
+	if r.useToolsEnabled {
+		input = ProcessUserInput(input, r)
+	}
 
 	// Create client
 	client, err := NewLLMClient(r.config)
