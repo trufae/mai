@@ -51,7 +51,7 @@ var (
 	InlineCodeColor = Green
 
 	// Emphasis
-	BoldColor   = Bold
+	BoldColor   = Cyan + Bold
 	ItalicColor = Italic
 
 	// Links and quotes

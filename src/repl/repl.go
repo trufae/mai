@@ -1259,6 +1259,14 @@ func (r *REPL) initCommands() {
 		},
 	}
 
+	r.commands["/tool"] = Command{
+		Name:        "/tool",
+		Description: "Execute the acli-tool command, passing arguments",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleToolCommand(args)
+		},
+	}
+
 	// System prompt shortcuts
 	r.commands["/prompt"] = Command{
 		Name:        "/prompt",
@@ -2611,6 +2619,72 @@ func (r *REPL) handleCompactCommand() error {
 	}
 
 	fmt.Print("Conversation compacted successfully.\r\n")
+
+	return nil
+}
+
+// handleToolCommand executes the acli-tool command with the given arguments
+func (r *REPL) handleToolCommand(args []string) error {
+	var cmdArgs []string
+	// If no arguments provided, show usage
+	if len(args) < 2 {
+		cmdArgs = []string{"-q", "list"}
+	} else {
+		cmdArgs = args[1:] // Skip the "/tool" part
+	}
+
+	// Create the command with acli-tool and all the arguments passed
+	cmd := exec.Command("acli-tool", cmdArgs...)
+
+	// Set up pipes for stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating stdout pipe: %v\r\n", err)
+		return nil
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating stderr pipe: %v\r\n", err)
+		return nil
+	}
+
+	// Start the command
+	err = cmd.Start()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting acli-tool command: %v\r\n", err)
+		return nil
+	}
+
+	// Set up a wait group to coordinate goroutines
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Read stdout
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			fmt.Printf("%s\r\n", scanner.Text())
+		}
+	}()
+
+	// Read stderr
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			fmt.Fprintf(os.Stderr, "%s\r\n", scanner.Text())
+		}
+	}()
+
+	// Wait for both goroutines to finish
+	wg.Wait()
+
+	// Wait for the command to finish
+	err = cmd.Wait()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Command exited with error: %v\r\n", err)
+	}
 
 	return nil
 }

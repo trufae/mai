@@ -362,13 +362,6 @@ func (r *REPL) handleSetCommand(args []string) error {
 	case "logging":
 		r.loggingEnabled = r.config.options.GetBool("logging")
 		fmt.Printf("Set %s = %s\r\n", option, value)
-	case "usetools":
-		r.useToolsEnabled = r.config.options.GetBool("usetools")
-		toolsStatus := "enabled"
-		if !r.useToolsEnabled {
-			toolsStatus = "disabled"
-		}
-		fmt.Printf("Tools processing %s\r\n", toolsStatus)
 	case "markdown":
 		r.markdownEnabled = r.config.options.GetBool("markdown")
 		markdownStatus := "enabled"
