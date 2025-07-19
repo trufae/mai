@@ -365,171 +365,99 @@ func (r *REPL) handleInput() error {
 }
 
 func (r *REPL) readLine() (string, error) {
-	var line strings.Builder
-	r.cursorPos = 0 // Reset cursor position
-	buf := make([]byte, 1)
+	// Create a ReadLine instance with horizontal scrolling
+	readLine, err := NewReadLine()
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize readline: %v", err)
+	}
+	defer readLine.Restore()
 
+	// Load history if available
+	for _, item := range r.history {
+		readLine.AddToHistory(item)
+	}
+
+	// Buffer to read one byte at a time
+	buf := make([]byte, 1)
+	
+	// Main input loop
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
 			return "", err
 		}
-
+		
 		if n == 0 {
 			continue
 		}
-
+		
 		b := buf[0]
-
-		switch b {
-		case '\r', '\n':
-			fmt.Print("\r\n")
-			r.completeState = 0
-			return line.String(), nil
-		case 127, 8: // Backspace
-			if line.Len() > 0 && r.cursorPos > 0 {
-				s := line.String()
-				// Remove character before cursor
-				newStr := s[:r.cursorPos-1] + s[r.cursorPos:]
-
-				// Clear the entire line and reprint
-				for i := 0; i < line.Len(); i++ {
-					fmt.Print("\b \b")
-				}
-
-				line.Reset()
-				line.WriteString(newStr)
-				r.cursorPos--
-
-				// Reprint the entire line
-				fmt.Print(line.String())
-
-				// Move cursor back to the correct position if needed
-				if r.cursorPos < line.Len() {
-					// Move cursor back to position
-					fmt.Printf("\033[%dD", line.Len()-r.cursorPos)
-				}
-
-				r.completeState = 0
-			}
-		case 23: // Ctrl+W (delete last word)
-			if line.Len() > 0 && r.cursorPos > 0 {
-				s := line.String()
-
-				// Only consider the text before the cursor
-				beforeCursor := s[:r.cursorPos]
-				afterCursor := s[r.cursorPos:]
-
-				// Trim trailing spaces in the text before cursor
-				trimmedBeforeCursor := strings.TrimRight(beforeCursor, " \t")
-
-				if len(trimmedBeforeCursor) == 0 {
-					// If only spaces before cursor, remove all of them
-					newStr := afterCursor
-
-					// Clear the entire line and reprint
-					for i := 0; i < line.Len(); i++ {
-						fmt.Print("\b \b")
-					}
-
-					line.Reset()
-					line.WriteString(newStr)
-					r.cursorPos = 0
-				} else {
-					// Find the beginning of the last word
-					lastSpace := strings.LastIndexAny(trimmedBeforeCursor, " \t")
-
-					var newBeforeCursor string
-					if lastSpace == -1 {
-						// No spaces, remove everything before cursor
-						newBeforeCursor = ""
-					} else {
-						// Keep up to and including the last space
-						newBeforeCursor = beforeCursor[:lastSpace+1]
-					}
-
-					// Clear the entire line and reprint
-					for i := 0; i < line.Len(); i++ {
-						fmt.Print("\b \b")
-					}
-
-					newStr := newBeforeCursor + afterCursor
-					line.Reset()
-					line.WriteString(newStr)
-					r.cursorPos = len(newBeforeCursor)
-				}
-
-				// Reprint the entire line
-				fmt.Print(line.String())
-
-				// Move cursor back to the correct position if needed
-				if r.cursorPos < line.Len() {
-					// Move cursor back to position
-					fmt.Printf("\033[%dD", line.Len()-r.cursorPos)
-				}
-
-				r.completeState = 0
-			}
-		case 1: // Ctrl+A (beginning of line)
-			if r.cursorPos > 0 {
-				// Move cursor to the beginning of the line
-				fmt.Printf("\033[%dD", r.cursorPos)
-				r.cursorPos = 0
-			}
-		case 5: // Ctrl+E (end of line)
-			if r.cursorPos < line.Len() {
-				// Move cursor to the end of the line
-				fmt.Printf("\033[%dC", line.Len()-r.cursorPos)
-				r.cursorPos = line.Len()
-			}
-		case 27: // Escape sequence (arrow keys)
-			if err := r.handleEscapeSequence(&line); err != nil {
-				return "", err
-			}
-		case 9: // Tab
+		
+		// Handle tab completion specially
+		if b == 9 { // Tab key
+			// Get current content from readline
+			currentContent := readLine.GetContent()
+			
+			// Create a strings.Builder with the current content for compatibility
+			var line strings.Builder
+			line.WriteString(currentContent)
+			
+			// Handle tab completion using the existing method
 			r.handleTabCompletion(&line)
+			
+			// Get the completed text and update the readline buffer
+			readLine.SetContent(line.String())
+			continue
+		}
+		
+		// Handle other inputs
+		switch b {
+		case '\r', '\n': // Enter
+			fmt.Print("\r\n")
+			return readLine.GetContent(), nil
+			
+		case 127, 8: // Backspace
+			if readLine.cursorPos > 0 {
+				readLine.buffer = append(readLine.buffer[:readLine.cursorPos-1], readLine.buffer[readLine.cursorPos:]...)
+				readLine.cursorPos--
+				if readLine.scrollPos > 0 && readLine.cursorPos < readLine.scrollPos {
+					readLine.scrollPos--
+				}
+				readLine.refreshLine()
+			}
+			
+		case 4: // Ctrl+D
+			if len(readLine.buffer) == 0 {
+				fmt.Print("\r\n")
+				return "", io.EOF
+			}
+			
 		case 3: // Ctrl+C
-			// Cancel current request but don't exit
+			fmt.Print("^C\r\n")
 			r.cancel()
 			r.ctx, r.cancel = context.WithCancel(context.Background())
 			fmt.Print("\x1b[0m\r\n^C\r\n\x1b[33m>>> ")
-			line.Reset()
-			r.cursorPos = 0
-		case 4: // Ctrl+D
-			if line.Len() == 0 { // Only exit if the line is empty
-				fmt.Print("\x1b[0m\r\nGoodbye!\r\n")
-				return "", io.EOF
-			}
+			readLine.buffer = readLine.buffer[:0]
+			readLine.cursorPos = 0
+			readLine.scrollPos = 0
+			
+		case 23: // Ctrl+W (delete word)
+			readLine.deleteWord()
+			
+		case 1: // Ctrl+A (beginning of line)
+			readLine.moveCursorToStart()
+			
+		case 5: // Ctrl+E (end of line)
+			readLine.moveCursorToEnd()
+			
+		case 27: // Escape sequence (arrow keys)
+			readLine.handleEscapeSequence()
+			
 		default:
 			if b >= 32 && b <= 126 { // Printable characters
-				s := line.String()
-
-				// Insert character at cursor position
-				if r.cursorPos == line.Len() {
-					// Append at the end
-					line.WriteByte(b)
-					fmt.Printf("%c", b)
-				} else {
-					// Insert in the middle
-					newStr := s[:r.cursorPos] + string(b) + s[r.cursorPos:]
-
-					// Clear the entire line and reprint
-					for i := 0; i < line.Len(); i++ {
-						fmt.Print("\b \b")
-					}
-
-					line.Reset()
-					line.WriteString(newStr)
-
-					// Reprint the entire line
-					fmt.Print(line.String())
-
-					// Move cursor back to the correct position
-					fmt.Printf("\033[%dD", line.Len()-r.cursorPos-1)
-				}
-
-				r.cursorPos++
-				r.completeState = 0
+				readLine.insertRune(rune(b))
+				readLine.refreshLine()
+				r.completeState = 0 // Reset completion state
 			}
 		}
 	}
@@ -657,71 +585,15 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	}
 }
 
+// handleEscapeSequence is now handled by the ReadLine implementation
 func (r *REPL) handleEscapeSequence(line *strings.Builder) error {
-	buf := make([]byte, 2)
-	n, err := os.Stdin.Read(buf)
-	if err != nil || n < 2 {
-		return nil
-	}
-
-	if buf[0] == '[' {
-		switch buf[1] {
-		case 'A': // Up arrow
-			r.navigateHistory(-1, line)
-		case 'B': // Down arrow
-			r.navigateHistory(1, line)
-		case 'C': // Right arrow
-			// Move cursor right if not at the end
-			if r.cursorPos < line.Len() {
-				fmt.Print("\033[1C") // Move cursor right by 1
-				r.cursorPos++
-			}
-		case 'D': // Left arrow
-			// Move cursor left if not at the beginning
-			if r.cursorPos > 0 {
-				fmt.Print("\033[1D") // Move cursor left by 1
-				r.cursorPos--
-			}
-		}
-	}
-
+	// This function is kept for compatibility but no longer used directly
 	return nil
 }
 
+// navigateHistory is now handled by the ReadLine implementation
 func (r *REPL) navigateHistory(direction int, line *strings.Builder) {
-	if len(r.history) == 0 {
-		return
-	}
-
-	newIndex := r.historyIndex + direction
-
-	if direction == -1 && r.historyIndex == -1 {
-		newIndex = len(r.history) - 1
-	} else if newIndex < -1 {
-		newIndex = -1
-	} else if newIndex >= len(r.history) {
-		newIndex = len(r.history) - 1
-	}
-
-	// Clear current line
-	for i := 0; i < line.Len(); i++ {
-		fmt.Print("\b \b")
-	}
-
-	r.historyIndex = newIndex
-	line.Reset()
-
-	if r.historyIndex >= 0 {
-		historyItem := r.history[r.historyIndex]
-		line.WriteString(historyItem)
-		fmt.Print(historyItem)
-
-		// Update cursor position to end of line
-		r.cursorPos = line.Len()
-	} else {
-		// Reset cursor position
-		r.cursorPos = 0
-	}
+	// This function is kept for compatibility but no longer used directly
 }
 
 func (r *REPL) addToHistory(input string) {
