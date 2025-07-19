@@ -959,7 +959,7 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Reset the markdown processor state before starting a new streaming session
 	if r.streamingEnabled && r.markdownEnabled {
-		ResetStaticProcessor()
+		ResetStreamRenderer()
 	}
 
 	// Send message with streaming based on REPL settings

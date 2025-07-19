@@ -453,6 +453,11 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 	if p.config.options != nil {
 		markdownEnabled = p.config.options.GetBool("markdown")
 	}
+
+	// Reset the stream renderer if markdown is enabled
+	if markdownEnabled {
+		ResetStreamRenderer()
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -476,10 +481,8 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			// Standard formatting - just replace newlines for terminal display
 			content = strings.ReplaceAll(content, "\n", "\n\r")
 		} else {
-			// Apply markdown formatting to the chunk
-			// This is not ideal for streaming as it might break formatting across chunks,
-			// but it's better than no formatting at all
-			content = RenderMarkdown(content)
+			// Format the content using our streaming-friendly formatter
+			content = FormatStreamingChunk(content, markdownEnabled)
 		}
 		fmt.Print(content)
 		fullResponse.WriteString(response.Message.Content)
@@ -490,6 +493,15 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 	}
 
 	fmt.Println()
+
+	// Flush any remaining content in the stream renderer buffer
+	if markdownEnabled {
+		renderer := GetStreamRenderer()
+		if final := renderer.Flush(); final != "" {
+			fmt.Print(final)
+		}
+	}
+
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
 	}
@@ -636,6 +648,11 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	if p.config.options != nil {
 		markdownEnabled = p.config.options.GetBool("markdown")
 	}
+
+	// Reset the stream renderer if markdown is enabled
+	if markdownEnabled {
+		ResetStreamRenderer()
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -671,6 +688,15 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	}
 
 	fmt.Println()
+
+	// Flush any remaining content in the stream renderer buffer
+	if markdownEnabled {
+		renderer := GetStreamRenderer()
+		if final := renderer.Flush(); final != "" {
+			fmt.Print(final)
+		}
+	}
+
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
 	}
@@ -822,6 +848,11 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 	if p.config.options != nil {
 		markdownEnabled = p.config.options.GetBool("markdown")
 	}
+
+	// Reset the stream renderer if markdown is enabled
+	if markdownEnabled {
+		ResetStreamRenderer()
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -856,6 +887,15 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 	}
 
 	fmt.Println()
+
+	// Flush any remaining content in the stream renderer buffer
+	if markdownEnabled {
+		renderer := GetStreamRenderer()
+		if final := renderer.Flush(); final != "" {
+			fmt.Print(final)
+		}
+	}
+
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
 	}
