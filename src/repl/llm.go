@@ -342,6 +342,9 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	if string(respBody)[0] != "{"[0] {
+		return nil, fmt.Errorf("failed %v", string(respBody))
+	}
 
 	var ollamaResp OllamaModelsResponse
 	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
@@ -542,18 +545,12 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Filter out non-chat models and sort by ID
 	chatModels := make([]Model, 0, len(openaiResp.Data))
 	for _, m := range openaiResp.Data {
-		// Focus on main models people usually use
-		if strings.Contains(m.ID, "gpt") ||
-			strings.Contains(m.ID, "dall-e") ||
-			strings.Contains(m.ID, "text-embedding") ||
-			strings.Contains(m.ID, "whisper") {
-			chatModels = append(chatModels, Model{
-				ID:          m.ID,
-				Name:        m.ID,
-				Provider:    "openai",
-				Description: "Owner: " + m.OwnedBy,
-			})
-		}
+		chatModels = append(chatModels, Model{
+			ID:          m.ID,
+			Name:        m.ID,
+			Provider:    "openai",
+			Description: "Owner: " + m.OwnedBy,
+		})
 	}
 
 	// Sort models alphabetically by ID
@@ -597,7 +594,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Build chat completions endpoint URL
-	apiURL := buildURL("https://api.openai.com/v1/chat/completions", p.config.BaseURL, "", "", "/v1/chat/completions")
+	apiURL := buildURL("https://api.openai.com/v1/chat/completions", p.config.BaseURL, "", "", "/chat/completions")
 
 	if stream {
 		return llmMakeStreamingRequest(ctx, "POST", apiURL,
