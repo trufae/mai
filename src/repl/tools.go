@@ -18,26 +18,26 @@ type Tool struct {
 	Args        []string // Arguments to pass to the tool
 }
 
-// getAvailableTools runs the 'acli-tool list' command and returns the output as a string
-func getAvailableTools() (string, error) {
-	cmd := exec.Command("acli-tool", "list")
+// GetAvailableTools runs the 'acli-tool list' command and returns the output as a string
+func GetAvailableTools(quiet bool) (string, error) {
+	var cmd *exec.Cmd
+	if quiet {
+		cmd = exec.Command("acli-tool", "-q", "list")
+	} else {
+		cmd = exec.Command("acli-tool", "list")
+	}
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
-
 	err := cmd.Run()
-	if err != nil {
-		return "", fmt.Errorf("error executing acli-tool list: %v: %s", err, stderr.String())
-	}
-
-	return out.String(), nil
+	return out.String(), err
 }
 
 // callTool executes a specified tool with provided arguments and returns the output
 func callTool(tool *Tool) (string, error) {
 	// Combine the tool name and arguments for the acli-tool command
-	cmdArgs := append([]string{tool.Name}, tool.Args...)
+	cmdArgs := append([]string{"call", tool.Name}, tool.Args...)
 	cmd := exec.Command("acli-tool", cmdArgs...)
 
 	var out bytes.Buffer
@@ -65,12 +65,6 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 	return []*Tool{}, nil
 }
 
-// ExecuteToolList runs the 'acli-tool list' command and returns the output as a string
-// Kept for backward compatibility
-func ExecuteToolList() (string, error) {
-	return getAvailableTools()
-}
-
 // ExecuteTool runs a specified tool with provided arguments and returns the output
 // Kept for backward compatibility
 func ExecuteTool(toolName string, args ...string) (string, error) {
@@ -90,6 +84,7 @@ func getToolPromptPath(repl *REPL) (string, error) {
 		commonLocations := []string{
 			"./prompts",
 			"../prompts",
+			"../../prompts",
 		}
 
 		for _, loc := range commonLocations {
@@ -110,7 +105,7 @@ func getToolPromptPath(repl *REPL) (string, error) {
 
 // buildMessageWithTools formats a message with tool information
 func buildMessageWithTools(toolPrompt string, userInput string, toolList string) string {
-	return fmt.Sprintf("%s\n%s\n----\nThese are the tools available:\n%s", 
+	return fmt.Sprintf("%s\n%s\n----\nThese are the tools available:\n%s",
 		toolPrompt, userInput, toolList)
 }
 
@@ -125,7 +120,7 @@ func executeToolsInMessage(message string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Execute each tool and collect results
 	results := []string{}
 	for _, tool := range tools {
@@ -135,13 +130,13 @@ func executeToolsInMessage(message string) (string, error) {
 		}
 		results = append(results, result)
 	}
-	
+
 	// For function calling, these results would be formatted and sent back to the LLM
 	return strings.Join(results, "\n"), nil
 }
 
 // ProcessUserInput is a function that takes user input and the REPL context
-// and returns a processed string. When the "usetools" option is enabled, 
+// and returns a processed string. When the "usetools" option is enabled,
 // user input is processed through this function.
 func ProcessUserInput(input string, repl interface{}) string {
 	// Type assertion to access REPL methods and fields
@@ -150,13 +145,13 @@ func ProcessUserInput(input string, repl interface{}) string {
 		// If type assertion fails, return input unchanged
 		return input
 	}
-	
+
 	// Get the tool prompt path
 	toolPromptPath, err := getToolPromptPath(replImpl)
 	if err != nil {
 		return input
 	}
-	
+
 	// Read the tool.md content
 	toolPromptBytes, err := os.ReadFile(toolPromptPath)
 	if err != nil {
@@ -166,17 +161,17 @@ func ProcessUserInput(input string, repl interface{}) string {
 	toolPrompt := string(toolPromptBytes)
 
 	// Get list of available tools
-	toolList, err := getAvailableTools()
+	toolList, err := GetAvailableTools(false)
 	if err != nil {
 		// If can't get tool list, use tool.md and user input without tool list
-		return buildMessageWithTools(toolPrompt, input, 
+		return buildMessageWithTools(toolPrompt, input,
 			fmt.Sprintf("[Error getting tool list: %v]", err))
 	}
 
 	// Process any tool calls in the message (placeholder for future implementation)
 	// Currently does nothing
 	_, _ = executeToolsInMessage(input)
-	
+
 	// Build and return the processed input
 	return buildMessageWithTools(toolPrompt, input, toolList)
 }

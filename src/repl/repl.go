@@ -298,10 +298,10 @@ func (r *REPL) interruptResponse() {
 	if isStreaming {
 		// Cancel the current context
 		r.cancel()
-		
+
 		// Create new context for next request
 		r.ctx, r.cancel = context.WithCancel(context.Background())
-		
+
 		// Also interrupt the LLM client if it's active
 		client, err := NewLLMClient(r.config)
 		if err == nil && client != nil {
@@ -388,43 +388,43 @@ func (r *REPL) readLine() (string, error) {
 
 	// Buffer to read one byte at a time
 	buf := make([]byte, 1)
-	
+
 	// Main input loop
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
 			return "", err
 		}
-		
+
 		if n == 0 {
 			continue
 		}
-		
+
 		b := buf[0]
-		
+
 		// Handle tab completion specially
 		if b == 9 { // Tab key
 			// Get current content from readline
 			currentContent := readLine.GetContent()
-			
+
 			// Create a strings.Builder with the current content for compatibility
 			var line strings.Builder
 			line.WriteString(currentContent)
-			
+
 			// Handle tab completion using the existing method
 			r.handleTabCompletion(&line)
-			
+
 			// Get the completed text and update the readline buffer
 			readLine.SetContent(line.String())
 			continue
 		}
-		
+
 		// Handle other inputs
 		switch b {
 		case '\r', '\n': // Enter
 			fmt.Print("\r\n")
 			return readLine.GetContent(), nil
-			
+
 		case 127, 8: // Backspace
 			if readLine.cursorPos > 0 {
 				readLine.buffer = append(readLine.buffer[:readLine.cursorPos-1], readLine.buffer[readLine.cursorPos:]...)
@@ -434,13 +434,13 @@ func (r *REPL) readLine() (string, error) {
 				}
 				readLine.refreshLine()
 			}
-			
+
 		case 4: // Ctrl+D
 			if len(readLine.buffer) == 0 {
 				fmt.Print("\r\n")
 				return "", io.EOF
 			}
-			
+
 		case 3: // Ctrl+C
 			fmt.Print("^C\r\n")
 			r.cancel()
@@ -449,19 +449,19 @@ func (r *REPL) readLine() (string, error) {
 			readLine.buffer = readLine.buffer[:0]
 			readLine.cursorPos = 0
 			readLine.scrollPos = 0
-			
+
 		case 23: // Ctrl+W (delete word)
 			readLine.deleteWord()
-			
+
 		case 1: // Ctrl+A (beginning of line)
 			readLine.moveCursorToStart()
-			
+
 		case 5: // Ctrl+E (end of line)
 			readLine.moveCursorToEnd()
-			
+
 		case 27: // Escape sequence (arrow keys)
 			readLine.handleEscapeSequence()
-			
+
 		default:
 			if b >= 32 && b <= 126 { // Printable characters
 				readLine.insertRune(rune(b))
@@ -2527,65 +2527,19 @@ func (r *REPL) handleCompactCommand() error {
 
 // handleToolCommand executes the acli-tool command with the given arguments
 func (r *REPL) handleToolCommand(args []string) error {
-	var cmdArgs []string
+	// var cmdArgs []string
 	// If no arguments provided, show usage
 	if len(args) < 2 {
-		cmdArgs = []string{"-q", "list"}
+		// cmdArgs = []string{"-q", "list"}
+		tools, err := GetAvailableTools(true)
+		if err == nil {
+			fmt.Println(tools)
+		}
 	} else {
-		cmdArgs = args[1:] // Skip the "/tool" part
-	}
-
-	// Create the command with acli-tool and all the arguments passed
-	cmd := exec.Command("acli-tool", cmdArgs...)
-
-	// Set up pipes for stdout and stderr
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stdout pipe: %v\r\n", err)
-		return nil
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stderr pipe: %v\r\n", err)
-		return nil
-	}
-
-	// Start the command
-	err = cmd.Start()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting acli-tool command: %v\r\n", err)
-		return nil
-	}
-
-	// Set up a wait group to coordinate goroutines
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Read stdout
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdoutPipe)
-		for scanner.Scan() {
-			fmt.Printf("%s\r\n", scanner.Text())
+		res, err := ExecuteTool(args[1], args[2:]...)
+		if err == nil {
+			fmt.Println(res)
 		}
-	}()
-
-	// Read stderr
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			fmt.Fprintf(os.Stderr, "%s\r\n", scanner.Text())
-		}
-	}()
-
-	// Wait for both goroutines to finish
-	wg.Wait()
-
-	// Wait for the command to finish
-	err = cmd.Wait()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Command exited with error: %v\r\n", err)
 	}
 
 	return nil

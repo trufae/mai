@@ -11,17 +11,17 @@ import (
 
 // ReadLine represents a line editor with horizontal scrolling
 type ReadLine struct {
-	buffer          []rune
-	cursorPos       int
-	scrollPos       int
-	width           int
-	history         []string
-	historyPos      int
-	mu              sync.Mutex
-	oldState        *term.State
-	completions     []string
-	completeIdx     int
-	interruptFunc   func()
+	buffer        []rune
+	cursorPos     int
+	scrollPos     int
+	width         int
+	history       []string
+	historyPos    int
+	mu            sync.Mutex
+	oldState      *term.State
+	completions   []string
+	completeIdx   int
+	interruptFunc func()
 }
 
 // NewReadLine creates a new ReadLine instance

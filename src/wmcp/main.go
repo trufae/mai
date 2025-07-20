@@ -596,7 +596,13 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
-			output.WriteString(fmt.Sprintf("%s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("%s %s", serverName, tool.Name))
+			if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+				for key, _ := range properties {
+					output.WriteString(fmt.Sprintf(" %s=<value>", key))
+				}
+			}
+			output.WriteString("\n")
 		}
 		server.mutex.RUnlock()
 	}

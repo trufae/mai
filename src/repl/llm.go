@@ -45,8 +45,8 @@ type Model struct {
 
 // LLMClient manages interactions with LLM providers
 type LLMClient struct {
-	config   *Config
-	provider LLMProvider
+	config         *Config
+	provider       LLMProvider
 	responseCancel func() // Function to cancel the current response
 }
 
@@ -64,8 +64,8 @@ func NewLLMClient(config *Config) (*LLMClient, error) {
 	}
 
 	return &LLMClient{
-		config:   config,
-		provider: provider,
+		config:         config,
+		provider:       provider,
 		responseCancel: func() {}, // Initialize with no-op function
 	}, nil
 }
@@ -266,10 +266,10 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 	if stream {
 		client.Timeout = 0
 	}
-	
+
 	// Set up a channel to signal when the request is done
 	done := make(chan struct{})
-	
+
 	// Create a goroutine to check for context cancellation
 	var cancelOnce sync.Once
 	go func() {
@@ -277,7 +277,7 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 		if ctx == nil {
 			return
 		}
-		
+
 		// Wait for either context cancellation or request completion
 		select {
 		case <-ctx.Done():
@@ -296,13 +296,13 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 			// Request completed normally, do nothing
 		}
 	}()
-	
+
 	// Execute the request
 	resp, err := client.Do(req)
-	
+
 	// Signal that the request is done
 	close(done)
-	
+
 	if err != nil {
 		return nil, err
 	}

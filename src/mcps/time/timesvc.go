@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"mcplib"
 	"time"
 )
@@ -16,9 +17,9 @@ func NewTimeService() *TimeService {
 	return &TimeService{}
 }
 
-// formatTime formats time according to the required format YYYY:MM:DD hh:mm:ss
+// formatTime formats time according to the required format YYYY-MM-DD hh:mm:ss
 func (s *TimeService) formatTime(t time.Time) string {
-	return t.Format("2006:01:02 15:04:05")
+	return t.Format("2006-01-02 15:04:05")
 }
 
 // GetTools returns all available tools
@@ -181,7 +182,7 @@ func (s *TimeService) handleMoonPhase(args map[string]interface{}) (interface{},
 	phase, phaseName := calculateMoonPhase(date)
 
 	return map[string]interface{}{
-		"date":       date.Format("2006:01:02"),
+		"date":       date.Format("2006-01-02"),
 		"phase":      phase,
 		"phase_name": phaseName,
 	}, nil
@@ -237,16 +238,93 @@ func calculateSunriseSunset(lat, lng float64, date time.Time) (time.Time, time.T
 	return sunrise, sunset
 }
 
-// calculateMoonPhase calculates the moon phase for a given date
 func calculateMoonPhase(date time.Time) (float64, string) {
-	// This is a simplified calculation
-	// In a real implementation, you would use a proper astronomical library
+	// Reference date: January 6, 2000, at 18:14 UTC, which was a new moon
+	const referenceNewMoon = 2451550.1 // Julian date for the reference new moon
 
-	// For now, return placeholder values
-	phase := 0.5 // 0 = new moon, 0.5 = full moon, 1 = new moon
-	phaseName := "Full Moon"
+	// Calculate the number of days between the given date and the reference new moon
+	julianDate := dateToJulian(date)
+	daysSinceNewMoon := julianDate - referenceNewMoon
+
+	// The length of a lunar cycle is approximately 29.53 days
+	synodicMonth := 29.53058867
+
+	// Calculate the phase of the moon as a percentage of the lunar month
+	// Use modulo to handle negative values and get a value between 0 and 1
+	phase := math.Mod(daysSinceNewMoon/synodicMonth, 1.0)
+
+	// Ensure phase is positive (between 0 and 1)
+	if phase < 0 {
+		phase += 1.0
+	}
+
+	// Determine the phase name
+	// Using standard astronomical definitions for moon phases
+	var phaseName string
+	switch {
+	case phase < 0.0345 || phase >= 0.9655:
+		phaseName = "New Moon"
+	case phase < 0.2155:
+		phaseName = "Waxing Crescent"
+	case phase < 0.2845:
+		phaseName = "First Quarter"
+	case phase < 0.4655:
+		phaseName = "Waxing Gibbous"
+	case phase < 0.5345:
+		phaseName = "Full Moon"
+	case phase < 0.7155:
+		phaseName = "Waning Gibbous"
+	case phase < 0.7845:
+		phaseName = "Last Quarter"
+	case phase < 0.9655:
+		phaseName = "Waning Crescent"
+	}
 
 	return phase, phaseName
+}
+
+// Helper function to convert a time.Time object to Julian date
+func dateToJulian(date time.Time) float64 {
+	// Convert to UTC to ensure consistent calculations
+	utc := date.UTC()
+
+	// Extract date components
+	Y := float64(utc.Year())
+	M := float64(utc.Month())
+	D := float64(utc.Day())
+
+	// Time components for fractional day
+	h := float64(utc.Hour())
+	m := float64(utc.Minute())
+	s := float64(utc.Second())
+	ns := float64(utc.Nanosecond())
+
+	// Calculate fractional day (0.0 - 1.0)
+	dayFrac := (h + m/60.0 + s/3600.0 + ns/3600000000000.0) / 24.0
+
+	// Convert calendar date to Julian date
+	// Using algorithm from Jean Meeus' "Astronomical Algorithms"
+	if M <= 2 {
+		Y -= 1
+		M += 12
+	}
+
+	// Check if date is in Gregorian calendar (after Oct 15, 1582)
+	var A, B float64
+	if Y > 1582 || (Y == 1582 && M > 10) || (Y == 1582 && M == 10 && D >= 15) {
+		A = math.Floor(Y / 100)
+		B = 2 - A + math.Floor(A/4)
+	} else {
+		// Julian calendar
+		A = 0
+		B = 0
+	}
+
+	// Main Julian Day calculation
+	JD := math.Floor(365.25*(Y+4716)) + math.Floor(30.6001*(M+1)) + D + B - 1524.5
+
+	// Add fractional day
+	return JD + dayFrac
 }
 
 // getTimezoneForLocation gets the timezone for a location based on coordinates
