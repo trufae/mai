@@ -59,6 +59,7 @@ func NewReadLine() (*ReadLine, error) {
 func (r *ReadLine) Restore() {
 	if r.oldState != nil {
 		term.Restore(int(os.Stdin.Fd()), r.oldState)
+		r.oldState = nil
 	}
 }
 
@@ -131,9 +132,7 @@ func (r *ReadLine) Read() (string, error) {
 			r.scrollPos = 0
 			// Call the interrupt function if set
 			if r.interruptFunc != nil {
-				// Return a special error to signal interrupt
 				r.interruptFunc()
-				return "", fmt.Errorf("interrupted")
 			}
 			// Continue reading input after interruption instead of returning error
 			fmt.Print("\x1b[33m>>> ")

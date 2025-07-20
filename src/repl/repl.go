@@ -225,16 +225,10 @@ func (r *REPL) loadRCFile() error {
 func (r *REPL) Run() error {
 	defer r.cleanup()
 
-	// Set up terminal for raw input
-	if err := r.setupTerminal(); err != nil {
-		return fmt.Errorf("failed to setup terminal: %v", err)
-	}
-
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
 	fmt.Print(fmt.Sprintf("ai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
-	// r.showCommands()
 
 	// Load and process ~/.aclirc if not in stdin mode
 	if !r.config.IsStdinMode {
@@ -288,12 +282,6 @@ func (r *REPL) showCommands() {
 	fmt.Print("\r\n")
 }
 
-func (r *REPL) setupTerminal() error {
-	var err error
-	r.oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
-	return err
-}
-
 func (r *REPL) cleanup() {
 	if r.oldState != nil {
 		term.Restore(int(os.Stdin.Fd()), r.oldState)
@@ -303,13 +291,11 @@ func (r *REPL) cleanup() {
 
 // interruptResponse interrupts the current LLM response if one is being generated
 func (r *REPL) interruptResponse() {
-			fmt.Println("Interrupting Response now")
 	r.mu.Lock()
 	isStreaming := r.isStreaming
 	r.mu.Unlock()
 
 	if isStreaming {
-		fmt.Print("\r\n^C (Request cancelled)\r\n> ")
 		// Cancel the current context
 		r.cancel()
 		
@@ -320,7 +306,6 @@ func (r *REPL) interruptResponse() {
 		client, err := NewLLMClient(r.config)
 		if err == nil && client != nil {
 			client.InterruptResponse()
-			fmt.Println("Interrupting")
 			r.mu.Lock()
 			if r.currentClient != nil {
 				r.currentClient.InterruptResponse()
@@ -329,7 +314,6 @@ func (r *REPL) interruptResponse() {
 		}
 	} else {
 		// Just print a new prompt instead of exiting
-		fmt.Println("FUCK IT BREAK")
 		fmt.Print("\r\n^C\r\n\x1b[33m>>> ")
 	}
 }
@@ -458,7 +442,6 @@ func (r *REPL) readLine() (string, error) {
 			}
 			
 		case 3: // Ctrl+C
-			fmt.Println ("INT 222 FUNC ")
 			fmt.Print("^C\r\n")
 			r.cancel()
 			r.ctx, r.cancel = context.WithCancel(context.Background())
@@ -773,7 +756,6 @@ func (r *REPL) sendToAI(input string) error {
 	defer func() {
 		r.mu.Lock()
 		r.isStreaming = false
-		fmt.Println("Req defere")
 		r.currentClient = nil
 		r.mu.Unlock()
 	}()
@@ -1106,7 +1088,6 @@ func (r *REPL) initCommands() {
 		Handler: func(r *REPL, args []string) error {
 			r.cancel()
 			r.ctx, r.cancel = context.WithCancel(context.Background())
-			fmt.Print("Request cancelled\r\n")
 			return nil
 		},
 	}
