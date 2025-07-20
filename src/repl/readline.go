@@ -11,16 +11,17 @@ import (
 
 // ReadLine represents a line editor with horizontal scrolling
 type ReadLine struct {
-	buffer      []rune
-	cursorPos   int
-	scrollPos   int
-	width       int
-	history     []string
-	historyPos  int
-	mu          sync.Mutex
-	oldState    *term.State
-	completions []string
-	completeIdx int
+	buffer          []rune
+	cursorPos       int
+	scrollPos       int
+	width           int
+	history         []string
+	historyPos      int
+	mu              sync.Mutex
+	oldState        *term.State
+	completions     []string
+	completeIdx     int
+	interruptFunc   func()
 }
 
 // NewReadLine creates a new ReadLine instance
@@ -41,15 +42,16 @@ func NewReadLine() (*ReadLine, error) {
 	}
 
 	return &ReadLine{
-		buffer:      make([]rune, 0, 256),
-		cursorPos:   0,
-		scrollPos:   0,
-		width:       width,
-		history:     make([]string, 0),
-		historyPos:  -1,
-		oldState:    oldState,
-		completions: nil,
-		completeIdx: 0,
+		buffer:        make([]rune, 0, 256),
+		cursorPos:     0,
+		scrollPos:     0,
+		width:         width,
+		history:       make([]string, 0),
+		historyPos:    -1,
+		oldState:      oldState,
+		completions:   nil,
+		completeIdx:   0,
+		interruptFunc: nil,
 	}, nil
 }
 
@@ -127,7 +129,15 @@ func (r *ReadLine) Read() (string, error) {
 			r.buffer = r.buffer[:0]
 			r.cursorPos = 0
 			r.scrollPos = 0
-			return "", fmt.Errorf("interrupted")
+			// Call the interrupt function if set
+			if r.interruptFunc != nil {
+				// Return a special error to signal interrupt
+				r.interruptFunc()
+				return "", fmt.Errorf("interrupted")
+			}
+			// Continue reading input after interruption instead of returning error
+			fmt.Print("\x1b[33m>>> ")
+			continue
 
 		case 23: // Ctrl+W (delete word)
 			r.deleteWord()
@@ -261,6 +271,11 @@ func (r *ReadLine) SetContent(content string) {
 		r.scrollPos = r.cursorPos - r.width + 1
 	}
 	r.refreshLine()
+}
+
+// SetInterruptFunc sets the function to be called when Ctrl+C is pressed
+func (r *ReadLine) SetInterruptFunc(fn func()) {
+	r.interruptFunc = fn
 }
 
 // handleTabCompletion handles tab completion (kept for reference)

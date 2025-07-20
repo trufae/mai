@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,6 +47,7 @@ type Model struct {
 type LLMClient struct {
 	config   *Config
 	provider LLMProvider
+	responseCancel func() // Function to cancel the current response
 }
 
 // ListModelsResult contains the list of available models with optional error
@@ -64,13 +66,16 @@ func NewLLMClient(config *Config) (*LLMClient, error) {
 	return &LLMClient{
 		config:   config,
 		provider: provider,
+		responseCancel: func() {}, // Initialize with no-op function
 	}, nil
 }
 
 // newContext returns a cancellable context carrying the client config.
 func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 	ctx := context.WithValue(context.Background(), "config", c.config)
-	return context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	c.responseCancel = cancel
+	return ctx, cancel
 }
 
 // printScissors outputs separators if enabled in config.
@@ -117,6 +122,13 @@ func (c *LLMClient) ListModels() ([]Model, error) {
 	ctx, cancel := c.newContext()
 	defer cancel()
 	return c.provider.ListModels(ctx)
+}
+
+// InterruptResponse cancels the current LLM response if one is being generated
+func (c *LLMClient) InterruptResponse() {
+	if c.responseCancel != nil {
+		c.responseCancel()
+	}
 }
 
 // SendMessageWithImages sends a message with optional images to the LLM and handles the response
@@ -178,7 +190,7 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
 	}
 
-	respBody, err := llmMakeRequest("POST", url, headers, jsonData)
+	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -254,7 +266,43 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 	if stream {
 		client.Timeout = 0
 	}
+	
+	// Set up a channel to signal when the request is done
+	done := make(chan struct{})
+	
+	// Create a goroutine to check for context cancellation
+	var cancelOnce sync.Once
+	go func() {
+		// Only proceed if context is not nil
+		if ctx == nil {
+			return
+		}
+		
+		// Wait for either context cancellation or request completion
+		select {
+		case <-ctx.Done():
+			// Cancel the request if context is canceled
+			cancelOnce.Do(func() {
+				// Transport.CancelRequest was deprecated in Go 1.5, but client.Transport.CancelRequest
+				// is still usable. However, the preferred method is to use request contexts.
+				// This is an extra safety measure in case the context cancellation
+				// doesn't propagate quickly enough.
+				transport, ok := client.Transport.(*http.Transport)
+				if ok && transport != nil {
+					transport.CancelRequest(req)
+				}
+			})
+		case <-done:
+			// Request completed normally, do nothing
+		}
+	}()
+	
+	// Execute the request
 	resp, err := client.Do(req)
+	
+	// Signal that the request is done
+	close(done)
+	
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +317,27 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 	return resp, nil
 }
 
+func llmMakeRequest(ctx context.Context, method, url string, headers map[string]string, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return io.ReadAll(resp.Body)
+}
+
+/*
 // llmMakeRequest is a utility function for making HTTP requests to APIs (renamed to avoid conflict)
 func llmMakeRequest(method, url string, headers map[string]string, body []byte) ([]byte, error) {
 	resp, err := httpDo(nil, method, url, headers, body, false)
@@ -278,6 +347,7 @@ func llmMakeRequest(method, url string, headers map[string]string, body []byte) 
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
 }
+*/
 
 // llmMakeStreamingRequest is a utility function for making streaming HTTP requests (renamed to avoid conflict)
 func llmMakeStreamingRequest(ctx context.Context, method, url string, headers map[string]string,
@@ -338,7 +408,7 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	headers := map[string]string{}
 
-	respBody, err := llmMakeRequest("GET", url, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", url, headers, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +495,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
 	}
 
-	respBody, err := llmMakeRequest("POST", url, headers, jsonData)
+	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -544,7 +614,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 		"Authorization": "Bearer " + p.config.OpenAIKey,
 	}
 
-	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -610,10 +680,12 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	if stream {
 		return llmMakeStreamingRequest(ctx, "POST", apiURL,
-			headers, jsonData, p.parseStream)
+			headers, jsonData, func(r io.Reader) (string, error) {
+				return p.parseStream(r)
+			})
 	}
 
-	respBody, err := llmMakeRequest("POST", apiURL,
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -745,7 +817,7 @@ func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
 		"x-api-key":         p.config.ClaudeKey,
 	}
 
-	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -812,10 +884,12 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	if stream {
 		return llmMakeStreamingRequest(ctx, "POST", apiURL,
-			headers, jsonData, p.parseStream)
+			headers, jsonData, func(r io.Reader) (string, error) {
+				return p.parseStream(r)
+			})
 	}
 
-	respBody, err := llmMakeRequest("POST", apiURL,
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -931,7 +1005,7 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	// First try the API endpoint
-	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 
 	// If API call fails or we don't have a key, fall back to hardcoded models
 	if err != nil || p.config.GeminiKey == "" {
@@ -1111,7 +1185,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Gemini doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", apiURL, headers, jsonData)
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -1171,7 +1245,7 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 		"Content-Type":  "application/json",
 	}
 
-	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1270,7 +1344,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	// Mistral doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", apiURL,
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -1329,7 +1403,7 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 		"Content-Type":  "application/json",
 	}
 
-	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 
 	// If API call fails or no key, fall back to hardcoded values
 	if err != nil || p.config.DeepSeekKey == "" {
@@ -1430,7 +1504,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	}
 
 	// DeepSeek doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", apiURL,
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err
@@ -1593,7 +1667,7 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	// Bedrock doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest("POST", apiURL, headers, jsonData)
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -1647,7 +1721,7 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	// Attempt to get models list
-	respBody, err := llmMakeRequest("GET", apiURL, headers, nil)
+	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 
 	// If the endpoint doesn't exist or returns an error, return default model
 	if err != nil {
@@ -1741,7 +1815,7 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	// OpenAPI doesn't support streaming in our implementation
-	respBody, err := llmMakeRequest("POST", apiURL, headers, jsonData)
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}

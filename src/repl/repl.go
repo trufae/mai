@@ -32,6 +32,7 @@ type Command struct {
 
 type REPL struct {
 	config           *Config
+	currentClient    *LLMClient
 	history          []string
 	historyIndex     int
 	currentInput     strings.Builder
@@ -300,25 +301,46 @@ func (r *REPL) cleanup() {
 	r.cancel()
 }
 
+// interruptResponse interrupts the current LLM response if one is being generated
+func (r *REPL) interruptResponse() {
+			fmt.Println("Interrupting Response now")
+	r.mu.Lock()
+	isStreaming := r.isStreaming
+	r.mu.Unlock()
+
+	if isStreaming {
+		fmt.Print("\r\n^C (Request cancelled)\r\n> ")
+		// Cancel the current context
+		r.cancel()
+		
+		// Create new context for next request
+		r.ctx, r.cancel = context.WithCancel(context.Background())
+		
+		// Also interrupt the LLM client if it's active
+		client, err := NewLLMClient(r.config)
+		if err == nil && client != nil {
+			client.InterruptResponse()
+			fmt.Println("Interrupting")
+			r.mu.Lock()
+			if r.currentClient != nil {
+				r.currentClient.InterruptResponse()
+			}
+			r.mu.Unlock()
+		}
+	} else {
+		// Just print a new prompt instead of exiting
+		fmt.Println("FUCK IT BREAK")
+		fmt.Print("\r\n^C\r\n\x1b[33m>>> ")
+	}
+}
+
 func (r *REPL) setupSignalHandler() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
 		<-c
-		r.mu.Lock()
-		isStreaming := r.isStreaming
-		r.mu.Unlock()
-
-		if isStreaming {
-			fmt.Print("\r\n^C (Request cancelled)\r\n> ")
-			r.cancel()
-			// Create new context for next request
-			r.ctx, r.cancel = context.WithCancel(context.Background())
-		} else {
-			// Just print a new prompt instead of exiting
-			fmt.Print("\r\n^C\r\n\x1b[33m>>> ")
-		}
+		r.interruptResponse()
+		r.setupSignalHandler()
 	}()
 }
 
@@ -371,6 +393,9 @@ func (r *REPL) readLine() (string, error) {
 		return "", fmt.Errorf("failed to initialize readline: %v", err)
 	}
 	defer readLine.Restore()
+
+	// Set the interrupt function to handle Ctrl+C
+	readLine.SetInterruptFunc(r.interruptResponse)
 
 	// Load history if available
 	for _, item := range r.history {
@@ -433,6 +458,7 @@ func (r *REPL) readLine() (string, error) {
 			}
 			
 		case 3: // Ctrl+C
+			fmt.Println ("INT 222 FUNC ")
 			fmt.Print("^C\r\n")
 			r.cancel()
 			r.ctx, r.cancel = context.WithCancel(context.Background())
@@ -747,6 +773,8 @@ func (r *REPL) sendToAI(input string) error {
 	defer func() {
 		r.mu.Lock()
 		r.isStreaming = false
+		fmt.Println("Req defere")
+		r.currentClient = nil
 		r.mu.Unlock()
 	}()
 
@@ -760,6 +788,9 @@ func (r *REPL) sendToAI(input string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
+	r.mu.Lock()
+	r.currentClient = client
+	r.mu.Unlock()
 
 	// Add system prompt if present
 	messages := []Message{}
@@ -1212,6 +1243,12 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 	for scanner.Scan() {
 		select {
 		case <-r.ctx.Done():
+			return nil // Return without error when context is canceled
+		default:
+			// Continue processing
+		}
+		select {
+		case <-r.ctx.Done():
 			return nil
 		default:
 		}
@@ -1254,6 +1291,12 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {
+		select {
+		case <-r.ctx.Done():
+			return nil // Return without error when context is canceled
+		default:
+			// Continue processing
+		}
 		select {
 		case <-r.ctx.Done():
 			return nil
@@ -1302,6 +1345,12 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 	scanner := bufio.NewScanner(reader)
 
 	for scanner.Scan() {
+		select {
+		case <-r.ctx.Done():
+			return nil // Return without error when context is canceled
+		default:
+			// Continue processing
+		}
 		select {
 		case <-r.ctx.Done():
 			return nil
