@@ -15,9 +15,15 @@ Tool Required: [Yes/No]
 Selected Tool: [Tool name or "None"]
 Parameters: [Space separated list of parameterName=value, or "N/A"]
 Reasoning: [Brief explanation of your decision]
+Action: [Solve | Error | Iterate]
+NextStep: [Brief explanation of what should be done after running this tool]
 ```
 
 Important guidelines:
+- Try smarter and alternative strategies to resolve the problem instead of repeating steps
+- Use "Action: Error" when the tool required to solve the next step fails
+- Do not Use "Action: Solve" until the response is clearly resolved by the tools
+- Use "Action: Iterate" to keep calling tools to get more information to solve the quest
 - Tool parameters must be passed as arguments when calling the tool
 - Replace `<value>` with the parameter value we need to use
 - Only recommend a tool if it's strictly necessary to fulfill the user's request

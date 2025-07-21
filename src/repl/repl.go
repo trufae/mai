@@ -774,37 +774,78 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Process input with tools.go if enabled
 	if r.useToolsEnabled {
-		toolinput := ProcessUserInput(input, r)
-		/*
-			client, err := NewLLMClient(r.config)
+		for {
+			toolinput := ProcessUserInput(input, r)
+			trick := "Be concise in your responses, follow the plan and only respond verified information from the tool calls"
+			// Send message with streaming based on REPL settings
+			messages := []Message{{"user", trick + toolinput}}
+			response, err := client.SendMessage(messages, false)
 			if err != nil {
-				return fmt.Errorf("failed to create LLM client: %v", err)
+				return fmt.Errorf("failed to get response for tools: %v", err)
 			}
-		*/
-		// Send message with streaming based on REPL settings
-		messages := []Message{{"user", toolinput}}
-		response, err := client.SendMessage(messages, false)
-		if err != nil {
-			return fmt.Errorf("failed to get response for tools: %v", err)
-		}
 
-		// Handle the assistant's response based on logging settings
-		if err == nil && response != "" {
-			if r.config.options.GetBool("debug") {
-				fmt.Println("==============TOOLS FROM MESSAGE=================")
-				fmt.Println(response)
-				fmt.Println("==============TOOLS FROM MESSAGE=================")
+			// Handle the assistant's response based on logging settings
+			if err == nil && response != "" {
+				if r.config.options.GetBool("debug") {
+					fmt.Println("==============TOOLS FROM MESSAGE=================")
+					fmt.Println(response)
+					fmt.Println("==============TOOLS FROM MESSAGE=================")
+				}
+				newres, err := executeToolsInMessage(response)
+				if err != nil {
+					input += "\n\n# ToolsError:\n" + err.Error()
+					fmt.Printf("Error %v\n\r", err)
+				} else if newres != "" {
+					// Check for Action and NextStep in the result
+					actionIdx := strings.Index(newres, "\nAction: ")
+					nextStepIdx := strings.Index(newres, "\nNextStep: ")
+
+					var toolAction, nextStep string
+					var toolResult string
+
+					if actionIdx != -1 && nextStepIdx != -1 {
+						// Extract the tool result (everything before Action)
+						toolResult = newres[:actionIdx]
+
+						// Extract Action value
+						actionLine := newres[actionIdx+9:] // +9 to skip "\nAction: "
+						actionEndIdx := strings.Index(actionLine, "\n")
+						if actionEndIdx != -1 {
+							toolAction = actionLine[:actionEndIdx]
+						}
+
+						// Extract NextStep value
+						nextStepLine := newres[nextStepIdx+11:] // +11 to skip "\nNextStep: "
+						nextStep = nextStepLine
+
+						// fmt.Println("==NEXTSTEP==(" + toolAction + ") " + nextStep)
+						// Add the tool result to the input
+						input += "\n\n# ToolsContext:\n" + strings.TrimSpace(toolResult)
+
+						// Process based on Action type
+						switch toolAction {
+						case "Solve":
+							// The tool solved the problem, no further action needed
+							fmt.Printf("Tool solved the request: %s\n\r", nextStep)
+						case "Error":
+							// There was an error, add error context
+							input += "\n\n# ToolsError:\n" + nextStep
+							fmt.Printf("Tool error: %s\n\r", nextStep)
+						case "Iterate":
+							// Need to iterate, add next step to input
+							input += "\n\n# NextStep:\n" + nextStep + "\n----\n"
+							fmt.Printf("Tool requires iteration: %s\n\r", nextStep)
+							continue
+						}
+					} else {
+						// No Action/NextStep found, process as before
+						input += "\n\n# ToolsContext:\n" + strings.TrimSpace(newres)
+					}
+				}
+				break
+			} else {
+				input += "\n----\n# ToolsContext:\nWe could not run the tools"
 			}
-			newres, err := executeToolsInMessage(response)
-			if err != nil {
-				input += "\n\n# ToolsError:\n" + err.Error()
-				fmt.Printf("Error %v\n\r", err)
-			} else if newres != "" {
-				// fmt.Println(newres)
-				input += "\n\n# ToolsContext:\n" + strings.TrimSpace(newres)
-			}
-		} else {
-			input += "\n----\n# ToolsContext:\nWe could not run the tools"
 		}
 		if r.config.options.GetBool("debug") {
 			fmt.Println("-------------------")

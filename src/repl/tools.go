@@ -15,6 +15,8 @@ type Tool struct {
 	Name        string   // Name of the tool to be called
 	Description string   // Description of what the tool does
 	Args        []string // Arguments to pass to the tool
+	Action      string   // Action type: Solve, Error, or Iterate
+	NextStep    string   // Brief explanation of what should be done next
 }
 
 // GetAvailableTools runs the 'acli-tool list' command and returns the output as a string
@@ -108,10 +110,30 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 		fmt.Printf("\r\033[35m(tool) %s\033[0m\n", reasoningText)
 	}
 
+	// Extract the Action field
+	action := "Solve" // Default action
+	actionIdx := strings.Index(message, "Action: ")
+	if actionIdx != -1 {
+		actionLine := message[actionIdx:]
+		actionText := strings.Split(actionLine, "\n")[0]
+		action = strings.TrimPrefix(actionText, "Action: ")
+	}
+
+	// Extract the NextStep field
+	nextStep := "" // Default empty next step
+	nextStepIdx := strings.Index(message, "NextStep: ")
+	if nextStepIdx != -1 {
+		nextStepLine := message[nextStepIdx:]
+		nextStepText := strings.Split(nextStepLine, "\n")[0]
+		nextStep = strings.TrimPrefix(nextStepText, "NextStep: ")
+	}
+
 	// Create and return the tool
 	return []*Tool{{
-		Name: toolName,
-		Args: args,
+		Name:     toolName,
+		Args:     args,
+		Action:   action,
+		NextStep: nextStep,
 	}}, nil
 }
 
@@ -171,6 +193,11 @@ func executeToolsInMessage(message string) (string, error) {
 			return "", err
 		}
 		results = append(results, result)
+
+		// If we have Action and NextStep, add them to the result
+		if tool.Action != "" || tool.NextStep != "" {
+			results = append(results, fmt.Sprintf("\nAction: %s\nNextStep: %s", tool.Action, tool.NextStep))
+		}
 	}
 
 	// For function calling, these results would be formatted and sent back to the LLM
