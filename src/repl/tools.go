@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -37,6 +36,7 @@ func GetAvailableTools(quiet bool) (string, error) {
 // callTool executes a specified tool with provided arguments and returns the output
 func callTool(tool *Tool) (string, error) {
 	// Combine the tool name and arguments for the acli-tool command
+	// tool.Name may be in the format "server/tool"
 	cmdArgs := append([]string{"call", tool.Name}, tool.Args...)
 	cmd := exec.Command("acli-tool", cmdArgs...)
 
@@ -45,6 +45,8 @@ func callTool(tool *Tool) (string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 
+	fmt.Printf("%v\n", cmdArgs)
+	fmt.Printf("TN %v\n", tool.Name)
 	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("error executing tool %s: %v: %s", tool.Name, err, stderr.String())
@@ -58,11 +60,50 @@ func callTool(tool *Tool) (string, error) {
 // where the remote LLM will provide structured function call data
 // that this function will parse and convert to Tool instances
 func getToolsFromMessage(message string) ([]*Tool, error) {
-	// Currently a placeholder - will be implemented for function calling
-	// The implementation will parse structured function call data from the LLM
-	// such as JSON objects representing tool calls with name and arguments
-	// For now, return an empty slice
-	return []*Tool{}, nil
+	fmt.Println(message)
+	// Check if tool is required by looking for "Tool Required: Yes"
+	if !strings.Contains(message, "Tool Required: Yes") {
+		return []*Tool{}, nil
+	}
+
+	// Extract the selected tool line
+	toolLineIdx := strings.Index(message, "Selected Tool: ")
+	if toolLineIdx == -1 {
+		return []*Tool{}, nil
+	}
+
+	// Extract the tool name and command
+	toolLine := message[toolLineIdx:]
+	toolLine = strings.Split(toolLine, "\n")[0]
+	toolLine = strings.TrimPrefix(toolLine, "Selected Tool: ")
+
+	// Split the tool line to get the tool name and command
+	toolParts := strings.SplitN(toolLine, " ", 2)
+	toolName := toolParts[0]
+
+	// Default empty args slice
+	args := []string{}
+
+	// If there are arguments, add them
+	if len(toolParts) > 1 {
+		args = strings.Fields(toolParts[1])
+	}
+
+	// Extract the reasoning for display
+	reasoningIdx := strings.Index(message, "Reasoning: ")
+	if reasoningIdx != -1 {
+		reasoningLine := message[reasoningIdx:]
+		reasoningText := strings.Split(reasoningLine, "\n")[0]
+		reasoningText = strings.TrimPrefix(reasoningText, "Reasoning: ")
+		// Print reasoning in magenta
+		fmt.Printf("\r\033[35m(tool) %s\033[0m\n", reasoningText)
+	}
+
+	// Create and return the tool
+	return []*Tool{{
+		Name: toolName,
+		Args: args,
+	}}, nil
 }
 
 // ExecuteTool runs a specified tool with provided arguments and returns the output
@@ -75,38 +116,27 @@ func ExecuteTool(toolName string, args ...string) (string, error) {
 	return callTool(tool)
 }
 
-// getToolPromptPath returns the path to the tool.md prompt file
-func getToolPromptPath(repl *REPL) (string, error) {
+// getToolPrompt returns the content of the tool.md prompt file
+func getToolPrompt(repl *REPL) (string, error) {
 	// Get prompt directory path
-	promptDir := repl.config.options.Get("promptdir")
-	if promptDir == "" {
-		// Try common locations if promptdir is not set
-		commonLocations := []string{
-			"./prompts",
-			"../prompts",
-			"../../prompts",
-		}
-
-		for _, loc := range commonLocations {
-			if _, err := os.Stat(loc); err == nil {
-				promptDir = loc
-				break
-			}
-		}
-
-		if promptDir == "" {
-			// If still not found, return error
-			return "", fmt.Errorf("prompt directory not found")
-		}
+	toolPromptPath, err := repl.resolvePromptPath("tool.md")
+	if err != nil {
+		return "", fmt.Errorf("failed to find the tool prompt: %w", err)
+	}
+	toolPromptBytes, err := os.ReadFile(toolPromptPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read tool prompt file: %w", err)
 	}
 
-	return filepath.Join(promptDir, "tool.md"), nil
+	return string(toolPromptBytes), nil
 }
 
 // buildMessageWithTools formats a message with tool information
 func buildMessageWithTools(toolPrompt string, userInput string, toolList string) string {
-	return fmt.Sprintf("%s\n%s\n----\nThese are the tools available:\n%s",
+	msg := fmt.Sprintf("%s\n%s\n----\nThese are the tools available:\n%s",
 		toolPrompt, userInput, toolList)
+	fmt.Println(msg)
+	return msg
 }
 
 // executeToolsInMessage processes any tool calls found in a message and returns results
@@ -146,19 +176,12 @@ func ProcessUserInput(input string, repl interface{}) string {
 		return input
 	}
 
-	// Get the tool prompt path
-	toolPromptPath, err := getToolPromptPath(replImpl)
+	// Get the tool prompt content
+	toolPrompt, err := getToolPrompt(replImpl)
 	if err != nil {
+		// If can't get the tool prompt, return input unchanged
 		return input
 	}
-
-	// Read the tool.md content
-	toolPromptBytes, err := os.ReadFile(toolPromptPath)
-	if err != nil {
-		// If can't read the tool prompt, return input unchanged
-		return input
-	}
-	toolPrompt := string(toolPromptBytes)
 
 	// Get list of available tools
 	toolList, err := GetAvailableTools(false)
@@ -167,11 +190,6 @@ func ProcessUserInput(input string, repl interface{}) string {
 		return buildMessageWithTools(toolPrompt, input,
 			fmt.Sprintf("[Error getting tool list: %v]", err))
 	}
-
-	// Process any tool calls in the message (placeholder for future implementation)
-	// Currently does nothing
-	_, _ = executeToolsInMessage(input)
-
 	// Build and return the processed input
 	return buildMessageWithTools(toolPrompt, input, toolList)
 }

@@ -337,18 +337,6 @@ func llmMakeRequest(ctx context.Context, method, url string, headers map[string]
 	return io.ReadAll(resp.Body)
 }
 
-/*
-// llmMakeRequest is a utility function for making HTTP requests to APIs (renamed to avoid conflict)
-func llmMakeRequest(method, url string, headers map[string]string, body []byte) ([]byte, error) {
-	resp, err := httpDo(nil, method, url, headers, body, false)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
-}
-*/
-
 // llmMakeStreamingRequest is a utility function for making streaming HTTP requests (renamed to avoid conflict)
 func llmMakeStreamingRequest(ctx context.Context, method, url string, headers map[string]string,
 	body []byte, parser func(io.Reader) (string, error)) (string, error) {

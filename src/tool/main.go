@@ -28,6 +28,78 @@ type ToolResponse struct {
 	Error  string      `json:"error,omitempty"`
 }
 
+// jsonToMarkdown converts a JSON string to a simple markdown representation
+func jsonToMarkdown(jsonStr string) string {
+	var data interface{}
+	err := json.Unmarshal([]byte(jsonStr), &data)
+	if err != nil {
+		return jsonStr // Return original if not valid JSON
+	}
+	
+	return formatJSON(data, 0)
+}
+
+// formatJSON recursively formats JSON data as markdown text
+func formatJSON(data interface{}, indent int) string {
+	var sb strings.Builder
+	indentStr := strings.Repeat("  ", indent)
+	
+	switch v := data.(type) {
+	case map[string]interface{}:
+		// If empty object
+		if len(v) == 0 {
+			return "{}"
+		}
+		
+		// Process each key-value pair in the object
+		for key, value := range v {
+			sb.WriteString(indentStr)
+			sb.WriteString(key)
+			sb.WriteString(": ")
+			
+			// Format the value based on its type
+			switch val := value.(type) {
+			case map[string]interface{}, []interface{}:
+				// For nested objects and arrays, add newline and format with increased indent
+				sb.WriteString("\n")
+				sb.WriteString(formatJSON(val, indent+1))
+			default:
+				// For primitive values, format inline
+				sb.WriteString(fmt.Sprintf("%v", val))
+				sb.WriteString("\n")
+			}
+		}
+	case []interface{}:
+		// If empty array
+		if len(v) == 0 {
+			return "[]"
+		}
+		
+		// Process each item in the array
+		for _, item := range v {
+			sb.WriteString(indentStr)
+			sb.WriteString("- ")
+			
+			// Format the item based on its type
+			switch val := item.(type) {
+			case map[string]interface{}, []interface{}:
+				// For nested objects and arrays, add newline and format with increased indent
+				sb.WriteString("\n")
+				sb.WriteString(formatJSON(val, indent+1))
+			default:
+				// For primitive values, format inline
+				sb.WriteString(fmt.Sprintf("%v", val))
+				sb.WriteString("\n")
+			}
+		}
+	default:
+		// Handle primitive types
+		sb.WriteString(fmt.Sprintf("%v", v))
+	}
+	
+	return sb.String()
+}
+
 // Config holds the application configuration
 type Config struct {
 	Host         string
@@ -54,14 +126,32 @@ func main() {
 	case "list":
 		listTools(config)
 	case "call":
-		if len(flag.Args()) < 3 {
+		nargs := len(flag.Args())
+		if nargs < 2 {
 			fmt.Println("Error: 'call' requires server and tool name")
 			fmt.Println("Usage: mcpcli call <server> <tool> [param1=value1] [param2=value2] ...")
+			fmt.Println("Usage: mcpcli call <server>/<tool> [param1=value1] [param2=value2] ...")
 			os.Exit(1)
 		}
-		serverName := flag.Args()[1]
-		toolName := flag.Args()[2]
-		params := parseParams(flag.Args()[3:])
+		var serverName string
+		var toolName string
+		var params map[string]string
+		arg1 := flag.Args()[1]
+		if strings.Contains(arg1, "/") {
+			slicedText := strings.SplitN(arg1, "/", 2)
+			serverName = slicedText[0]
+			toolName = slicedText[1]
+			params = parseParams(flag.Args()[2:])
+		} else {
+			if nargs < 3 {
+				fmt.Println("Error: 'call' requires server and tool name")
+				fmt.Println("Usage: mcpcli call <server> <tool> [param1=value1] [param2=value2] ...")
+				os.Exit(1)
+			}
+			serverName = flag.Args()[1]
+			toolName = flag.Args()[2]
+			params = parseParams(flag.Args()[3:])
+		}
 		callTool(config, serverName, toolName, params)
 	case "servers":
 		listServers(config)
@@ -116,6 +206,7 @@ func printUsage() {
 	fmt.Println("  mcpcli list")
 	fmt.Println("  mcpcli -j list")
 	fmt.Println("  mcpcli call server1 mytool param1=value1 param2=value2")
+	fmt.Println("  mcpcli call server1/mytool param1=value1 param2=value2")
 	fmt.Println("  mcpcli call server1 mytool \"text=value with spaces\"")
 }
 
@@ -347,6 +438,16 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 	var resp *http.Response
 	var requestErr error
 
+	// If serverName contains a slash, it's in the format "server/tool"
+	if strings.Contains(serverName, "/") {
+		// Split serverName into server and tool parts
+		parts := strings.SplitN(serverName, "/", 2)
+		// Override serverName with just the server part
+		serverName = parts[0]
+		// Use the tool part from serverName and ignore the separate toolName parameter
+		toolName = parts[1]
+	}
+
 	// Standard tool call for other tools
 	var endpoint string
 	// Always use /call endpoint for tool calls
@@ -354,7 +455,7 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 
 	// Build the tool URL
 	toolUrl := buildApiUrl(config, endpoint)
-	fmt.Println (toolUrl)
+	// fmt.Println (toolUrl)
 
 	// Prepare parameters as query params
 	queryParams := make([]string, 0, len(params))
@@ -445,6 +546,13 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 	} else {
 		// Output as plain text or markdown
 		output := string(body)
+		
+		// Check if response appears to be JSON (starts with '{')
+		if len(output) > 0 && output[0] == '{' {
+			// Convert JSON to markdown format
+			output = jsonToMarkdown(output)
+		}
+		
 		if config.MarkdownCode {
 			// Wrap in markdown code block
 			output = "```\n" + output + "\n```"

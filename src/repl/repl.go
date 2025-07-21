@@ -762,7 +762,32 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Process input with tools.go if enabled
 	if r.useToolsEnabled {
-		input = ProcessUserInput(input, r)
+		toolinput := ProcessUserInput(input, r)
+		client, err := NewLLMClient(r.config)
+		if err != nil {
+			return fmt.Errorf("failed to create LLM client: %v", err)
+		}
+		// Send message with streaming based on REPL settings
+		messages := []Message{{"user", toolinput}}
+		response, err := client.SendMessage(messages, false)
+
+		// Handle the assistant's response based on logging settings
+		if err == nil && response != "" {
+			newres, err := executeToolsInMessage(response)
+			if err != nil {
+				fmt.Printf("Error %v\n\r", err)
+			} else if newres != "" {
+				fmt.Println(newres)
+				input += "\n----\n\n# Context:\n" + newres + "\n----\n"
+			}
+		} else {
+			input += "\n----\nContext:\nWe could not run the tools"
+		}
+		if r.config.options.GetBool("debug") {
+			fmt.Println("-------------------")
+			fmt.Println(input)
+			fmt.Println("-------------------")
+		}
 	}
 
 	// Create client

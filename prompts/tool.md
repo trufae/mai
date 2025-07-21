@@ -16,6 +16,8 @@ Reasoning: [Brief explanation of your decision]
 Important guidelines:
 - Only recommend a tool if it's strictly necessary to fulfill the user's request
 - Ensure all required parameters are correctly identified
+- Do not use an optional parameter if it is not necessary
+- If more than one tool is required, list them all
 - If multiple steps are needed, list all required tools in sequence
 - If the query can be answered directly without tools, respond with "No" for Tool Required
 - Handle both explicit and implicit tool requirements in the query

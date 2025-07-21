@@ -27,13 +27,13 @@ func (s *TimeService) GetTools() []mcplib.Tool {
 	return []mcplib.Tool{
 		{
 			Name:        "current_time",
-			Description: "Get the current time in the specified timezone",
+			Description: "Get the current time and weekday in the specified timezone",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"timezone": map[string]interface{}{
 						"type":        "string",
-						"description": "Timezone (e.g., 'America/New_York', 'Europe/London'). Defaults to UTC if not provided.",
+						"description": "(optional) UTC, GMT ,..",
 					},
 				},
 			},
@@ -72,7 +72,7 @@ func (s *TimeService) GetTools() []mcplib.Tool {
 				"properties": map[string]interface{}{
 					"date": map[string]interface{}{
 						"type":        "string",
-						"description": "Date in YYYY-MM-DD format. Defaults to today if not provided.",
+						"description": "(optional) Date in YYYY-MM-DD format.",
 					},
 				},
 			},
@@ -107,10 +107,10 @@ func (s *TimeService) handleCurrentTime(args map[string]interface{}) (interface{
 	var location *time.Location
 	var err error
 
-	// Get timezone from args or use UTC as default
+	// Get timezone from args or use local timezone as default
 	timezone, ok := args["timezone"].(string)
 	if !ok || timezone == "" {
-		location = time.UTC
+		location = time.Local
 	} else {
 		location, err = time.LoadLocation(timezone)
 		if err != nil {
@@ -124,6 +124,8 @@ func (s *TimeService) handleCurrentTime(args map[string]interface{}) (interface{
 	return map[string]interface{}{
 		"time":     s.formatTime(now),
 		"timezone": location.String(),
+		"weekday":  now.Weekday().String(),
+		"month":    now.Month().String(),
 	}, nil
 }
 

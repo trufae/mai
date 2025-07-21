@@ -520,20 +520,21 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	output.WriteString("# MCP Tools\n\n")
 
 	for serverName, server := range s.servers {
+		// output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		server.mutex.RLock()
-		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
 		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
 
 		for _, tool := range server.Tools {
-			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
-			output.WriteString(fmt.Sprintf("\n%s\n\n", tool.Description))
+			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
+			output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
 			if tool.InputSchema != nil {
 				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 
 				// Print CLI-style arguments list
-				output.WriteString("**Arguments:**\n\n")
+				output.WriteString("Arguments:\n\n")
 				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
 					for key, val := range properties {
 						propInfo, _ := val.(map[string]interface{})
@@ -556,12 +557,13 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 					params = append(params, fmt.Sprintf("%s=value", key))
 				}
 				paramString := strings.Join(params, " ")
-				output.WriteString(fmt.Sprintf("**Usage:** `acli-tool call %s %s %s`\n\n", serverName, tool.Name, paramString))
+				output.WriteString(fmt.Sprintf("Usage: `acli-tool call %s %s %s`\n\n", serverName, tool.Name, paramString))
 				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
 			} else {
-				output.WriteString(fmt.Sprintf("**Usage:** `acli-tool call %s %s`\n\n", serverName, tool.Name))
+				output.WriteString(fmt.Sprintf("Usage: `acli-tool call %s %s`\n\n", serverName, tool.Name))
 				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
 			}
+			output.WriteString("----\n")
 		}
 		server.mutex.RUnlock()
 	}
