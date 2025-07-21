@@ -230,8 +230,8 @@ func (r *REPL) Run() error {
 
 	fmt.Print(fmt.Sprintf("ai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 
-	// Load and process ~/.aclirc if not in stdin mode
-	if !r.config.IsStdinMode {
+	// Load and process ~/.aclirc if not in stdin mode and not skipped
+	if !r.config.IsStdinMode && !r.config.SkipRcFile {
 		if err := r.loadRCFile(); err != nil {
 			fmt.Printf("Error loading .aclirc: %v\r\n", err)
 		}
@@ -777,11 +777,11 @@ func (r *REPL) sendToAI(input string) error {
 			if err != nil {
 				fmt.Printf("Error %v\n\r", err)
 			} else if newres != "" {
-				fmt.Println(newres)
-				input += "\n----\n\n# Context:\n" + newres + "\n----\n"
+				// fmt.Println(newres)
+				input += "\n\n# ToolsContext:\n" + strings.TrimSpace(newres)
 			}
 		} else {
-			input += "\n----\nContext:\nWe could not run the tools"
+			input += "\n----\n# ToolsContext:\nWe could not run the tools"
 		}
 		if r.config.options.GetBool("debug") {
 			fmt.Println("-------------------")

@@ -164,10 +164,10 @@ func (s *MCPService) StartServer(name, command string) error {
 		return fmt.Errorf("failed to create stdout pipe: %v", err)
 	}
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %v", err)
-	}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return fmt.Errorf("failed to create stderr pipe: %v", err)
+		}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %v", err)
@@ -180,7 +180,7 @@ func (s *MCPService) StartServer(name, command string) error {
 		Stdin:   stdin,
 		Stdout:  stdout,
 		Stderr:  stderr,
-		Tools:   []Tool{},
+		Tools: []Tool{},
 	}
 
 	s.servers[name] = server
@@ -287,7 +287,7 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 	fmt.Printf("[t] Permit this tool forever\n")
 	fmt.Printf("[p] Permit this tool with these parameters forever\n")
 	fmt.Printf("[x] Reject this tool forever\n")
-	fmt.Printf("[*] Approve all tools forever\n")
+	fmt.Printf("[y] Approve all tools forever (Yolo mode)\n")
 	fmt.Printf("\nYour decision: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -305,7 +305,7 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 		return YoloPermitToolWithParamsForever
 	case "x":
 		return YoloRejectForever
-	case "*":
+	case "y":
 		return YoloPermitAllToolsForever
 	default:
 		fmt.Println("Invalid option, defaulting to reject")
@@ -319,7 +319,7 @@ func (s *MCPService) checkToolPermission(toolName string, paramsJSON string) boo
 	defer s.toolPermsLock.RUnlock()
 
 	// Check if all tools are approved globally
-	if perm, exists := s.toolPerms["*"]; exists && perm.Approved {
+	if perm, exists := s.toolPerms["y"]; exists && perm.Approved {
 		return true
 	}
 
@@ -363,8 +363,8 @@ func (s *MCPService) storeToolPermission(toolName string, paramsJSON string, dec
 		}
 	case YoloPermitAllToolsForever:
 		// Special key for approving all tools
-		s.toolPerms["*"] = ToolPermission{
-			ToolName: "*",
+		s.toolPerms["y"] = ToolPermission{
+			ToolName: "y",
 			Approved: true,
 		}
 	}
@@ -422,7 +422,10 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 				break
 			case YoloReject:
 				return nil, fmt.Errorf("tool execution rejected by user")
-			case YoloPermitToolForever, YoloPermitToolWithParamsForever, YoloRejectForever:
+			case YoloPermitToolForever:
+				s.yoloMode = true
+				break
+			case YoloPermitToolWithParamsForever, YoloRejectForever:
 				// Store the decision
 				s.storeToolPermission(callParams.Name, string(paramsJSON), decision)
 
@@ -522,8 +525,8 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	for serverName, server := range s.servers {
 		// output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		server.mutex.RLock()
-		output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
-		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
+		// output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
+		// output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
 
 		for _, tool := range server.Tools {
 			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))

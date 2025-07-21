@@ -40,6 +40,7 @@ type Config struct {
 	BaseURL       string         // Base URL to connect to LLM API
 	UserAgent     string         // User agent for HTTP requests
 	IsStdinMode   bool           // Whether running in stdin mode
+	SkipRcFile    bool           // Whether to skip loading ~/.aclirc
 	options       *ConfigOptions // Configuration options
 }
 
@@ -768,6 +769,7 @@ func showHelp() {
 -H = show help for the environment variables (same as -hh)
 -i <path> = attach an image to send to the model
 -m <model> = select the model for the given provider
+-n = do not load ~/.aclirc
 -p <provider> = select the provider to use
 -r = enter the repl mode (default behaviour) (see -- for stdin mode)
 -s = don't display the ---8<--- lines in the output
@@ -831,6 +833,11 @@ func main() {
 	// Process command line flags
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "-n":
+			// Skip loading ~/.aclirc
+			config.SkipRcFile = true
+			args = append(args[:i], args[i+1:]...)
+			i--
 		case "-s":
 			config.ShowScissors = true
 			args = append(args[:i], args[i+1:]...)

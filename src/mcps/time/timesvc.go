@@ -48,15 +48,15 @@ func (s *TimeService) GetTools() []mcplib.Tool {
 				"properties": map[string]interface{}{
 					"latitude": map[string]interface{}{
 						"type":        "number",
-						"description": "Latitude of the location",
+						"description": "(required) Latitude of the location",
 					},
 					"longitude": map[string]interface{}{
 						"type":        "number",
-						"description": "Longitude of the location",
+						"description": "(required) Longitude of the location",
 					},
 					"date": map[string]interface{}{
 						"type":        "string",
-						"description": "Date in YYYY-MM-DD format. Defaults to today if not provided.",
+						"description": "(optional) Date in YYYY-MM-DD format. Defaults to today if not provided.",
 					},
 				},
 				"required": []string{"latitude", "longitude"},
@@ -87,16 +87,16 @@ func (s *TimeService) GetTools() []mcplib.Tool {
 				"properties": map[string]interface{}{
 					"latitude": map[string]interface{}{
 						"type":        "number",
-						"description": "Latitude of the location",
+						"description": "(optional) Latitude of the location",
 					},
 					"longitude": map[string]interface{}{
 						"type":        "number",
-						"description": "Longitude of the location",
+						"description": "(optional) Longitude of the location",
 					},
 				},
-				"required": []string{"latitude", "longitude"},
+				// No required fields as it will use system timezone when not provided
 			},
-			UsageExamples: "Example: {\"latitude\": 51.5074, \"longitude\": -0.1278} - Returns timezone information for London",
+			UsageExamples: "Example 1: {} - Returns timezone information for system timezone\nExample 2: {\"latitude\": 51.5074, \"longitude\": -0.1278} - Returns timezone information for London",
 			Handler:       s.handleTimezone,
 		},
 	}
@@ -122,10 +122,11 @@ func (s *TimeService) handleCurrentTime(args map[string]interface{}) (interface{
 	now := time.Now().In(location)
 
 	return map[string]interface{}{
-		"time":     s.formatTime(now),
-		"timezone": location.String(),
-		"weekday":  now.Weekday().String(),
-		"month":    now.Month().String(),
+		"description": "Current time, day of the week and selected timezone",
+		"time":        s.formatTime(now),
+		"timezone":    location.String(),
+		"weekday":     now.Weekday().String(),
+		"month":       now.Month().String(),
 	}, nil
 }
 
@@ -192,21 +193,31 @@ func (s *TimeService) handleMoonPhase(args map[string]interface{}) (interface{},
 
 // handleTimezone handles the timezone request
 func (s *TimeService) handleTimezone(args map[string]interface{}) (interface{}, error) {
-	// Extract latitude and longitude
-	lat, ok := args["latitude"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("latitude must be a number")
-	}
+	var timezone string
+	var err error
 
-	lng, ok := args["longitude"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("longitude must be a number")
-	}
+	// Check if latitude and longitude are provided
+	lat, latOk := args["latitude"].(float64)
+	lng, lngOk := args["longitude"].(float64)
 
-	// Get timezone for the location
-	timezone, err := getTimezoneForLocation(lat, lng)
-	if err != nil {
-		return nil, err
+	if latOk && lngOk {
+		// If both are provided, get timezone for the location
+		timezone, err = getTimezoneForLocation(lat, lng)
+		if err != nil {
+			return nil, err
+		}
+	} else if latOk != lngOk {
+		// If only one is provided, that's an error
+		return nil, fmt.Errorf("both latitude and longitude must be provided together")
+	} else {
+		// If neither is provided, use system timezone
+		// time.Local.String() often returns values like "Local" which aren't valid IANA timezone names
+		// So we'll use it directly without attempting to reload the location
+		return map[string]interface{}{
+			"timezone":     time.Local.String(),
+			"current_time": s.formatTime(time.Now()),
+			"offset":       time.Now().Format("-07:00"),
+		}, nil
 	}
 
 	// Get current time in the timezone

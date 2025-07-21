@@ -35,28 +35,29 @@ func jsonToMarkdown(jsonStr string) string {
 	if err != nil {
 		return jsonStr // Return original if not valid JSON
 	}
-	
+
 	return formatJSON(data, 0)
 }
 
 // formatJSON recursively formats JSON data as markdown text
 func formatJSON(data interface{}, indent int) string {
 	var sb strings.Builder
-	indentStr := strings.Repeat("  ", indent)
-	
+
 	switch v := data.(type) {
 	case map[string]interface{}:
 		// If empty object
 		if len(v) == 0 {
 			return "{}"
 		}
-		
+
 		// Process each key-value pair in the object
 		for key, value := range v {
-			sb.WriteString(indentStr)
-			sb.WriteString(key)
-			sb.WriteString(": ")
-			
+			if key != "type" && key != "content" {
+				// sb.WriteString(indentStr)
+				sb.WriteString(key)
+				sb.WriteString(": ")
+			}
+
 			// Format the value based on its type
 			switch val := value.(type) {
 			case map[string]interface{}, []interface{}:
@@ -65,8 +66,10 @@ func formatJSON(data interface{}, indent int) string {
 				sb.WriteString(formatJSON(val, indent+1))
 			default:
 				// For primitive values, format inline
-				sb.WriteString(fmt.Sprintf("%v", val))
-				sb.WriteString("\n")
+				if val != "text" {
+					sb.WriteString(fmt.Sprintf("%v", val))
+					sb.WriteString("\n")
+				}
 			}
 		}
 	case []interface{}:
@@ -74,12 +77,12 @@ func formatJSON(data interface{}, indent int) string {
 		if len(v) == 0 {
 			return "[]"
 		}
-		
+
 		// Process each item in the array
 		for _, item := range v {
-			sb.WriteString(indentStr)
-			sb.WriteString("- ")
-			
+			// sb.WriteString(indentStr)
+			// sb.WriteString("- ")
+
 			// Format the item based on its type
 			switch val := item.(type) {
 			case map[string]interface{}, []interface{}:
@@ -96,7 +99,7 @@ func formatJSON(data interface{}, indent int) string {
 		// Handle primitive types
 		sb.WriteString(fmt.Sprintf("%v", v))
 	}
-	
+
 	return sb.String()
 }
 
@@ -234,14 +237,14 @@ func buildApiUrl(config Config, path string) string {
 // createDebugTransport returns an http.RoundTripper that logs requests and responses
 func createDebugTransport(config Config) http.RoundTripper {
 	return &debugTransport{
-		config: config,
+		config:    config,
 		transport: http.DefaultTransport,
 	}
 }
 
 // debugTransport implements http.RoundTripper interface
 type debugTransport struct {
-	config Config
+	config    Config
 	transport http.RoundTripper
 }
 
@@ -250,17 +253,17 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Log request details
 	debugPrint(d.config, "HTTP Request: %s %s", req.Method, req.URL.String())
 	debugPrint(d.config, "Request headers: %v", req.Header)
-	
+
 	// Execute the request
 	resp, err := d.transport.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Log response details
 	debugPrint(d.config, "Response status: %s", resp.Status)
 	debugPrint(d.config, "Response headers: %v", resp.Header)
-	
+
 	return resp, nil
 }
 
@@ -291,7 +294,7 @@ func debugPrint(config Config, format string, args ...interface{}) {
 				formattedArgs[i] = arg
 			}
 		}
-		
+
 		fmt.Fprintf(os.Stderr, "DEBUG: "+format+"\n", formattedArgs...)
 	}
 }
@@ -301,13 +304,13 @@ func listServers(config Config) {
 	statusUrl := buildApiUrl(config, "/status")
 
 	debugPrint(config, "Making GET request to: %s", statusUrl)
-	
+
 	// Create HTTP client with debug transport if needed
 	client := &http.Client{}
 	if config.Debug {
 		client.Transport = createDebugTransport(config)
 	}
-	
+
 	// Execute the request
 	resp, err := client.Get(statusUrl)
 	if err != nil {
@@ -381,13 +384,13 @@ func listTools(config Config) {
 	toolsUrl := buildApiUrl(config, endpoint)
 
 	debugPrint(config, "Making GET request to: %s", toolsUrl)
-	
+
 	// Create HTTP client with debug transport if needed
 	client := &http.Client{}
 	if config.Debug {
 		client.Transport = createDebugTransport(config)
 	}
-	
+
 	// Execute the request
 	resp, err := client.Get(toolsUrl)
 	if err != nil {
@@ -474,13 +477,13 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 
 	// Make GET request
 	debugPrint(config, "Making GET request to: %s", toolUrl)
-	
+
 	// Create HTTP client with debug transport if needed
 	client := &http.Client{}
 	if config.Debug {
 		client.Transport = createDebugTransport(config)
 	}
-	
+
 	// Execute the request
 	resp, requestErr = client.Get(toolUrl)
 
@@ -519,7 +522,7 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 		// Log detailed response information
 		debugPrint(config, "Response content type: %s", resp.Header.Get("Content-Type"))
 		debugPrint(config, "Response content length: %d", resp.ContentLength)
-		
+
 		// Try to pretty print JSON response
 		var prettyJSON bytes.Buffer
 		if json.Indent(&prettyJSON, body, "", "  ") == nil {
@@ -546,13 +549,13 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 	} else {
 		// Output as plain text or markdown
 		output := string(body)
-		
+
 		// Check if response appears to be JSON (starts with '{')
 		if len(output) > 0 && output[0] == '{' {
 			// Convert JSON to markdown format
 			output = jsonToMarkdown(output)
 		}
-		
+
 		if config.MarkdownCode {
 			// Wrap in markdown code block
 			output = "```\n" + output + "\n```"
