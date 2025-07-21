@@ -81,8 +81,20 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 	// Default empty args slice
 	args := []string{}
 
-	// If there are arguments, add them
-	if len(toolParts) > 1 {
+	// Extract parameters (key=value pairs) if present
+	paramsIdx := strings.Index(message, "Parameters: ")
+	if paramsIdx != -1 {
+		paramsLine := message[paramsIdx:]
+		paramsLine = strings.Split(paramsLine, "\n")[0]
+		paramsText := strings.TrimPrefix(paramsLine, "Parameters: ")
+		
+		// Parse space-separated key=value parameters
+		paramPairs := strings.Fields(paramsText)
+		for _, pair := range paramPairs {
+			args = append(args, pair)
+		}
+	} else if len(toolParts) > 1 {
+		// If no Parameters line but there are arguments in the tool line, use those
 		args = strings.Fields(toolParts[1])
 	}
 
@@ -148,6 +160,9 @@ func executeToolsInMessage(message string) (string, error) {
 		return "", err
 	}
 
+	if strings.HasPrefix(message, "ERROR") {
+		return "", fmt.Errorf("%v", message)
+	}
 	// Execute each tool and collect results
 	results := []string{}
 	for _, tool := range tools {

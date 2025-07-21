@@ -13,11 +13,13 @@ Provide your response in the following format:
 ```
 Tool Required: [Yes/No]
 Selected Tool: [Tool name or "None"]
-Parameters: [List of parameter values in order, or "N/A"]
+Parameters: [Space separated list of parameterName=value, or "N/A"]
 Reasoning: [Brief explanation of your decision]
 ```
 
 Important guidelines:
+- Tool parameters must be passed as arguments when calling the tool
+- Replace `<value>` with the parameter value we need to use
 - Only recommend a tool if it's strictly necessary to fulfill the user's request
 - Ensure all required parameters are correctly identified
 - Do not use an optional parameter if it is not necessary

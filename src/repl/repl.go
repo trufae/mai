@@ -794,6 +794,7 @@ func (r *REPL) sendToAI(input string) error {
 			}
 			newres, err := executeToolsInMessage(response)
 			if err != nil {
+				input += "\n\n# ToolsError:\n" + err.Error()
 				fmt.Printf("Error %v\n\r", err)
 			} else if newres != "" {
 				// fmt.Println(newres)

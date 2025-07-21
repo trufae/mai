@@ -543,17 +543,17 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 
 				// Print CLI-style arguments list
-				output.WriteString("Arguments:\n\n")
+				output.WriteString("Arguments:\n")
 				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
 					for key, val := range properties {
 						propInfo, _ := val.(map[string]interface{})
 						desc := ""
 						if propInfo != nil {
 							if d, ok := propInfo["description"].(string); ok {
-								desc = " - " + d
+								desc = " : " + d
 							}
 						}
-						output.WriteString(fmt.Sprintf("* %s=<value>%s\n", key, desc))
+						output.WriteString(fmt.Sprintf("- %s=<value>%s\n", key, desc))
 					}
 				}
 				output.WriteString("\n")
