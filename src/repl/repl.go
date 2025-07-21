@@ -773,10 +773,10 @@ func (r *REPL) sendToAI(input string) error {
 	if r.useToolsEnabled {
 		toolinput := ProcessUserInput(input, r)
 		/*
-		client, err := NewLLMClient(r.config)
-		if err != nil {
-			return fmt.Errorf("failed to create LLM client: %v", err)
-		}
+			client, err := NewLLMClient(r.config)
+			if err != nil {
+				return fmt.Errorf("failed to create LLM client: %v", err)
+			}
 		*/
 		// Send message with streaming based on REPL settings
 		messages := []Message{{"user", toolinput}}
@@ -808,7 +808,6 @@ func (r *REPL) sendToAI(input string) error {
 			fmt.Println("-------------------")
 		}
 	}
-
 
 	// Add system prompt if present
 	messages := []Message{}

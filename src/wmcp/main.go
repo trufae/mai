@@ -164,10 +164,10 @@ func (s *MCPService) StartServer(name, command string) error {
 		return fmt.Errorf("failed to create stdout pipe: %v", err)
 	}
 
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			return fmt.Errorf("failed to create stderr pipe: %v", err)
-		}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %v", err)
@@ -180,7 +180,7 @@ func (s *MCPService) StartServer(name, command string) error {
 		Stdin:   stdin,
 		Stdout:  stdout,
 		Stderr:  stderr,
-		Tools: []Tool{},
+		Tools:   []Tool{},
 	}
 
 	s.servers[name] = server

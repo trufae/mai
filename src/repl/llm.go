@@ -1297,6 +1297,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		Model       string    `json:"model""`
 		Messages    []Message `json:"messages""`
 		MaxTokens   int       `json:"max_tokens""`
+		Stream      bool      `json:"stream,omitempty""`
 		N           int       `json:"n,omitempty""`
 		TopP        float64   `json:"top_p,omitempty""`
 		RandomSeed  int       `json:"random_seed,omitempty""`
@@ -1305,6 +1306,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		Model:     p.config.MistralModel,
 		Messages:  messages,
 		MaxTokens: 5128,
+		Stream:    stream,
 	}
 
 	// Apply deterministic settings if enabled
@@ -1331,9 +1333,12 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/v1/chat/completions"
 	}
 
-	// Mistral doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
-		headers, jsonData)
+	// Handle streaming if requested
+	if stream {
+		return llmMakeStreamingRequest(ctx, "POST", apiURL, headers, jsonData, p.parseStream)
+	}
+
+	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
@@ -1347,7 +1352,8 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
-		return "", err
+		// Debug response in case of error
+		return "", fmt.Errorf("failed to parse response: %v, raw: %s", err, string(respBody))
 	}
 
 	if len(response.Choices) > 0 {
@@ -1359,8 +1365,69 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 }
 
 func (p *MistralProvider) parseStream(reader io.Reader) (string, error) {
-	// Mistral streaming isn't implemented yet
-	return "", fmt.Errorf("streaming not implemented for Mistral")
+	scanner := bufio.NewScanner(reader)
+	var fullResponse strings.Builder
+
+	// Check if markdown is enabled
+	markdownEnabled := false
+	if p.config.options != nil {
+		markdownEnabled = p.config.options.GetBool("markdown")
+	}
+
+	// Reset the stream renderer if markdown is enabled
+	if markdownEnabled {
+		ResetStreamRenderer()
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var response struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content""`
+				} `json:"delta""`
+			} `json:"choices""`
+		}
+
+		if err := json.Unmarshal([]byte(data), &response); err != nil {
+			continue
+		}
+
+		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+			content := response.Choices[0].Delta.Content
+
+			// Format the content using our streaming-friendly formatter
+			content = FormatStreamingChunk(content, markdownEnabled)
+
+			fmt.Print(content)
+			fullResponse.WriteString(response.Choices[0].Delta.Content)
+		}
+	}
+
+	fmt.Println()
+
+	// Flush any remaining content in the stream renderer buffer
+	if markdownEnabled {
+		renderer := GetStreamRenderer()
+		if final := renderer.Flush(); final != "" {
+			fmt.Print(final)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fullResponse.String(), err
+	}
+
+	return fullResponse.String(), nil
 }
 
 // DeepSeekProvider implements the LLM provider interface for DeepSeek
