@@ -760,19 +760,38 @@ func (r *REPL) sendToAI(input string) error {
 		r.mu.Unlock()
 	}()
 
+	// Create client
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+	r.mu.Lock()
+	r.currentClient = client
+	r.mu.Unlock()
+
 	// Process input with tools.go if enabled
 	if r.useToolsEnabled {
 		toolinput := ProcessUserInput(input, r)
+		/*
 		client, err := NewLLMClient(r.config)
 		if err != nil {
 			return fmt.Errorf("failed to create LLM client: %v", err)
 		}
+		*/
 		// Send message with streaming based on REPL settings
 		messages := []Message{{"user", toolinput}}
 		response, err := client.SendMessage(messages, false)
+		if err != nil {
+			return fmt.Errorf("failed to get response for tools: %v", err)
+		}
 
 		// Handle the assistant's response based on logging settings
 		if err == nil && response != "" {
+			if r.config.options.GetBool("debug") {
+				fmt.Println("==============TOOLS FROM MESSAGE=================")
+				fmt.Println(response)
+				fmt.Println("==============TOOLS FROM MESSAGE=================")
+			}
 			newres, err := executeToolsInMessage(response)
 			if err != nil {
 				fmt.Printf("Error %v\n\r", err)
@@ -790,14 +809,6 @@ func (r *REPL) sendToAI(input string) error {
 		}
 	}
 
-	// Create client
-	client, err := NewLLMClient(r.config)
-	if err != nil {
-		return fmt.Errorf("failed to create LLM client: %v", err)
-	}
-	r.mu.Lock()
-	r.currentClient = client
-	r.mu.Unlock()
 
 	// Add system prompt if present
 	messages := []Message{}

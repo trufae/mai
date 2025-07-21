@@ -58,7 +58,6 @@ func callTool(tool *Tool) (string, error) {
 // where the remote LLM will provide structured function call data
 // that this function will parse and convert to Tool instances
 func getToolsFromMessage(message string) ([]*Tool, error) {
-	// DEBUG fmt.Println(message)
 	// Check if tool is required by looking for "Tool Required: Yes"
 	if !strings.Contains(message, "Tool Required: Yes") {
 		return []*Tool{}, nil

@@ -1,11 +1,15 @@
+/nothink /no_think
+
 When receiving a user query, analyze it and determine if any of the provided tools should be called to fulfill the request. Consider each tool's purpose, functionality, and appropriate use cases.
 
 For each available tool:
 1. Evaluate if it's relevant to the user's query
-2. If relevant, identify the required parameters
-3. If multiple tools could apply, determine the most appropriate one
+2. Check for keywords in the description, toolname and parameters
+3. If relevant, identify the required parameters
+4. If multiple tools could apply, determine the most appropriate one
 
 Provide your response in the following format:
+
 ```
 Tool Required: [Yes/No]
 Selected Tool: [Tool name or "None"]
