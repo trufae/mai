@@ -145,6 +145,9 @@ func NewREPL(config *Config) (*REPL, error) {
 		if err == nil {
 			repl.systemPrompt = string(content)
 		}
+	} else if systemPrompt := repl.config.options.Get("systemprompt"); systemPrompt != "" {
+		// Or use systemprompt text if set
+		repl.systemPrompt = systemPrompt
 	}
 
 	// Set baseurl from command line flag if provided

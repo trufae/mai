@@ -48,6 +48,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("debug", BooleanOption, "Show internal processing logs", "false")
 	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
 	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
+	co.RegisterOption("systemprompt", StringOption, "System prompt text", "")
 	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
 	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
@@ -279,9 +280,16 @@ func (r *REPL) handleSetCommand(args []string) error {
 	if len(args) >= 3 {
 		switch args[1] {
 		case "promptfile":
-			// Load system prompt
+			// Load system prompt from file
 			filePath := args[2]
 			return r.loadSystemPrompt(filePath)
+		case "systemprompt":
+			// Set system prompt directly
+			promptText := strings.Join(args[2:], " ")
+			r.systemPrompt = promptText
+			r.config.options.Set("systemprompt", promptText)
+			fmt.Printf("System prompt set (%d chars)\r\n", len(promptText))
+			return nil
 		case "model":
 			// Set model
 			model := strings.Join(args[2:], " ")
@@ -377,7 +385,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 			toolsStatus = "disabled"
 		}
 		fmt.Printf("Tools processing %s\r\n", toolsStatus)
-	case "promptfile":
+	case "promptfile", "systemprompt":
 		// Already handled above
 		return nil
 	case "model":
@@ -488,7 +496,7 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	case "usetools":
 		r.useToolsEnabled = r.config.options.GetBool("usetools")
 		fmt.Printf("Tools processing reverted to default\r\n")
-	case "promptfile":
+	case "promptfile", "systemprompt":
 		r.systemPrompt = ""
 		fmt.Print("System prompt removed\r\n")
 	case "model":

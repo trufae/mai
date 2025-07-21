@@ -52,12 +52,12 @@ type CallToolParams struct {
 
 type CallToolError struct {
 	Message string `json:"message"`
-	Code int `json:"code"`
+	Code    int    `json:"code"`
 }
 
 type CallToolResult struct {
-	Content []Content `json:"content",omitempty`
-	Error *CallToolError `json:"error",omitempty`
+	Content []Content      `json:"content",omitempty`
+	Error   *CallToolError `json:"error",omitempty`
 }
 
 type Content struct {
@@ -759,12 +759,12 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write(resultBytes)
 		return
 	}
-		if toolResult.Error != nil {
-			emsg := "ERROR: " + toolResult.Error.Message
-			w.Write([]byte(emsg))
-			debugLog(s.debugMode, emsg)
-			return
-		}
+	if toolResult.Error != nil {
+		emsg := "ERROR: " + toolResult.Error.Message
+		w.Write([]byte(emsg))
+		debugLog(s.debugMode, emsg)
+		return
+	}
 
 	// Format content as markdown/plaintext
 	var output strings.Builder

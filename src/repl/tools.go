@@ -87,7 +87,7 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 		paramsLine := message[paramsIdx:]
 		paramsLine = strings.Split(paramsLine, "\n")[0]
 		paramsText := strings.TrimPrefix(paramsLine, "Parameters: ")
-		
+
 		// Parse space-separated key=value parameters
 		paramPairs := strings.Fields(paramsText)
 		for _, pair := range paramPairs {
