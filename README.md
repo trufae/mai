@@ -174,7 +174,7 @@ curl -X POST "http://localhost:8080/tools/server1/batchAnalyze" \
 
 All responses are returned in plaintext/markdown format for easy reading:
 
-```
+````md
 # Analysis Results
 
 ## Function: main
@@ -192,7 +192,7 @@ Size: 156 bytes
 ### Cross References
 - Called from: 0x2000 (entry point)
 - References: 0x3000 (printf)
-```
+````
 
 ## Error Handling
 
