@@ -915,6 +915,10 @@ func main() {
 			}
 		}
 	}
+	if len(service.servers) == 0 {
+		fmt.Println("Error: No MCP servers available")
+		os.Exit(1)
+	}
 
 	// Setup HTTP routes
 	router := mux.NewRouter()
