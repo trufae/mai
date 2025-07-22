@@ -1,6 +1,6 @@
-# ACLI
+# MAI
 
-Artificial Command Line Intelligence
+My Artificial Intelligence
 
 Set of commandline tools to use local or remote AI models with advanced customizable features to research, use MCP agents and much more.
 

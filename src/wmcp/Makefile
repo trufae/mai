@@ -1,6 +1,6 @@
 include ../../config.mk
 
-BIN=acli-wmcp
+BIN=mai-wmcp
 MAIN_FILE=main.go
 
 .PHONY: all build run clean deps

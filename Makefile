@@ -7,7 +7,7 @@ all:
 	$(MAKE) -C src/mcps/wttr
 	$(MAKE) -C src/repl
 	$(MAKE) -C src/tool
-	./src/wmcp/acli-wmcp 'r2pm -r r2mcp' src/mcps/wttr/acli-mcp-wttr
+	./src/wmcp/mai-wmcp 'r2pm -r r2mcp' src/mcps/wttr/mai-mcp-wttr
 
 fmt:
 	go fmt $(shell ls src/repl/*.go )

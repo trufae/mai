@@ -1,2 +1,2 @@
 all:
-	go build -o acli-mcp-shell
+	go build -o mai-mcp-shell

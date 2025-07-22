@@ -1,4 +1,4 @@
-module acli
+module mai
 
 go 1.23.0
 

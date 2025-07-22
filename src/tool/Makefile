@@ -1,6 +1,6 @@
 include ../../config.mk
 
-BIN=acli-tool
+BIN=mai-tool
 
 all:
 	go build -o $(BIN) .

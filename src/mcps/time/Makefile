@@ -1,2 +1,2 @@
 all:
-	go build -o acli-mcp-time
+	go build -o mai-mcp-time

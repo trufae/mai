@@ -164,7 +164,7 @@ func NewREPL(config *Config) (*REPL, error) {
 	})
 
 	// Set useragent from command line flag if provided
-	if repl.config.UserAgent != "acli-repl/1.0" {
+	if repl.config.UserAgent != "mai-repl/1.0" {
 		repl.config.options.Set("useragent", repl.config.UserAgent)
 	} else if userAgent := repl.config.options.Get("useragent"); userAgent != "" {
 		// Or use the config option if set
@@ -180,7 +180,7 @@ func NewREPL(config *Config) (*REPL, error) {
 	return repl, nil
 }
 
-// loadRCFile loads and processes commands from ~/.aclirc file
+// loadRCFile loads and processes commands from ~/.mairc file
 func (r *REPL) loadRCFile() error {
 	// Get user's home directory
 	homeDir, err := os.UserHomeDir()
@@ -188,21 +188,21 @@ func (r *REPL) loadRCFile() error {
 		return fmt.Errorf("failed to get home directory: %v", err)
 	}
 
-	// Form the path to the .aclirc file
-	rcFilePath := filepath.Join(homeDir, ".aclirc")
+	// Form the path to the .mairc file
+	rcFilePath := filepath.Join(homeDir, ".mairc")
 
 	// Check if the file exists
 	if _, err := os.Stat(rcFilePath); os.IsNotExist(err) {
 		// File doesn't exist, not an error
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("error checking .aclirc file: %v", err)
+		return fmt.Errorf("error checking .mairc file: %v", err)
 	}
 
 	// Read the file
 	rcFileContent, err := os.ReadFile(rcFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to read .aclirc file: %v", err)
+		return fmt.Errorf("failed to read .mairc file: %v", err)
 	}
 
 	// Process each line in the file
@@ -218,7 +218,7 @@ func (r *REPL) loadRCFile() error {
 
 		// Process the command
 		if err := r.handleCommand(line); err != nil {
-			fmt.Printf("Error in .aclirc: %v\r\n", err)
+			fmt.Printf("Error in .mairc: %v\r\n", err)
 		}
 	}
 
@@ -233,10 +233,10 @@ func (r *REPL) Run() error {
 
 	fmt.Print(fmt.Sprintf("ai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 
-	// Load and process ~/.aclirc if not in stdin mode and not skipped
+	// Load and process ~/.mairc if not in stdin mode and not skipped
 	if !r.config.IsStdinMode && !r.config.SkipRcFile {
 		if err := r.loadRCFile(); err != nil {
-			fmt.Printf("Error loading .aclirc: %v\r\n", err)
+			fmt.Printf("Error loading .mairc: %v\r\n", err)
 		}
 	}
 
@@ -1225,7 +1225,7 @@ func (r *REPL) initCommands() {
 
 	r.commands["/tool"] = Command{
 		Name:        "/tool",
-		Description: "Execute the acli-tool command, passing arguments",
+		Description: "Execute the mai-tool command, passing arguments",
 		Handler: func(r *REPL, args []string) error {
 			return r.handleToolCommand(args)
 		},
@@ -2605,7 +2605,7 @@ func (r *REPL) handleCompactCommand() error {
 	return nil
 }
 
-// handleToolCommand executes the acli-tool command with the given arguments
+// handleToolCommand executes the mai-tool command with the given arguments
 func (r *REPL) handleToolCommand(args []string) error {
 	// var cmdArgs []string
 	// If no arguments provided, show usage

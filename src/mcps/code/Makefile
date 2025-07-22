@@ -1,2 +1,2 @@
 all:
-	go build -o acli-mcp-code
+	go build -o mai-mcp-code

@@ -566,10 +566,10 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 					params = append(params, fmt.Sprintf("%s=value", key))
 				}
 				paramString := strings.Join(params, " ")
-				output.WriteString(fmt.Sprintf("Usage: `acli-tool call %s %s %s`\n\n", serverName, tool.Name, paramString))
+				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s %s`\n\n", serverName, tool.Name, paramString))
 				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
 			} else {
-				output.WriteString(fmt.Sprintf("Usage: `acli-tool call %s %s`\n\n", serverName, tool.Name))
+				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s`\n\n", serverName, tool.Name))
 				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
 			}
 			output.WriteString("----\n")

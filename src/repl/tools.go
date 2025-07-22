@@ -19,13 +19,13 @@ type Tool struct {
 	NextStep    string   // Brief explanation of what should be done next
 }
 
-// GetAvailableTools runs the 'acli-tool list' command and returns the output as a string
+// GetAvailableTools runs the 'mai-tool list' command and returns the output as a string
 func GetAvailableTools(quiet bool) (string, error) {
 	var cmd *exec.Cmd
 	if quiet {
-		cmd = exec.Command("acli-tool", "-q", "list")
+		cmd = exec.Command("mai-tool", "-q", "list")
 	} else {
-		cmd = exec.Command("acli-tool", "list")
+		cmd = exec.Command("mai-tool", "list")
 	}
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -37,10 +37,10 @@ func GetAvailableTools(quiet bool) (string, error) {
 
 // callTool executes a specified tool with provided arguments and returns the output
 func callTool(tool *Tool) (string, error) {
-	// Combine the tool name and arguments for the acli-tool command
+	// Combine the tool name and arguments for the mai-tool command
 	// tool.Name may be in the format "server/tool"
 	cmdArgs := append([]string{"call", tool.Name}, tool.Args...)
-	cmd := exec.Command("acli-tool", cmdArgs...)
+	cmd := exec.Command("mai-tool", cmdArgs...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer

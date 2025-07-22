@@ -40,7 +40,7 @@ type Config struct {
 	BaseURL       string         // Base URL to connect to LLM API
 	UserAgent     string         // User agent for HTTP requests
 	IsStdinMode   bool           // Whether running in stdin mode
-	SkipRcFile    bool           // Whether to skip loading ~/.aclirc
+	SkipRcFile    bool           // Whether to skip loading ~/.mairc
 	options       *ConfigOptions // Configuration options
 }
 
@@ -193,7 +193,7 @@ func loadConfig() *Config {
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
 		BaseURL:       getEnvOrDefault("BASE_URL", ""),
-		UserAgent:     getEnvOrDefault("USER_AGENT", "acli-repl/1.0"),
+		UserAgent:     getEnvOrDefault("USER_AGENT", "mai-repl/1.0"),
 		NoStream:      false,
 		options:       NewConfigOptions(), // Initialize configuration options
 	}
@@ -759,7 +759,7 @@ BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 `)
 }
 func showHelp() {
-	fmt.Print(`$ acli-repl [--] | [-h] | [prompt] < INPUT
+	fmt.Print(`$ mai-repl [--] | [-h] | [prompt] < INPUT
 -- = stdin mode
 -1 = don't stream response, print once at the end
 -a <string> = set the user agent for HTTP requests
@@ -769,12 +769,12 @@ func showHelp() {
 -H = show help for the environment variables (same as -hh)
 -i <path> = attach an image to send to the model
 -m <model> = select the model for the given provider
--n = do not load ~/.aclirc
+-n = do not load ~/.mairc
 -p <provider> = select the provider to use
 -r = enter the repl mode (default behaviour) (see -- for stdin mode)
 -s = don't display the ---8<--- lines in the output
 Files:
-~/.aclirc : script to be loaded before the repl is shown
+~/.mairc : script to be loaded before the repl is shown
 ./prompts : directory containing custom prompts
 `)
 }
@@ -834,7 +834,7 @@ func main() {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-n":
-			// Skip loading ~/.aclirc
+			// Skip loading ~/.mairc
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
@@ -914,7 +914,7 @@ func main() {
 
 	// Check for REPL mode flag
 	if len(args) > 0 && args[0] == "-r" || len(args) == 0 {
-		// Not stdin mode, will load .aclirc
+		// Not stdin mode, will load .mairc
 		config.IsStdinMode = false
 
 		repl, err := NewREPL(config)
