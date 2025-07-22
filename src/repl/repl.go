@@ -231,7 +231,7 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	fmt.Print(fmt.Sprintf("ai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
+	fmt.Print(fmt.Sprintf("mai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 
 	// Load and process ~/.mairc if not in stdin mode and not skipped
 	if !r.config.IsStdinMode && !r.config.SkipRcFile {
@@ -357,6 +357,13 @@ func (r *REPL) handleInput() error {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
 		return r.handlePromptCommand(input)
+	}
+
+	// Handle ? prompt commands
+	if strings.HasPrefix(input, "?") {
+		// Add to history (also added in handlePromptCommand, but keep here for consistency)
+		r.addToHistory(input)
+		return r.handleCommand("/help")
 	}
 
 	// Handle shell commands
