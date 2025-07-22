@@ -281,7 +281,8 @@ func (r *REPL) showCommands() {
 	fmt.Print("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
 	fmt.Print("  Ctrl+W         - Delete last word\r\n")
 	fmt.Print("  Up/Down arrows - Navigate history\r\n")
-	fmt.Print("  Tab            - Command completion\r\n")
+	fmt.Print("  Tab            - Command/path completion\r\n")
+	fmt.Print("  @<path>        - File path with tab completion (can appear anywhere in input)\r\n")
 	fmt.Print("\r\n")
 }
 
@@ -484,6 +485,22 @@ func (r *REPL) readLine() (string, error) {
 
 func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	input := line.String()
+
+	// Check if input contains @ for file path completion
+	if strings.Contains(input, "@") {
+		// Find the position of @ in the input
+		pos := strings.LastIndex(input, "@")
+
+		// Get the prefix (text before @) and the partial path (text after @)
+		prefix := input[:pos]
+		partialPath := input[pos+1:]
+
+		// Only attempt path completion if we're at or after the @ character
+		if r.cursorPos >= pos {
+			r.handleAtFilePathCompletion(line, prefix, partialPath)
+			return
+		}
+	}
 
 	// Check if we need to complete a file path for a command that accepts a file
 	parts := strings.SplitN(input, " ", 2)
@@ -1555,6 +1572,114 @@ func (r *REPL) listPrompts() error {
 }
 
 // handleFilePathCompletion handles tab completion for file paths
+
+// handleAtFilePathCompletion handles tab completion for file paths with @ prefix
+func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partialPath string) {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(partialPath, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			partialPath = filepath.Join(homeDir, partialPath[1:])
+		}
+	}
+
+	// If this is the first tab press, find matching files
+	if r.completeState == 0 {
+		// Get the directory and file prefix
+		dir, filePrefix := filepath.Split(partialPath)
+
+		// If no directory specified, use current directory
+		if dir == "" {
+			dir = "."
+		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(partialPath, "./") && !strings.HasPrefix(partialPath, "../") {
+			// Handle relative paths that don't start with ./ or ../
+			dir = "." + string(filepath.Separator) + dir
+		}
+
+		// Make sure dir ends with separator
+		if !strings.HasSuffix(dir, string(filepath.Separator)) {
+			dir += string(filepath.Separator)
+		}
+
+		// Read the directory
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			return // Cannot read directory
+		}
+
+		// Find matching files
+		r.completeOptions = nil
+		for _, file := range files {
+			name := file.Name()
+			if strings.HasPrefix(name, filePrefix) {
+				// Add separator if it's a directory
+				if file.IsDir() {
+					name += string(filepath.Separator)
+				}
+				r.completeOptions = append(r.completeOptions, dir+name)
+			}
+		}
+
+		// If no matches, do nothing
+		if len(r.completeOptions) == 0 {
+			return
+		}
+
+		r.completeState = 1
+		r.completePrefix = prefix + "@"
+
+		// Replace current input with the first match
+		currentInput := line.String()
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Get the first match
+		firstMatch := r.completePrefix + r.completeOptions[0]
+
+		// Print and set the first match
+		fmt.Print(firstMatch)
+		line.Reset()
+		line.WriteString(firstMatch)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	} else {
+		// Subsequent tab presses - cycle through options
+		if len(r.completeOptions) <= 1 {
+			return
+		}
+
+		// Find current option
+		currentInput := line.String()
+		currentPath := strings.TrimPrefix(currentInput, r.completePrefix)
+
+		// Find current index
+		currentIdx := -1
+		for i, opt := range r.completeOptions {
+			if opt == currentPath {
+				currentIdx = i
+				break
+			}
+		}
+
+		// Get next option
+		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextOption := r.completePrefix + r.completeOptions[nextIdx]
+
+		// Clear current line
+		for i := 0; i < len(currentInput); i++ {
+			fmt.Print("\b \b")
+		}
+
+		// Print next option
+		fmt.Print(nextOption)
+		line.Reset()
+		line.WriteString(nextOption)
+		// Update cursor position to end of line
+		r.cursorPos = line.Len()
+	}
+}
 
 // handleChatSubcommandCompletion handles tab completion for /chat subcommands
 func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
