@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "mcp-omnisearch": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-omnisearch"],
+      "env": {
+        "TAVILY_API_KEY": "your-tavily-key",
+        "BRAVE_API_KEY": "your-brave-key",
+        "KAGI_API_KEY": "your-kagi-key",
+        "PERPLEXITY_API_KEY": "your-perplexity-key",
+        "JINA_AI_API_KEY": "your-jina-key",
+        "FIRECRAWL_API_KEY": "your-firecrawl-key"
+      }
+    },
+    "time-mcp": {
+      "type": "stdio",
+      "command": "timemcp",
+      "args": []
+    },
+    "shell-mcp": {
+      "type": "stdio",
+      "command": "shellmcp",
+      "args": [],
+      "env": {
+        "SHELL_DEBUG": "true"
+      }
+    }
+  }
+}

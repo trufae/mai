@@ -1,14 +1,14 @@
 include ../../config.mk
 
 BIN=mai-wmcp
-MAIN_FILE=main.go
+SOURCES=main.go config.go
 
 .PHONY: all build run clean deps
 
 all: build
 
 build: deps
-	go build -o $(BIN) $(MAIN_FILE)
+	go build -o $(BIN) $(SOURCES)
 
 install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
