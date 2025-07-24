@@ -384,6 +384,7 @@ func (s *MCPService) storeToolPermission(toolName string, paramsJSON string, dec
 			Approved: false,
 		}
 	case YoloPermitAllToolsForever:
+		// Also enable YOLO mode for future requests
 		// Special key for approving all tools
 		s.toolPerms["y"] = ToolPermission{
 			ToolName: "y",
@@ -444,7 +445,7 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 				break
 			case YoloReject:
 				return nil, fmt.Errorf("tool execution rejected by user")
-			case YoloPermitToolForever:
+			case YoloPermitToolForever, YoloPermitAllToolsForever:
 				s.yoloMode = true
 				break
 			case YoloPermitToolWithParamsForever, YoloRejectForever:
