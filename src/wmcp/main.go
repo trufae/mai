@@ -35,10 +35,20 @@ type JSONRPCResponse struct {
 }
 
 // MCP Tool structures
+
+// ToolParameter represents a parameter for a tool
+type ToolParameter struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+}
+
 type Tool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"inputSchema"`
+	Parameters  []ToolParameter        `json:"parameters,omitempty"`
 }
 
 type ToolsListResult struct {
@@ -272,6 +282,12 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 	var toolsResult ToolsListResult
 	if err := json.Unmarshal(resultBytes, &toolsResult); err != nil {
 		return fmt.Errorf("failed to parse tools response: %v", err)
+	}
+
+	// Process tool parameters
+	for i := range toolsResult.Tools {
+		tool := &toolsResult.Tools[i]
+		tool.Parameters = extractParametersFromSchema(tool.InputSchema)
 	}
 
 	server.mutex.Lock()
@@ -516,6 +532,55 @@ func (s *MCPService) StopAllServers() {
 	}
 }
 
+// extractParametersFromSchema extracts parameter information from JSON schema
+func extractParametersFromSchema(schema map[string]interface{}) []ToolParameter {
+	var parameters []ToolParameter
+
+	// Extract properties from schema
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return parameters
+	}
+
+	// Extract required fields list
+	requiredFields := make(map[string]bool)
+	if required, ok := schema["required"].([]interface{}); ok {
+		for _, field := range required {
+			if fieldName, ok := field.(string); ok {
+				requiredFields[fieldName] = true
+			}
+		}
+	}
+
+	// Process each property
+	for name, propInterface := range properties {
+		propInfo, ok := propInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Create parameter
+		param := ToolParameter{
+			Name:     name,
+			Required: requiredFields[name],
+		}
+
+		// Extract description
+		if desc, ok := propInfo["description"].(string); ok {
+			param.Description = desc
+		}
+
+		// Extract type
+		if typeStr, ok := propInfo["type"].(string); ok {
+			param.Type = typeStr
+		}
+
+		parameters = append(parameters, param)
+	}
+
+	return parameters
+}
+
 // HTTP Handlers
 
 // listToolsHandler returns all tools from all servers
@@ -544,7 +609,19 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 				// Print CLI-style arguments list
 				output.WriteString("Arguments:\n")
-				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+				// Use the prepared Parameters array if available
+				if len(tool.Parameters) > 0 {
+					for _, param := range tool.Parameters {
+						// Format: name=<value> : description (type) [required]
+						reqText := ""
+						if param.Required {
+							reqText = " [required]"
+						}
+						output.WriteString(fmt.Sprintf("- %s=<value> : %s (%s)%s\n",
+							param.Name, param.Description, param.Type, reqText))
+					}
+				} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					// Fallback to the old way if Parameters is empty
 					for key, val := range properties {
 						propInfo, _ := val.(map[string]interface{})
 						desc := ""
@@ -589,7 +666,18 @@ func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
 	res := make(map[string][]Tool)
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
-		res[serverName] = server.Tools
+		// Make sure all tools have their Parameters populated from InputSchema
+		tools := make([]Tool, len(server.Tools))
+		copy(tools, server.Tools)
+
+		// Ensure Parameters are populated for JSON output
+		for i := range tools {
+			if len(tools[i].Parameters) == 0 && tools[i].InputSchema != nil {
+				tools[i].Parameters = extractParametersFromSchema(tools[i].InputSchema)
+			}
+		}
+
+		res[serverName] = tools
 		server.mutex.RUnlock()
 	}
 	json.NewEncoder(w).Encode(res)
@@ -608,7 +696,12 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
 			output.WriteString(fmt.Sprintf("%s %s", serverName, tool.Name))
-			if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+			// Use the Parameters array if available
+			if len(tool.Parameters) > 0 {
+				for _, param := range tool.Parameters {
+					output.WriteString(fmt.Sprintf(" %s=<value>", param.Name))
+				}
+			} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
 				for key, _ := range properties {
 					output.WriteString(fmt.Sprintf(" %s=<value>", key))
 				}
@@ -641,6 +734,61 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
 
+			// Add parameters section with type and required information
+			if len(tool.Parameters) > 0 || tool.InputSchema != nil {
+				output.WriteString("**Parameters:**\n\n")
+				output.WriteString("| Name | Type | Required | Description |\n")
+				output.WriteString("|------|------|----------|-------------|\n")
+
+				// Use Parameters array if available
+				if len(tool.Parameters) > 0 {
+					for _, param := range tool.Parameters {
+						required := "No"
+						if param.Required {
+							required = "Yes"
+						}
+						output.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+							param.Name, param.Type, required, param.Description))
+					}
+				} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					// Extract required fields
+					requiredFields := make(map[string]bool)
+					if required, ok := tool.InputSchema["required"].([]interface{}); ok {
+						for _, field := range required {
+							if fieldName, ok := field.(string); ok {
+								requiredFields[fieldName] = true
+							}
+						}
+					}
+
+					// Display properties from schema
+					for key, val := range properties {
+						propInfo, _ := val.(map[string]interface{})
+						desc := ""
+						propType := "string" // Default type
+						req := "No"
+
+						if requiredFields[key] {
+							req = "Yes"
+						}
+
+						if propInfo != nil {
+							if d, ok := propInfo["description"].(string); ok {
+								desc = d
+							}
+							if t, ok := propInfo["type"].(string); ok {
+								propType = t
+							}
+						}
+
+						output.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+							key, propType, req, desc))
+					}
+				}
+				output.WriteString("\n")
+			}
+
+			// Keep the schema output for reference
 			if tool.InputSchema != nil {
 				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
