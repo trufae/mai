@@ -161,6 +161,11 @@ func getServerNameFromCommand(command string) string {
 
 // StartServer starts an MCP server process
 func (s *MCPService) StartServer(name, command string) error {
+	return s.StartServerWithEnv(name, command, nil)
+}
+
+// StartServerWithEnv starts an MCP server process with custom environment variables
+func (s *MCPService) StartServerWithEnv(name, command string, env map[string]string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -171,6 +176,20 @@ func (s *MCPService) StartServer(name, command string) error {
 	}
 
 	cmd := exec.Command(parts[0], parts[1:]...)
+
+	// Apply custom environment variables if provided
+	if env != nil && len(env) > 0 {
+		// Start with current environment
+		cmdEnv := os.Environ()
+
+		// Add or override with custom variables
+		for key, value := range env {
+			cmdEnv = append(cmdEnv, fmt.Sprintf("%s=%s", key, value))
+		}
+
+		// Set the environment for the command
+		cmd.Env = cmdEnv
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -997,7 +1016,10 @@ func showHelp() {
 	fmt.Println("  -y\tYolo mode (skip tool confirmations)")
 	fmt.Println("  -o FILE\tOutput report to FILE")
 	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
+	fmt.Println("  -c FILE\tPath to config file (default: ~/.mai-wmcp.json)")
+	fmt.Println("  -n\tSkip loading config file")
 	fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
+	fmt.Println("Example with config: ./mcpd -c /path/to/config.json")
 }
 
 func showVersion() {
@@ -1017,6 +1039,8 @@ func main() {
 	yoloMode := false
 	outputReport := ""
 	debugMode := false
+	configPath := ""
+	skipConfig := false
 
 	args := os.Args[1:]
 	cmdArgs := []string{}
@@ -1043,6 +1067,17 @@ func main() {
 				yoloMode = true
 			case "-d":
 				debugMode = true
+			case "-c":
+				if i+1 < len(args) {
+					configPath = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -c requires a file path")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-n":
+				skipConfig = true
 			case "-p":
 				if i+1 < len(args) {
 					port = args[i+1]
@@ -1071,9 +1106,25 @@ func main() {
 		}
 	}
 
-	// Check if we have any commands to run
-	if len(cmdArgs) == 0 {
-		fmt.Println("Error: No MCP commands provided")
+	// Load configuration if not skipped
+	var config *Config
+	var configErr error
+	if !skipConfig {
+		config, configErr = LoadConfig(configPath)
+		if configErr != nil {
+			log.Printf("Warning: Failed to load config: %v", configErr)
+			config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+		}
+	} else {
+		config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+	}
+
+	// Check if we have any commands to run or servers in config
+	cmdProvided := len(cmdArgs) > 0
+	configServers := len(config.MCPServers) > 0
+
+	if !cmdProvided && !configServers {
+		fmt.Println("Error: No MCP commands provided and no servers in config")
 		showHelp()
 		os.Exit(1)
 	}
@@ -1086,8 +1137,7 @@ func main() {
 	// Ensure cleanup on exit
 	defer service.StopAllServers()
 
-	// Start all MCP servers
-	// Only start servers if we have commands to run
+	// Start MCP servers from command line arguments
 	if len(cmdArgs) > 0 {
 		for _, command := range cmdArgs {
 			serverName := getServerNameFromCommand(command)
@@ -1096,6 +1146,11 @@ func main() {
 				continue
 			}
 		}
+	}
+
+	// Start MCP servers from config
+	if !skipConfig && len(config.MCPServers) > 0 {
+		StartMCPServersFromConfig(service, config)
 	}
 	if len(service.servers) == 0 {
 		fmt.Println("Error: No MCP servers available")
