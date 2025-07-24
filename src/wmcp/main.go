@@ -111,14 +111,16 @@ type Report struct {
 
 // MCP Server represents a running MCP server process
 type MCPServer struct {
-	Name    string
-	Command string
-	Process *exec.Cmd
-	Stdin   io.WriteCloser
-	Stdout  io.ReadCloser
-	Stderr  io.ReadCloser
-	Tools   []Tool
-	mutex   sync.RWMutex
+	Name         string
+	Command      string
+	Process      *exec.Cmd
+	Stdin        io.WriteCloser
+	Stdout       io.ReadCloser
+	Stderr       io.ReadCloser
+	Tools        []Tool
+	mutex        sync.RWMutex
+	stderrDone   chan struct{}
+	stderrActive bool
 }
 
 // MCPService manages multiple MCP servers
@@ -190,14 +192,19 @@ func (s *MCPService) StartServer(name, command string) error {
 	}
 
 	server := &MCPServer{
-		Name:    name,
-		Command: command,
-		Process: cmd,
-		Stdin:   stdin,
-		Stdout:  stdout,
-		Stderr:  stderr,
-		Tools:   []Tool{},
+		Name:         name,
+		Command:      command,
+		Process:      cmd,
+		Stdin:        stdin,
+		Stdout:       stdout,
+		Stderr:       stderr,
+		Tools:        []Tool{},
+		stderrDone:   make(chan struct{}),
+		stderrActive: true,
 	}
+
+	// Start a goroutine to handle stderr output
+	go s.handleStderr(server)
 
 	s.servers[name] = server
 
@@ -500,19 +507,39 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 	}
 
 	// Add to report if this is a tool call
-	if s.reportEnabled && request.Method == "tools/call" {
+	if request.Method == "tools/call" {
 		var toolParams CallToolParams
 		paramsBytes, _ := json.Marshal(request.Params)
 		json.Unmarshal(paramsBytes, &toolParams)
 
-		s.addReportEntry(server.Name, toolParams.Name, toolParams.Arguments, response.Result, nil)
+		// Always log tool execution regardless of report being enabled
+		log.Printf("MCP tool executed - Server: %s, Tool: %s, Params: %s",
+			server.Name, toolParams.Name, string(paramsBytes))
+
+		// Add to structured report if enabled
+		if s.reportEnabled {
+			s.addReportEntry(server.Name, toolParams.Name, toolParams.Arguments, response.Result, nil)
+		}
 	}
 
 	return &response, nil
 }
 
+// handleStderr reads from the stderr pipe and logs all messages
+func (s *MCPService) handleStderr(server *MCPServer) {
+	scanner := bufio.NewScanner(server.Stderr)
+	for server.stderrActive && scanner.Scan() {
+		text := scanner.Text()
+		log.Printf("[%s stderr] %s", server.Name, text)
+	}
+	close(server.stderrDone)
+}
+
 // stopServer stops an MCP server
 func (s *MCPService) stopServer(server *MCPServer) {
+	// Mark stderr handler as inactive
+	server.stderrActive = false
+
 	if server.Process != nil {
 		server.Process.Process.Kill()
 		server.Process.Wait()
@@ -520,6 +547,9 @@ func (s *MCPService) stopServer(server *MCPServer) {
 	server.Stdin.Close()
 	server.Stdout.Close()
 	server.Stderr.Close()
+
+	// Wait for stderr goroutine to finish
+	<-server.stderrDone
 }
 
 // StopAllServers stops all MCP servers
@@ -808,6 +838,9 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["server"]
 	toolName := vars["tool"]
+
+	// Always log HTTP requests regardless of debug mode
+	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
 
 	s.mutex.RLock()
 	server, exists := s.servers[serverName]
