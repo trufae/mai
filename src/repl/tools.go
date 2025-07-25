@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +19,9 @@ type Tool struct {
 	Args        []string // Arguments to pass to the tool
 	Action      string   // Action type: Solve, Error, or Iterate
 	NextStep    string   // Brief explanation of what should be done next
+	Plan        string   // Overall plan for solving the problem
+	Progress    string   // Current progress through the plan
+	StepNumber  int      // Current step number in the execution
 }
 
 // GetAvailableTools runs the 'mai-tool list' command and returns the output as a string
@@ -93,6 +98,13 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 		// Parse space-separated key=value parameters
 		paramPairs := strings.Fields(paramsText)
 		for _, pair := range paramPairs {
+			// Check if the parameter contains <value> placeholder
+			if strings.Contains(pair, "=<value>") {
+				// Extract parameter name (part before =<value>)
+				paramName := strings.Split(pair, "=")[0]
+				// Warn that user should replace <value> with actual value
+				fmt.Printf("\r\033[33m(warning) Replace %s=<value> with an actual value (e.g., %s=myvalue)\033[0m\n", paramName, paramName)
+			}
 			args = append(args, pair)
 		}
 	} else if len(toolParts) > 1 {
@@ -128,12 +140,65 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 		nextStep = strings.TrimPrefix(nextStepText, "NextStep: ")
 	}
 
+	// Extract the Plan field
+	plan := "" // Default empty plan
+	planIdx := strings.Index(message, "Plan: ")
+	if planIdx != -1 {
+		planLine := message[planIdx:]
+		planEndIdx := strings.Index(planLine, "\n\n")
+		if planEndIdx != -1 {
+			plan = planLine[6:planEndIdx] // Skip "Plan: "
+		} else {
+			// If no double newline, try to get what we can
+			planText := strings.Split(planLine, "\n")[0]
+			plan = strings.TrimPrefix(planText, "Plan: ")
+		}
+	}
+
+	// Extract the Progress field
+	progress := "" // Default empty progress
+	progressIdx := strings.Index(message, "Progress: ")
+	if progressIdx != -1 {
+		progressLine := message[progressIdx:]
+		progressEndIdx := strings.Index(progressLine, "\n\n")
+		if progressEndIdx != -1 {
+			progress = progressLine[10:progressEndIdx] // Skip "Progress: "
+		} else {
+			// If no double newline, try to get what we can
+			progressText := strings.Split(progressLine, "\n")[0]
+			progress = strings.TrimPrefix(progressText, "Progress: ")
+		}
+	}
+
+	// Get step number if it's included in the progress
+	stepNumber := 0
+	if progress != "" {
+		// Try to extract step number from progress text
+		stepPattern := regexp.MustCompile(`Step\s+(\d+)`)
+		matches := stepPattern.FindStringSubmatch(progress)
+		if len(matches) >= 2 {
+			stepNumber, _ = strconv.Atoi(matches[1])
+		}
+	}
+
+	// Print plan and progress information if available
+	if plan != "" {
+		fmt.Printf("\r\033[36m(plan) %s\033[0m\n", plan)
+	}
+
+	if progress != "" {
+		fmt.Printf("\r\033[36m(progress) %s\033[0m\n", progress)
+	}
+
 	// Create and return the tool
 	return []*Tool{{
-		Name:     toolName,
-		Args:     args,
-		Action:   action,
-		NextStep: nextStep,
+		Name:       toolName,
+		Args:       args,
+		Action:     action,
+		NextStep:   nextStep,
+		Plan:       plan,
+		Progress:   progress,
+		StepNumber: stepNumber,
 	}}, nil
 }
 
@@ -170,6 +235,22 @@ func buildMessageWithTools(toolPrompt string, userInput string, toolList string)
 	return msg
 }
 
+// extractToolName extracts the tool name from a response string
+func extractToolName(response string) string {
+	startIdx := strings.Index(response, "Selected Tool: ")
+	if startIdx == -1 {
+		return ""
+	}
+	startIdx += 14 // Skip "Selected Tool: "
+
+	endIdx := strings.Index(response[startIdx:], "\n")
+	if endIdx == -1 {
+		return response[startIdx:] // Return to the end if no newline found
+	}
+
+	return response[startIdx : startIdx+endIdx]
+}
+
 // executeToolsInMessage processes any tool calls found in a message and returns results
 // When function calling is implemented, this function will:
 // 1. Extract tool calls from the LLM response
@@ -194,9 +275,29 @@ func executeToolsInMessage(message string) (string, error) {
 		}
 		results = append(results, result)
 
-		// If we have Action and NextStep, add them to the result
-		if tool.Action != "" || tool.NextStep != "" {
-			results = append(results, fmt.Sprintf("\nAction: %s\nNextStep: %s", tool.Action, tool.NextStep))
+		// Include plan and progress information in the result if available
+		if tool.Plan != "" || tool.Progress != "" || tool.Action != "" || tool.NextStep != "" {
+			// Build a comprehensive result with plan and progress information
+			metadata := []string{}
+
+			if tool.Plan != "" {
+				metadata = append(metadata, fmt.Sprintf("Plan: %s", tool.Plan))
+			}
+
+			if tool.Progress != "" {
+				metadata = append(metadata, fmt.Sprintf("Progress: %s", tool.Progress))
+			}
+
+			if tool.Action != "" {
+				metadata = append(metadata, fmt.Sprintf("Action: %s", tool.Action))
+			}
+
+			if tool.NextStep != "" {
+				metadata = append(metadata, fmt.Sprintf("NextStep: %s", tool.NextStep))
+			}
+
+			// Join metadata with newlines and add to results
+			results = append(results, "\n"+strings.Join(metadata, "\n"))
 		}
 	}
 
@@ -231,4 +332,161 @@ func ProcessUserInput(input string, repl interface{}) string {
 	}
 	// Build and return the processed input
 	return buildMessageWithTools(toolPrompt, input, toolList)
+}
+
+// ProcessToolExecution executes tool-based processing for the given input and REPL client
+// This function handles the multi-step, context-aware processing of user input with tools
+func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (string, error) {
+	// Type assertion to access REPL methods and fields
+	replImpl, ok := repl.(*REPL)
+	if !ok {
+		// If type assertion fails, return an error
+		return "", fmt.Errorf("invalid REPL implementation")
+	}
+
+	// Initialize state tracking variables
+	contextHistory := []string{}
+	stepCount := 0
+	var overallPlan string
+	var progress string
+
+	for {
+		stepCount++
+		// Construct input with context history
+		toolinput := ProcessUserInput(input, repl)
+
+		// Add context history to the input
+		if len(contextHistory) > 0 {
+			toolinput += "\n\n# Previous Steps and Results:\n"
+			// Include last 3 steps to prevent context overflow
+			startIdx := 0
+			if len(contextHistory) > 3 {
+				startIdx = len(contextHistory) - 3
+			}
+			for i := startIdx; i < len(contextHistory); i++ {
+				toolinput += fmt.Sprintf("\n## Step %d:\n%s\n", i+1, contextHistory[i])
+			}
+		}
+
+		// Include current step count
+		toolinput += fmt.Sprintf("\n\n# Current Step: %d\n", stepCount)
+
+		// Include overall plan if we have one
+		if overallPlan != "" {
+			toolinput += fmt.Sprintf("\n# Current Plan:\n%s\n", overallPlan)
+		}
+
+		// Include progress if we have it
+		if progress != "" {
+			toolinput += fmt.Sprintf("\n# Current Progress:\n%s\n", progress)
+		}
+
+		trick := "Be concise in your responses, follow the plan and only respond with verified information from the tool calls. Maintain context between steps."
+		// Send message with streaming based on REPL settings
+		messages := []Message{{"user", trick + toolinput}}
+		response, err := client.SendMessage(messages, false)
+		if err != nil {
+			return "", fmt.Errorf("failed to get response for tools: %v", err)
+		}
+
+		// Handle the assistant's response based on logging settings
+		if err == nil && response != "" {
+			if replImpl.config.options.GetBool("debug") {
+				fmt.Println("==============TOOLS FROM MESSAGE=================")
+				fmt.Println(response)
+				fmt.Println("==============TOOLS FROM MESSAGE=================")
+			}
+
+			// Extract Plan and Progress if present
+			planIdx := strings.Index(response, "Plan: ")
+			if planIdx != -1 {
+				planLine := response[planIdx:]
+				planEndIdx := strings.Index(planLine, "\n\n")
+				if planEndIdx != -1 {
+					overallPlan = planLine[6:planEndIdx] // Skip "Plan: "
+				}
+			}
+
+			progressIdx := strings.Index(response, "Progress: ")
+			if progressIdx != -1 {
+				progressLine := response[progressIdx:]
+				progressEndIdx := strings.Index(progressLine, "\n\n")
+				if progressEndIdx != -1 {
+					progress = progressLine[10:progressEndIdx] // Skip "Progress: "
+				}
+			}
+
+			newres, err := executeToolsInMessage(response)
+			if err != nil {
+				errorMsg := fmt.Sprintf("Error executing tool: %v", err)
+				contextHistory = append(contextHistory, errorMsg)
+				input += "\n\n# ToolsError:\n" + err.Error()
+				fmt.Printf("Error %v\n\r", err)
+			} else if newres != "" {
+				// Check for Action and NextStep in the result
+				actionIdx := strings.Index(newres, "\nAction: ")
+				nextStepIdx := strings.Index(newres, "\nNextStep: ")
+
+				var toolAction, nextStep string
+				var toolResult string
+
+				if actionIdx != -1 && nextStepIdx != -1 {
+					// Extract the tool result (everything before Action)
+					toolResult = newres[:actionIdx]
+
+					// Extract Action value
+					actionLine := newres[actionIdx+9:] // +9 to skip "\nAction: "
+					actionEndIdx := strings.Index(actionLine, "\n")
+					if actionEndIdx != -1 {
+						toolAction = actionLine[:actionEndIdx]
+					}
+
+					// Extract NextStep value
+					nextStepLine := newres[nextStepIdx+11:] // +11 to skip "\nNextStep: "
+					nextStep = nextStepLine
+
+					// Add the tool result to the context history and input
+					contextEntry := fmt.Sprintf("Tool: %s\nResult: %s\nAction: %s\nNextStep: %s",
+						extractToolName(response),
+						toolResult,
+						toolAction,
+						nextStep)
+					contextHistory = append(contextHistory, contextEntry)
+					input += "\n\n# ToolsContext:\n" + strings.TrimSpace(toolResult)
+
+					// Process based on Action type
+					switch toolAction {
+					case "Solve":
+						// The tool solved the problem, no further action needed
+						fmt.Printf("Tool solved the request: %s\n\r", nextStep)
+					case "Error":
+						// There was an error, add error context
+						input += "\n\n# ToolsError:\n" + nextStep
+						fmt.Printf("Tool error: %s\n\r", nextStep)
+					case "Iterate":
+						// Need to iterate, add next step to input
+						input += "\n\n# NextStep:\n" + nextStep + "\n----\n"
+						fmt.Printf("Tool requires iteration: %s\n\r", nextStep)
+						continue
+					}
+				} else {
+					// No Action/NextStep found, process as before
+					contextHistory = append(contextHistory, fmt.Sprintf("Result: %s", strings.TrimSpace(newres)))
+					input += "\n\n# ToolsContext:\n" + strings.TrimSpace(newres)
+				}
+			}
+			break
+		} else {
+			contextHistory = append(contextHistory, "Error: Could not run tools")
+			input += "\n----\n# ToolsContext:\nWe could not run the tools"
+		}
+	}
+
+	if replImpl.config.options.GetBool("debug") {
+		fmt.Println("-------------------")
+		fmt.Println(input)
+		fmt.Println("-------------------")
+	}
+
+	return input, nil
 }
