@@ -349,10 +349,14 @@ func (r *ReadLine) navigateHistory(direction int) {
 	// Calculate new history position
 	// Invert the direction to make up arrow show newer messages
 	newPos := r.historyPos + direction
-	if newPos == len(r.history) {
-		newPos = len(r.history) - 1
-	} else if newPos < 0 {
-		newPos = 0
+	if len(r.history) > 0 {
+		if newPos >= len(r.history) {
+			newPos = len(r.history) - 1
+		} else if newPos < 0 {
+			newPos = 0
+		}
+	} else {
+		newPos = -1
 	}
 
 	r.historyPos = newPos
