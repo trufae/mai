@@ -1218,6 +1218,15 @@ func (r *REPL) initCommands() {
 			return r.listModels()
 		},
 	}
+
+	// Command to list available providers
+	r.commands["/providers"] = Command{
+		Name:        "/providers",
+		Description: "List available providers",
+		Handler: func(r *REPL, args []string) error {
+			return r.listProviders()
+		},
+	}
 }
 
 func (r *REPL) makeStreamingRequest(method, url string, headers map[string]string,
@@ -2392,10 +2401,9 @@ func (r *REPL) showCurrentProvider() {
 	r.showCurrentModel()
 }
 
-// setProvider changes the current provider
-func (r *REPL) setProvider(provider string) error {
-	// Check if the provider is valid
-	validProviders := map[string]bool{
+// getValidProviders returns a map of valid providers
+func (r *REPL) getValidProviders() map[string]bool {
+	return map[string]bool{
 		"ollama":   true,
 		"openai":   true,
 		"claude":   true,
@@ -2406,6 +2414,40 @@ func (r *REPL) setProvider(provider string) error {
 		"bedrock":  true,
 		"aws":      true,
 	}
+}
+
+// listProviders displays all available providers
+func (r *REPL) listProviders() error {
+	validProviders := r.getValidProviders()
+
+	// Extract provider names and sort them
+	providers := make([]string, 0, len(validProviders))
+	for provider := range validProviders {
+		// Skip aliases (like "google" for "gemini" and "aws" for "bedrock")
+		if provider == "google" || provider == "aws" {
+			continue
+		}
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+
+	fmt.Print("Available providers:\r\n")
+	for _, provider := range providers {
+		if provider == r.config.PROVIDER {
+			fmt.Printf("* %s (current)\r\n", provider)
+		} else {
+			fmt.Printf("  %s\r\n", provider)
+		}
+	}
+
+	fmt.Print("\r\nUse '/set provider <name>' to change the current provider\r\n")
+	return nil
+}
+
+// setProvider changes the current provider
+func (r *REPL) setProvider(provider string) error {
+	// Check if the provider is valid
+	validProviders := r.getValidProviders()
 
 	// Convert provider to lowercase for case-insensitive comparison
 	provider = strings.ToLower(provider)
