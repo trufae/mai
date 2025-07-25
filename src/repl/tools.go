@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Tool represents a tool that can be called by name with arguments
@@ -42,9 +45,31 @@ func GetAvailableTools(quiet bool) (string, error) {
 
 // callTool executes a specified tool with provided arguments and returns the output
 func callTool(tool *Tool) (string, error) {
+	// Validate the tool name
+	if tool.Name == "" {
+		return "", fmt.Errorf("empty tool name provided")
+	}
+
+	// Add some basic sanitization
+	toolName := strings.TrimSpace(tool.Name)
+
+	// Check for potential command injection
+	if strings.ContainsAny(toolName, ";&|<>$\\\"'`") {
+		return "", fmt.Errorf("invalid characters in tool name: %s", tool.Name)
+	}
+
+	// Sanitize arguments
+	var safeArgs []string
+	for _, arg := range tool.Args {
+		// Basic argument sanitization
+		if strings.TrimSpace(arg) != "" {
+			safeArgs = append(safeArgs, arg)
+		}
+	}
+
 	// Combine the tool name and arguments for the mai-tool command
 	// tool.Name may be in the format "server/tool"
-	cmdArgs := append([]string{"call", tool.Name}, tool.Args...)
+	cmdArgs := append([]string{"call", toolName}, safeArgs...)
 	cmd := exec.Command("mai-tool", cmdArgs...)
 
 	var out bytes.Buffer
@@ -52,12 +77,30 @@ func callTool(tool *Tool) (string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 
+	// Set a timeout for the command execution
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Set the command context with timeout
+	cmd = exec.CommandContext(timeoutCtx, "mai-tool", cmdArgs...)
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
 	err := cmd.Run()
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", fmt.Errorf("tool execution timed out after 30 seconds: %s", tool.Name)
+		}
 		return "", fmt.Errorf("error executing tool %s: %v: %s", tool.Name, err, stderr.String())
 	}
 
-	return out.String(), nil
+	result := out.String()
+	// Provide some feedback if the result is empty
+	if strings.TrimSpace(result) == "" {
+		return "", fmt.Errorf("tool %s returned empty result", tool.Name)
+	}
+
+	return result, nil
 }
 
 // getToolsFromMessage parses a user message to identify tool calls
@@ -65,21 +108,74 @@ func callTool(tool *Tool) (string, error) {
 // where the remote LLM will provide structured function call data
 // that this function will parse and convert to Tool instances
 func getToolsFromMessage(message string) ([]*Tool, error) {
-	// Check if tool is required by looking for "Tool Required: Yes"
-	if !strings.Contains(message, "Tool Required: Yes") {
+	// First try: check if tool is required by looking for "Tool Required: Yes"
+	// but also handle cases where models don't follow the exact format
+	toolRequired := strings.Contains(message, "Tool Required: Yes")
+
+	// If not explicitly required, look for other indicators that a tool might be needed
+	if !toolRequired {
+		// Check for other phrases that might indicate tool usage
+		toolPhrases := []string{
+			"we need to use",
+			"I will use",
+			"let's use",
+			"need to run",
+			"should use",
+			"will run",
+			"using the tool",
+		}
+
+		for _, phrase := range toolPhrases {
+			if strings.Contains(strings.ToLower(message), strings.ToLower(phrase)) {
+				toolRequired = true
+				break
+			}
+		}
+	}
+
+	if !toolRequired {
 		return []*Tool{}, nil
 	}
 
 	// Extract the selected tool line
 	toolLineIdx := strings.Index(message, "Selected Tool: ")
 	if toolLineIdx == -1 {
-		return []*Tool{}, nil
+		// Try alternate formats that models might use
+		alternateFormats := []string{"Tool: ", "Using tool: ", "Tool name: ", "I'll use: "}
+
+		for _, format := range alternateFormats {
+			idx := strings.Index(message, format)
+			if idx != -1 {
+				toolLineIdx = idx
+				break
+			}
+		}
+
+		// If still not found, give up
+		if toolLineIdx == -1 {
+			return []*Tool{}, nil
+		}
 	}
 
 	// Extract the tool name and command
 	toolLine := message[toolLineIdx:]
 	toolLine = strings.Split(toolLine, "\n")[0]
-	toolLine = strings.TrimPrefix(toolLine, "Selected Tool: ")
+
+	// Handle different prefix formats
+	knownPrefixes := []string{
+		"Selected Tool: ",
+		"Tool: ",
+		"Using tool: ",
+		"Tool name: ",
+		"I'll use: ",
+	}
+
+	for _, prefix := range knownPrefixes {
+		if strings.HasPrefix(toolLine, prefix) {
+			toolLine = strings.TrimPrefix(toolLine, prefix)
+			break
+		}
+	}
 
 	// Split the tool line to get the tool name and command
 	toolParts := strings.SplitN(toolLine, " ", 2)
@@ -88,85 +184,228 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 	// Default empty args slice
 	args := []string{}
 
-	// Extract parameters (key=value pairs) if present
-	paramsIdx := strings.Index(message, "Parameters: ")
-	if paramsIdx != -1 {
-		paramsLine := message[paramsIdx:]
-		paramsLine = strings.Split(paramsLine, "\n")[0]
-		paramsText := strings.TrimPrefix(paramsLine, "Parameters: ")
+	// Try to extract parameters from various formats models might use
+	paramPrefixes := []string{
+		"Parameters: ",
+		"Params: ",
+		"Arguments: ",
+		"Args: ",
+		"with parameters: ",
+		"with arguments: ",
+	}
 
-		// Parse space-separated key=value parameters
-		paramPairs := strings.Fields(paramsText)
-		for _, pair := range paramPairs {
-			// Check if the parameter contains <value> placeholder
-			if strings.Contains(pair, "=<value>") {
-				// Extract parameter name (part before =<value>)
-				paramName := strings.Split(pair, "=")[0]
-				// Warn that user should replace <value> with actual value
-				fmt.Printf("\r\033[33m(warning) Replace %s=<value> with an actual value (e.g., %s=myvalue)\033[0m\n", paramName, paramName)
+	// Track if we've found parameters
+	foundParams := false
+
+	// Check each possible parameter prefix
+	for _, prefix := range paramPrefixes {
+		paramsIdx := strings.Index(message, prefix)
+		if paramsIdx != -1 {
+			paramsLine := message[paramsIdx:]
+			paramsLine = strings.Split(paramsLine, "\n")[0]
+			paramsText := strings.TrimPrefix(paramsLine, prefix)
+
+			// Parse space-separated key=value parameters
+			if paramsText == "N/A" {
+				continue
 			}
-			args = append(args, pair)
+			paramPairs := strings.Fields(paramsText)
+			for _, pair := range paramPairs {
+				// Check if the parameter contains <value> placeholder
+				if strings.Contains(pair, "=<value>") || strings.Contains(pair, "=<VALUE>") {
+					// Extract parameter name (part before =<value>)
+					paramName := strings.Split(pair, "=")[0]
+					// Warn that user should replace <value> with actual value
+					fmt.Printf("\r\033[33m(warning) Replace %s=<value> with an actual value (e.g., %s=myvalue)\033[0m\n", paramName, paramName)
+				}
+				args = append(args, pair)
+			}
+
+			foundParams = true
+			break
 		}
-	} else if len(toolParts) > 1 {
-		// If no Parameters line but there are arguments in the tool line, use those
+	}
+
+	// If no explicit parameters found but there are arguments in the tool line, use those
+	if !foundParams && len(toolParts) > 1 {
 		args = strings.Fields(toolParts[1])
 	}
 
-	// Extract the reasoning for display
-	reasoningIdx := strings.Index(message, "Reasoning: ")
-	if reasoningIdx != -1 {
-		reasoningLine := message[reasoningIdx:]
-		reasoningText := strings.Split(reasoningLine, "\n")[0]
-		reasoningText = strings.TrimPrefix(reasoningText, "Reasoning: ")
-		// Print reasoning in magenta
-		fmt.Printf("\r\033[35m(tool) %s\033[0m\n", reasoningText)
+	// Extract the reasoning for display with flexible matching
+	reasoningPrefixes := []string{
+		"Reasoning: ",
+		"Rationale: ",
+		"Reason: ",
+		"Why: ",
+		"Explanation: ",
 	}
 
-	// Extract the Action field
-	action := "Solve" // Default action
-	actionIdx := strings.Index(message, "Action: ")
-	if actionIdx != -1 {
-		actionLine := message[actionIdx:]
-		actionText := strings.Split(actionLine, "\n")[0]
-		action = strings.TrimPrefix(actionText, "Action: ")
-	}
-
-	// Extract the NextStep field
-	nextStep := "" // Default empty next step
-	nextStepIdx := strings.Index(message, "NextStep: ")
-	if nextStepIdx != -1 {
-		nextStepLine := message[nextStepIdx:]
-		nextStepText := strings.Split(nextStepLine, "\n")[0]
-		nextStep = strings.TrimPrefix(nextStepText, "NextStep: ")
-	}
-
-	// Extract the Plan field
-	plan := "" // Default empty plan
-	planIdx := strings.Index(message, "Plan: ")
-	if planIdx != -1 {
-		planLine := message[planIdx:]
-		planEndIdx := strings.Index(planLine, "\n\n")
-		if planEndIdx != -1 {
-			plan = planLine[6:planEndIdx] // Skip "Plan: "
-		} else {
-			// If no double newline, try to get what we can
-			planText := strings.Split(planLine, "\n")[0]
-			plan = strings.TrimPrefix(planText, "Plan: ")
+	// Find reasoning with any of the prefixes
+	var reasoningText string
+	for _, prefix := range reasoningPrefixes {
+		reasoningIdx := strings.Index(message, prefix)
+		if reasoningIdx != -1 {
+			reasoningLine := message[reasoningIdx:]
+			reasoningText = strings.Split(reasoningLine, "\n")[0]
+			reasoningText = strings.TrimPrefix(reasoningText, prefix)
+			break
 		}
 	}
 
-	// Extract the Progress field
+	// If we have reasoning text, print it
+	if reasoningText != "" {
+		// Print reasoning in magenta
+		fmt.Printf("\r\033[35m(tool) %s\033[0m\n", reasoningText)
+	} else {
+		// If no explicit reasoning found, try to extract something useful from the message
+		// Look for common phrases that might indicate reasoning
+		phrases := []string{"I need to", "We should", "To solve this", "This will", "In order to"}
+		for _, phrase := range phrases {
+			idx := strings.Index(message, phrase)
+			if idx != -1 {
+				// Get the sentence containing this phrase
+				start := idx
+				for start > 0 && message[start-1] != '.' && message[start-1] != '\n' {
+					start--
+				}
+
+				end := idx + len(phrase)
+				for end < len(message) && message[end] != '.' && message[end] != '\n' {
+					end++
+				}
+				if end < len(message) {
+					end++ // Include the period
+				}
+
+				// Print the extracted reasoning
+				fmt.Printf("\r\033[35m(tool) %s\033[0m\n", strings.TrimSpace(message[start:end]))
+				break
+			}
+		}
+	}
+
+	// Extract the Action field with flexible prefixes
+	action := "Iterate" // Default to Iterate as the safest default
+	actionPrefixes := []string{
+		"Action: ",
+		"Next action: ",
+		"Action type: ",
+		"Should: ",
+	}
+
+	for _, prefix := range actionPrefixes {
+		actionIdx := strings.Index(message, prefix)
+		if actionIdx != -1 {
+			actionLine := message[actionIdx:]
+			actionText := strings.Split(actionLine, "\n")[0]
+			action = strings.TrimPrefix(actionText, prefix)
+			break
+		}
+	}
+
+	// Normalize action to expected values
+	action = strings.TrimSpace(strings.ToLower(action))
+	if action == "error" || action == "fail" {
+		action = "Error"
+	} else if action == "done" || action == "complete" || action == "finish" || action == "solved" || action == "completed" {
+		action = "Solve"
+	} else {
+		action = "Iterate" // Default for unrecognized actions
+	}
+
+	// Extract the NextStep field with flexible prefixes
+	nextStep := "" // Default empty next step
+	nextStepPrefixes := []string{
+		"NextStep: ",
+		"Next step: ",
+		"Next: ",
+		"Then: ",
+		"Following step: ",
+	}
+
+	for _, prefix := range nextStepPrefixes {
+		nextStepIdx := strings.Index(message, prefix)
+		if nextStepIdx != -1 {
+			nextStepLine := message[nextStepIdx:]
+			nextStepText := strings.Split(nextStepLine, "\n")[0]
+			nextStep = strings.TrimPrefix(nextStepText, prefix)
+			break
+		}
+	}
+
+	// If no explicit next step found but we're iterating, try to infer one
+	if nextStep == "" && action == "Iterate" {
+		// Look for phrases that might indicate next steps
+		phrases := []string{"next, ", "now I'll", "now I need to", "after this", "we should now"}
+		for _, phrase := range phrases {
+			idx := strings.Index(strings.ToLower(message), phrase)
+			if idx != -1 {
+				// Extract the sentence containing this phrase
+				start := idx
+				end := idx + len(phrase)
+				// Find the end of this sentence or thought
+				for end < len(message) && message[end] != '.' && message[end] != '\n' {
+					end++
+				}
+				if end < len(message) {
+					end++ // Include the period or newline
+				}
+
+				nextStep = strings.TrimSpace(message[start:end])
+				break
+			}
+		}
+	}
+
+	// Extract the Plan field with flexible prefixes
+	plan := "" // Default empty plan
+	planPrefixes := []string{
+		"Plan: ",
+		"Overall plan: ",
+		"Strategy: ",
+		"Approach: ",
+	}
+
+	for _, prefix := range planPrefixes {
+		planIdx := strings.Index(message, prefix)
+		if planIdx != -1 {
+			planLine := message[planIdx:]
+			prefixLen := len(prefix)
+			planEndIdx := strings.Index(planLine, "\n\n")
+			if planEndIdx != -1 {
+				plan = planLine[prefixLen:planEndIdx] // Skip prefix
+			} else {
+				// If no double newline, try to get what we can
+				planText := strings.Split(planLine, "\n")[0]
+				plan = strings.TrimPrefix(planText, prefix)
+			}
+			break
+		}
+	}
+
+	// Extract the Progress field with flexible prefixes
 	progress := "" // Default empty progress
-	progressIdx := strings.Index(message, "Progress: ")
-	if progressIdx != -1 {
-		progressLine := message[progressIdx:]
-		progressEndIdx := strings.Index(progressLine, "\n\n")
-		if progressEndIdx != -1 {
-			progress = progressLine[10:progressEndIdx] // Skip "Progress: "
-		} else {
-			// If no double newline, try to get what we can
-			progressText := strings.Split(progressLine, "\n")[0]
-			progress = strings.TrimPrefix(progressText, "Progress: ")
+	progressPrefixes := []string{
+		"Progress: ",
+		"Current progress: ",
+		"Status: ",
+		"Current step: ",
+	}
+
+	for _, prefix := range progressPrefixes {
+		progressIdx := strings.Index(message, prefix)
+		if progressIdx != -1 {
+			progressLine := message[progressIdx:]
+			prefixLen := len(prefix)
+			progressEndIdx := strings.Index(progressLine, "\n\n")
+			if progressEndIdx != -1 {
+				progress = progressLine[prefixLen:progressEndIdx] // Skip prefix
+			} else {
+				// If no double newline, try to get what we can
+				progressText := strings.Split(progressLine, "\n")[0]
+				progress = strings.TrimPrefix(progressText, prefix)
+			}
+			break
 		}
 	}
 
@@ -237,18 +476,45 @@ func buildMessageWithTools(toolPrompt string, userInput string, toolList string)
 
 // extractToolName extracts the tool name from a response string
 func extractToolName(response string) string {
-	startIdx := strings.Index(response, "Selected Tool: ")
-	if startIdx == -1 {
-		return ""
+	// Check different possible prefixes
+	fmt.Println("RESPONSE")
+	fmt.Println(response)
+	fmt.Println("RESPONSE")
+	knownPrefixes := []string{
+		"Selected Tool: ",
+		"Tool: ",
+		"ToolName: ",
+		"Using tool: ",
+		"Tool name: ",
+		"I'll use: ",
 	}
-	startIdx += 14 // Skip "Selected Tool: "
 
-	endIdx := strings.Index(response[startIdx:], "\n")
-	if endIdx == -1 {
-		return response[startIdx:] // Return to the end if no newline found
+	for _, prefix := range knownPrefixes {
+		startIdx := strings.Index(response, prefix)
+		if startIdx != -1 {
+			startIdx += len(prefix) // Skip the prefix
+
+			endIdx := strings.Index(response[startIdx:], "\n")
+			if endIdx == -1 {
+				toolLine := response[startIdx:] // Get to the end if no newline found
+				// If there's a space, just get the first word (the tool name)
+				if spaceIdx := strings.Index(toolLine, " "); spaceIdx != -1 {
+					return toolLine[:spaceIdx]
+				}
+				return toolLine
+			}
+
+			toolLine := response[startIdx : startIdx+endIdx]
+			// If there's a space, just get the first word (the tool name)
+			if spaceIdx := strings.Index(toolLine, " "); spaceIdx != -1 {
+				return toolLine[:spaceIdx]
+			}
+			return toolLine
+		}
 	}
 
-	return response[startIdx : startIdx+endIdx]
+	// If no prefix found
+	return ""
 }
 
 // executeToolsInMessage processes any tool calls found in a message and returns results
@@ -347,11 +613,21 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 	// Initialize state tracking variables
 	contextHistory := []string{}
 	stepCount := 0
+	maxSteps := 10 // Add maximum steps to prevent infinite loops
 	var overallPlan string
 	var progress string
+	var lastToolName string
+	repeatCount := 0
+	maxRepeats := 3 // Maximum number of times the same tool can be called consecutively
 
 	for {
 		stepCount++
+
+		// Check if we've exceeded the maximum number of steps
+		if stepCount > maxSteps {
+			fmt.Printf("Exceeded maximum number of steps (%d). Breaking loop to prevent infinite execution.\n\r", maxSteps)
+			break
+		}
 		// Construct input with context history
 		toolinput := ProcessUserInput(input, repl)
 
@@ -422,6 +698,8 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 				contextHistory = append(contextHistory, errorMsg)
 				input += "\n\n# ToolsError:\n" + err.Error()
 				fmt.Printf("Error %v\n\r", err)
+				// Continue with next iteration after error
+				continue
 			} else if newres != "" {
 				// Check for Action and NextStep in the result
 				actionIdx := strings.Index(newres, "\nAction: ")
@@ -459,22 +737,59 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 					case "Solve":
 						// The tool solved the problem, no further action needed
 						fmt.Printf("Tool solved the request: %s\n\r", nextStep)
+						// Flag to exit the loop when solved
+						goto exitLoop
 					case "Error":
 						// There was an error, add error context
 						input += "\n\n# ToolsError:\n" + nextStep
 						fmt.Printf("Tool error: %s\n\r", nextStep)
+						// Continue with next iteration after error
+						continue
 					case "Iterate":
 						// Need to iterate, add next step to input
 						input += "\n\n# NextStep:\n" + nextStep + "\n----\n"
 						fmt.Printf("Tool requires iteration: %s\n\r", nextStep)
+
+
+						// Check for repeated tool calls
+						currentToolName := extractToolName(response)
+						fmt.Println("TOOLNAME ")
+						fmt.Println(currentToolName)
+						fmt.Println("TOOLNAME ")
+						if currentToolName != "" && currentToolName == lastToolName {
+							repeatCount++
+							if repeatCount >= maxRepeats {
+								fmt.Printf("Same tool called %d times in a row. Breaking loop to prevent infinite execution.\n\r", repeatCount)
+								goto exitLoop
+							}
+						} else {
+							// Reset counter for new tool
+							repeatCount = 0
+							lastToolName = currentToolName
+						}
+
+						continue
+					default:
+						// Handle unexpected action types by continuing iteration
+						fmt.Printf("Unknown action type: %s\n\r", toolAction)
 						continue
 					}
 				} else {
-					// No Action/NextStep found, process as before
+					// No Action/NextStep found, process as before but continue iterating
 					contextHistory = append(contextHistory, fmt.Sprintf("Result: %s", strings.TrimSpace(newres)))
 					input += "\n\n# ToolsContext:\n" + strings.TrimSpace(newres)
+
+					// Continue with next iteration for models that don't properly format output
+					fmt.Printf("Tool result received, continuing iteration\n\r")
+					continue
 				}
+			} else {
+				// No result received, but continue iterating
+				fmt.Printf("No tool result, continuing iteration\n\r")
+				continue
 			}
+		exitLoop:
+			// Break only reaches here if explicitly breaking from the loop or via goto
 			break
 		} else {
 			contextHistory = append(contextHistory, "Error: Could not run tools")

@@ -27,7 +27,7 @@ Progress: [Which step you're on and what's been completed]
 
 Tool Required: [Yes/No]
 Selected Tool: [Tool name or "None"]
-Parameters: [Space separated list of parameterName=parameterValue, or "N/A"]
+Parameters: [Space separated list of parameterName=parameterValue, or ""]
 Reasoning: [Brief explanation of your decision]
 Action: [Solve | Error | Iterate]
 NextStep: [Brief explanation of what should be done after running this tool]
