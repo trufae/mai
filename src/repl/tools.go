@@ -471,7 +471,7 @@ func getToolPrompt(repl *REPL) (string, error) {
 
 // buildMessageWithTools formats a message with tool information
 func buildMessageWithTools(toolPrompt string, userInput string, toolList string) string {
-	msg := fmt.Sprintf("%s\n%s\n----\nThese are the tools available:\n%s",
+	msg := fmt.Sprintf("%s\n## User Prompt\n\n%s\n----\n## Available Tools:\n%s",
 		toolPrompt, userInput, toolList)
 	// DEBUG fmt.Println(msg)
 	return msg
@@ -480,9 +480,11 @@ func buildMessageWithTools(toolPrompt string, userInput string, toolList string)
 // extractToolName extracts the tool name from a response string
 func extractToolName(response string) string {
 	// Check different possible prefixes
-	fmt.Println("RESPONSE")
-	fmt.Println(response)
-	fmt.Println("RESPONSE")
+	/*
+		fmt.Println("RESPONSE")
+		fmt.Println(response)
+		fmt.Println("RESPONSE")
+	*/
 	knownPrefixes := []string{
 		"Selected Tool: ",
 		"Tool: ",
