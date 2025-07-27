@@ -87,9 +87,11 @@ func (r *ReadLine) SetCompletions(completions []string) {
 
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
-	r.buffer = r.buffer[:0]
-	r.cursorPos = 0
-	r.scrollPos = 0
+	// Don't reset the buffer or cursor position for history continuity
+	if len(r.buffer) == 0 {
+		r.cursorPos = 0
+		r.scrollPos = 0
+	}
 
 	buf := make([]byte, 1)
 	for {
@@ -107,7 +109,12 @@ func (r *ReadLine) Read() (string, error) {
 		switch b {
 		case '\r', '\n': // Enter
 			fmt.Print("\r\n")
-			return string(r.buffer), nil
+			result := string(r.buffer)
+			// Clear buffer for next input while preserving history
+			r.buffer = r.buffer[:0]
+			r.cursorPos = 0
+			r.scrollPos = 0
+			return result, nil
 
 		case 127, 8: // Backspace
 			if r.cursorPos > 0 {
@@ -147,8 +154,10 @@ func (r *ReadLine) Read() (string, error) {
 		case 5: // Ctrl+E (end of line)
 			r.moveCursorToEnd()
 
-		case 9: // Tab (completion) - Skip in this implementation as it will be handled by REPL
-			// Do nothing - this is now handled by the REPL directly
+		case 9: // Tab (completion)
+			// Return a special value to indicate tab was pressed
+			// This will be handled by the REPL's tab completion logic
+			return "\t", nil
 
 		case 27: // Escape sequence
 			r.handleEscapeSequence()

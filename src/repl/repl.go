@@ -33,8 +33,7 @@ type Command struct {
 type REPL struct {
 	config           *Config
 	currentClient    *LLMClient
-	history          []string
-	historyIndex     int
+	readline         *ReadLine          // Persistent readline instance for input handling
 	currentInput     strings.Builder
 	cursorPos        int // Current cursor position in the line
 	ctx              context.Context
@@ -71,11 +70,16 @@ type StreamingClient interface {
 func NewREPL(config *Config) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Create a persistent readline instance
+	readLine, err := NewReadLine()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize readline: %v", err)
+	}
+
 	// Initialize the REPL
 	repl := &REPL{
 		config:          config,
-		history:         make([]string, 0),
-		historyIndex:    -1,
+		readline:        readLine,
 		cursorPos:       0, // Initialize cursor position to 0
 		ctx:             ctx,
 		cancel:          cancel,
@@ -287,7 +291,9 @@ func (r *REPL) showCommands() {
 }
 
 func (r *REPL) cleanup() {
-	if r.oldState != nil {
+	if r.readline != nil {
+		r.readline.Restore()
+	} else if r.oldState != nil {
 		term.Restore(int(os.Stdin.Fd()), r.oldState)
 	}
 	r.cancel()
@@ -316,9 +322,6 @@ func (r *REPL) interruptResponse() {
 			}
 			r.mu.Unlock()
 		}
-	} else {
-		// Just print a new prompt instead of exiting
-		fmt.Print("\r\n^C\r\n\x1b[33m>>> ")
 	}
 }
 
@@ -382,43 +385,32 @@ func (r *REPL) handleInput() error {
 }
 
 func (r *REPL) readLine() (string, error) {
-	// Create a ReadLine instance with horizontal scrolling
-	readLine, err := NewReadLine()
-	if err != nil {
-		return "", fmt.Errorf("failed to initialize readline: %v", err)
+	// Ensure we have a readline instance
+	if r.readline == nil {
+		readLine, err := NewReadLine()
+		if err != nil {
+			return "", fmt.Errorf("failed to initialize readline: %v", err)
+		}
+		r.readline = readLine
 	}
-	defer readLine.Restore()
 
 	// Set the interrupt function to handle Ctrl+C
-	readLine.SetInterruptFunc(r.interruptResponse)
-
-	// Load history if available
-	for _, item := range r.history {
-		readLine.AddToHistory(item)
-	}
-
-	// Buffer to read one byte at a time
-	buf := make([]byte, 1)
+	r.readline.SetInterruptFunc(r.interruptResponse)
 
 	// Main input loop
 	for {
-		n, err := os.Stdin.Read(buf)
+		// Read the line of input
+		input, err := r.readline.Read()
 		if err != nil {
 			return "", err
 		}
 
-		if n == 0 {
-			continue
-		}
-
-		b := buf[0]
-
-		// Handle tab completion specially
-		if b == 9 { // Tab key
+		// Handle tab completion
+		if input == "\t" {
 			// Get current content from readline
-			currentContent := readLine.GetContent()
+			currentContent := r.readline.GetContent()
 
-			// Create a strings.Builder with the current content for compatibility
+			// Create a strings.Builder with the current content for tab completion compatibility
 			var line strings.Builder
 			line.WriteString(currentContent)
 
@@ -426,66 +418,23 @@ func (r *REPL) readLine() (string, error) {
 			r.handleTabCompletion(&line)
 
 			// Get the completed text and update the readline buffer
-			readLine.SetContent(line.String())
+			r.readline.SetContent(line.String())
 			continue
 		}
 
-		// Handle other inputs
-		switch b {
-		case '\r', '\n': // Enter
-			fmt.Print("\r\n")
-			return readLine.GetContent(), nil
-
-		case 127, 8: // Backspace
-			if readLine.cursorPos > 0 {
-				readLine.buffer = append(readLine.buffer[:readLine.cursorPos-1], readLine.buffer[readLine.cursorPos:]...)
-				readLine.cursorPos--
-				if readLine.scrollPos > 0 && readLine.cursorPos < readLine.scrollPos {
-					readLine.scrollPos--
-				}
-				readLine.refreshLine()
-			}
-
-		case 4: // Ctrl+D
-			if len(readLine.buffer) == 0 {
-				fmt.Print("\r\n")
-				return "", io.EOF
-			}
-
-		case 3: // Ctrl+C
-			fmt.Print("^C\r\n")
-			r.cancel()
-			r.ctx, r.cancel = context.WithCancel(context.Background())
-			fmt.Print("\x1b[0m\r\n^C\r\n\x1b[33m>>> ")
-			readLine.buffer = readLine.buffer[:0]
-			readLine.cursorPos = 0
-			readLine.scrollPos = 0
-
-		case 23: // Ctrl+W (delete word)
-			readLine.deleteWord()
-
-		case 1: // Ctrl+A (beginning of line)
-			readLine.moveCursorToStart()
-
-		case 5: // Ctrl+E (end of line)
-			readLine.moveCursorToEnd()
-
-		case 27: // Escape sequence (arrow keys)
-			readLine.handleEscapeSequence()
-
-		default:
-			if b >= 32 && b <= 126 { // Printable characters
-				readLine.insertRune(rune(b))
-				readLine.refreshLine()
-				r.completeState = 0 // Reset completion state
-			}
-		}
+		// Return the input
+		return input, nil
 	}
 }
 
 func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	input := line.String()
-
+	
+	// Reset completion state when input changes from user typing (not from completion)
+	if r.completeState != 0 && input != r.completeOptions[0] && !strings.HasPrefix(input, r.completePrefix) {
+		r.completeState = 0
+	}
+	
 	// Check if input contains @ for file path completion
 	if strings.Contains(input, "@") {
 		// Find the position of @ in the input
@@ -557,11 +506,11 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		for cmdName := range r.commands {
 			r.completeOptions = append(r.completeOptions, cmdName)
 		}
-
+		
 		// Filter options that match the prefix
 		var filteredOptions []string
 		for _, opt := range r.completeOptions {
-			if strings.HasPrefix(opt, r.completePrefix) {
+			if strings.HasPrefix(opt, input) {
 				filteredOptions = append(filteredOptions, opt)
 			}
 		}
@@ -570,10 +519,12 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		if len(r.completeOptions) == 0 {
 			return // No matches
 		}
-
+		
+		// Store the original user input to use as prefix for all completions
+		r.completePrefix = input
 		r.completeState = 1
 
-		// Replace current input with the first match
+		// Replace current input with the first match while preserving the partial input
 		if len(r.completeOptions) > 0 {
 			// Clear current line
 			for i := 0; i < len(input); i++ {
@@ -581,9 +532,10 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			}
 
 			// Print the first match
-			fmt.Print(r.completeOptions[0])
+			matchedOption := r.completeOptions[0]
+			fmt.Print(matchedOption)
 			line.Reset()
-			line.WriteString(r.completeOptions[0])
+			line.WriteString(matchedOption)
 			// Update cursor position to end of line
 			r.cursorPos = line.Len()
 		}
@@ -604,7 +556,10 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		}
 
 		// Get next option
-		nextIdx := (currentIdx + 1) % len(r.completeOptions)
+		nextIdx := 0
+		if currentIdx != -1 {
+			nextIdx = (currentIdx + 1) % len(r.completeOptions)
+		}
 		nextOption := r.completeOptions[nextIdx]
 
 		// Clear current line
@@ -621,20 +576,8 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	}
 }
 
-// handleEscapeSequence is now handled by the ReadLine implementation
-func (r *REPL) handleEscapeSequence(line *strings.Builder) error {
-	// This function is kept for compatibility but no longer used directly
-	return nil
-}
-
-// navigateHistory is now handled by the ReadLine implementation
-func (r *REPL) navigateHistory(direction int, line *strings.Builder) {
-	// This function is kept for compatibility but no longer used directly
-}
-
 func (r *REPL) addToHistory(input string) {
-	r.history = append(r.history, input)
-	r.historyIndex = -1
+	r.readline.AddToHistory(input)
 }
 
 // handleChatCommand handles the /chat command and its subcommands
