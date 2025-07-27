@@ -179,7 +179,10 @@ func getToolsFromMessage(message string) ([]*Tool, error) {
 
 	// Split the tool line to get the tool name and command
 	toolParts := strings.SplitN(toolLine, " ", 2)
-	toolName := toolParts[0]
+	toolName := strings.TrimSpace(toolParts[0])
+	if toolName == "" || toolName == "None" || toolName == "N/A" {
+		return []*Tool{}, nil
+	}
 
 	// Default empty args slice
 	args := []string{}
