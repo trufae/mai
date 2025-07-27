@@ -33,7 +33,7 @@ type Command struct {
 type REPL struct {
 	config           *Config
 	currentClient    *LLMClient
-	readline         *ReadLine          // Persistent readline instance for input handling
+	readline         *ReadLine // Persistent readline instance for input handling
 	currentInput     strings.Builder
 	cursorPos        int // Current cursor position in the line
 	ctx              context.Context
@@ -44,6 +44,7 @@ type REPL struct {
 	completeState    int
 	completeOptions  []string
 	completePrefix   string
+	completeIdx      int // Current index in completion options
 	streamingEnabled bool
 	systemPrompt     string
 	messages         []Message
@@ -85,6 +86,7 @@ func NewREPL(config *Config) (*REPL, error) {
 		cancel:          cancel,
 		completeState:   0,
 		completeOptions: []string{},
+		completeIdx:     0,                        // Initialize completion index
 		pendingFiles:    []pendingFile{},          // Initialize empty pending files slice
 		commands:        make(map[string]Command), // Initialize command registry
 	}
@@ -410,15 +412,28 @@ func (r *REPL) readLine() (string, error) {
 			// Get current content from readline
 			currentContent := r.readline.GetContent()
 
-			// Create a strings.Builder with the current content for tab completion compatibility
+			// Update REPL's cursor position from readline's cursor position
+			r.cursorPos = r.readline.GetCursorPos()
+
+			// Debug logging - uncomment if needed
+			// fmt.Printf("\r\nDEBUG: Current content: '%s'\r\n", currentContent)
+			// fmt.Printf("DEBUG: Prefix: '%s'\r\n", r.completePrefix)
+			// fmt.Printf("DEBUG: State: %d, Idx: %d\r\n", r.completeState, r.completeIdx)
+
+			// Set up a builder for tab completion
 			var line strings.Builder
 			line.WriteString(currentContent)
 
-			// Handle tab completion using the existing method
+			// Handle tab completion
 			r.handleTabCompletion(&line)
 
-			// Get the completed text and update the readline buffer
-			r.readline.SetContent(line.String())
+			// Get the updated content
+			completedContent := line.String()
+
+			// Only update if content changed
+			if completedContent != currentContent {
+				r.readline.SetContent(completedContent)
+			}
 			continue
 		}
 
@@ -429,12 +444,23 @@ func (r *REPL) readLine() (string, error) {
 
 func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	input := line.String()
-	
-	// Reset completion state when input changes from user typing (not from completion)
-	if r.completeState != 0 && input != r.completeOptions[0] && !strings.HasPrefix(input, r.completePrefix) {
-		r.completeState = 0
+
+	// Only reset completion state if necessary
+	// This makes backspace handling simpler - if the user has modified
+	// the input so it's no longer related to our completion,
+	// we reset the completion state
+	if r.completeState != 0 {
+		// Reset if input has been modified to be unrelated to current completion
+		// but preserve state for proper cycling
+		if input != r.completePrefix &&
+			(r.completeIdx >= len(r.completeOptions) || input != r.completeOptions[r.completeIdx]) {
+			r.completeState = 0
+			r.completeIdx = 0
+			r.completeOptions = nil
+			r.completePrefix = ""
+		}
 	}
-	
+
 	// Check if input contains @ for file path completion
 	if strings.Contains(input, "@") {
 		// Find the position of @ in the input
@@ -497,82 +523,92 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		return
 	}
 
-	if r.completeState == 0 {
-		// First tab press - generate options
-		r.completePrefix = input
-		r.completeOptions = []string{}
+	// Command completion for commands like "/no<tab>"
+	if strings.HasPrefix(input, "/") {
+		// Check if we need to generate fresh completion options
+		needFreshOptions := false
 
-		// Get commands from the registry
-		for cmdName := range r.commands {
-			r.completeOptions = append(r.completeOptions, cmdName)
+		// In these cases we need to generate fresh options:
+		// 1. First tab press
+		// 2. No options available
+		// 3. Back to original command prefix
+		if r.completeState == 0 ||
+			len(r.completeOptions) == 0 ||
+			r.completePrefix == "" ||
+			input == r.completePrefix {
+			needFreshOptions = true
 		}
-		
-		// Filter options that match the prefix
-		var filteredOptions []string
-		for _, opt := range r.completeOptions {
-			if strings.HasPrefix(opt, input) {
-				filteredOptions = append(filteredOptions, opt)
+
+		// Do we need to regenerate the completion options?
+		if needFreshOptions {
+			// Collect all commands from registry
+			allCommands := []string{}
+			for cmdName := range r.commands {
+				allCommands = append(allCommands, cmdName)
 			}
-		}
-		r.completeOptions = filteredOptions
 
-		if len(r.completeOptions) == 0 {
-			return // No matches
-		}
-		
-		// Store the original user input to use as prefix for all completions
-		r.completePrefix = input
-		r.completeState = 1
+			// Sort alphabetically for consistent order
+			sort.Strings(allCommands)
 
-		// Replace current input with the first match while preserving the partial input
-		if len(r.completeOptions) > 0 {
-			// Clear current line
+			// Store the original prefix for future reference
+			r.completePrefix = input
+
+			// Find all commands that match our prefix
+			r.completeOptions = []string{}
+			for _, cmd := range allCommands {
+				if strings.HasPrefix(cmd, input) {
+					r.completeOptions = append(r.completeOptions, cmd)
+				}
+			}
+
+			// No matches found
+			if len(r.completeOptions) == 0 {
+				return
+			}
+
+			// Update completion state
+			r.completeState = 1 // Entering tab cycle mode
+			r.completeIdx = 0   // Start with first option
+
+			// Show first match
+			firstMatch := r.completeOptions[0]
+
+			// Clear current input
 			for i := 0; i < len(input); i++ {
 				fmt.Print("\b \b")
 			}
 
-			// Print the first match
-			matchedOption := r.completeOptions[0]
-			fmt.Print(matchedOption)
+			// Show the match
+			fmt.Print(firstMatch)
 			line.Reset()
-			line.WriteString(matchedOption)
-			// Update cursor position to end of line
+			line.WriteString(firstMatch)
+			r.cursorPos = line.Len()
+		} else {
+			// We're cycling through options with subsequent tab presses
+			// Make sure we have multiple options to cycle through
+			if len(r.completeOptions) <= 1 {
+				return
+			}
+
+			// Get current input text
+			currentText := line.String()
+
+			// Advance to next option
+			r.completeIdx = (r.completeIdx + 1) % len(r.completeOptions)
+			nextOption := r.completeOptions[r.completeIdx]
+
+			// Clear current line
+			for i := 0; i < len(currentText); i++ {
+				fmt.Print("\b \b")
+			}
+
+			// Show next option
+			fmt.Print(nextOption)
+			line.Reset()
+			line.WriteString(nextOption)
 			r.cursorPos = line.Len()
 		}
-	} else {
-		// Subsequent tab presses - cycle through options
-		if len(r.completeOptions) <= 1 {
-			return
-		}
-
-		// Find current option index
-		currentOption := line.String()
-		currentIdx := -1
-		for i, opt := range r.completeOptions {
-			if opt == currentOption {
-				currentIdx = i
-				break
-			}
-		}
-
-		// Get next option
-		nextIdx := 0
-		if currentIdx != -1 {
-			nextIdx = (currentIdx + 1) % len(r.completeOptions)
-		}
-		nextOption := r.completeOptions[nextIdx]
-
-		// Clear current line
-		for i := 0; i < len(currentOption); i++ {
-			fmt.Print("\b \b")
-		}
-
-		// Print next option
-		fmt.Print(nextOption)
-		line.Reset()
-		line.WriteString(nextOption)
-		// Update cursor position to end of line
-		r.cursorPos = line.Len()
+		return // Command completion handled
 	}
 }
 
@@ -1457,6 +1493,14 @@ func (r *REPL) listPrompts() error {
 
 // handleAtFilePathCompletion handles tab completion for file paths with @ prefix
 func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partialPath string) {
+	// Normalize backslashes to forward slashes for consistent path handling
+	partialPath = strings.ReplaceAll(partialPath, "\\", "/")
+
+	// Handle special case where partialPath is empty
+	if partialPath == "" {
+		partialPath = "."
+	}
+
 	// Expand ~ to home directory if present
 	if strings.HasPrefix(partialPath, "~") {
 		homeDir, err := os.UserHomeDir()
@@ -1465,7 +1509,7 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 		}
 	}
 
-	// If this is the first tab press, find matching files
+	// First tab press - generate options
 	if r.completeState == 0 {
 		// Get the directory and file prefix
 		dir, filePrefix := filepath.Split(partialPath)
@@ -1473,12 +1517,12 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 		// If no directory specified, use current directory
 		if dir == "" {
 			dir = "."
-		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(partialPath, "./") && !strings.HasPrefix(partialPath, "../") {
+		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(dir, "./") && !strings.HasPrefix(dir, "../") {
 			// Handle relative paths that don't start with ./ or ../
 			dir = "." + string(filepath.Separator) + dir
 		}
 
-		// Make sure dir ends with separator
+		// Make sure dir ends with separator for directory operations
 		if !strings.HasSuffix(dir, string(filepath.Separator)) {
 			dir += string(filepath.Separator)
 		}
@@ -1486,31 +1530,39 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 		// Read the directory
 		files, err := os.ReadDir(dir)
 		if err != nil {
-			return // Cannot read directory
+			// Cannot read directory - just return without changing anything
+			return
 		}
 
-		// Find matching files
+		// Find matching files at current level only
 		r.completeOptions = nil
 		for _, file := range files {
 			name := file.Name()
-			if strings.HasPrefix(name, filePrefix) {
+			// Only show files that match the prefix
+			if strings.HasPrefix(strings.ToLower(name), strings.ToLower(filePrefix)) {
+				pathToAdd := dir + name
 				// Add separator if it's a directory
 				if file.IsDir() {
-					name += string(filepath.Separator)
+					pathToAdd += string(filepath.Separator)
 				}
-				r.completeOptions = append(r.completeOptions, dir+name)
+				r.completeOptions = append(r.completeOptions, pathToAdd)
 			}
 		}
+
+		// Sort options alphabetically for consistent behavior
+		sort.Strings(r.completeOptions)
 
 		// If no matches, do nothing
 		if len(r.completeOptions) == 0 {
 			return
 		}
 
+		// Set up completion state
 		r.completeState = 1
 		r.completePrefix = prefix + "@"
+		r.completeIdx = 0 // Start with first option
 
-		// Replace current input with the first match
+		// Show first match
 		currentInput := line.String()
 		// Clear current line
 		for i := 0; i < len(currentInput); i++ {
@@ -1524,7 +1576,6 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 		fmt.Print(firstMatch)
 		line.Reset()
 		line.WriteString(firstMatch)
-		// Update cursor position to end of line
 		r.cursorPos = line.Len()
 	} else {
 		// Subsequent tab presses - cycle through options
@@ -1532,24 +1583,12 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 			return
 		}
 
-		// Find current option
-		currentInput := line.String()
-		currentPath := strings.TrimPrefix(currentInput, r.completePrefix)
-
-		// Find current index
-		currentIdx := -1
-		for i, opt := range r.completeOptions {
-			if opt == currentPath {
-				currentIdx = i
-				break
-			}
-		}
-
-		// Get next option
-		nextIdx := (currentIdx + 1) % len(r.completeOptions)
-		nextOption := r.completePrefix + r.completeOptions[nextIdx]
+		// Simple cycling through options
+		r.completeIdx = (r.completeIdx + 1) % len(r.completeOptions)
+		nextOption := r.completePrefix + r.completeOptions[r.completeIdx]
 
 		// Clear current line
+		currentInput := line.String()
 		for i := 0; i < len(currentInput); i++ {
 			fmt.Print("\b \b")
 		}
@@ -1558,7 +1597,6 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 		fmt.Print(nextOption)
 		line.Reset()
 		line.WriteString(nextOption)
-		// Update cursor position to end of line
 		r.cursorPos = line.Len()
 	}
 }

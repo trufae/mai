@@ -281,6 +281,35 @@ func (r *ReadLine) SetContent(content string) {
 	r.refreshLine()
 }
 
+// GetCursorPos returns the current cursor position
+func (r *ReadLine) GetCursorPos() int {
+	return r.cursorPos
+}
+
+// SetCursorPos sets the cursor position to a specific location
+func (r *ReadLine) SetCursorPos(pos int) {
+	// Ensure the position is valid
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(r.buffer) {
+		pos = len(r.buffer)
+	}
+
+	// Set the cursor position
+	r.cursorPos = pos
+
+	// Adjust scroll position if needed
+	if r.cursorPos < r.scrollPos {
+		r.scrollPos = r.cursorPos
+	} else if r.cursorPos >= r.scrollPos+r.width {
+		r.scrollPos = r.cursorPos - r.width + 1
+	}
+
+	// Update the display
+	r.refreshLine()
+}
+
 // SetInterruptFunc sets the function to be called when Ctrl+C is pressed
 func (r *ReadLine) SetInterruptFunc(fn func()) {
 	r.interruptFunc = fn
