@@ -452,12 +452,19 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	if r.completeState != 0 {
 		// Reset if input has been modified to be unrelated to current completion
 		// but preserve state for proper cycling
-		if input != r.completePrefix &&
-			(r.completeIdx >= len(r.completeOptions) || input != r.completeOptions[r.completeIdx]) {
-			r.completeState = 0
-			r.completeIdx = 0
-			r.completeOptions = nil
-			r.completePrefix = ""
+		if input != r.completePrefix {
+			var currentOption string
+			if r.completeIdx < len(r.completeOptions) {
+				currentOption = r.completeOptions[r.completeIdx]
+			}
+			// Check if input matches the option itself (for commands) or prefix+option (for @ path)
+			if r.completeIdx >= len(r.completeOptions) ||
+				(input != currentOption && input != r.completePrefix+currentOption) {
+				r.completeState = 0
+				r.completeIdx = 0
+				r.completeOptions = nil
+				r.completePrefix = ""
+			}
 		}
 	}
 
