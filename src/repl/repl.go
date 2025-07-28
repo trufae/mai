@@ -404,6 +404,7 @@ func (r *REPL) readLine() (string, error) {
 		// Read the line of input
 		input, err := r.readline.Read()
 		if err != nil {
+			r.readline.Restore()
 			return "", err
 		}
 
@@ -438,6 +439,7 @@ func (r *REPL) readLine() (string, error) {
 		}
 
 		// Return the input
+		r.readline.Restore()
 		return input, nil
 	}
 }
