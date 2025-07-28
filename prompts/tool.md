@@ -21,9 +21,9 @@ This is a multi-step planning and execution framework. You must create a complet
 
 For each tool execution, provide your response in the following format:
 
-```
 # Automation Response
 
+```
 Plan: [Brief outline of your multi-step plan to solve the entire problem]
 Progress: [Which step you're on and what's been completed]
 
