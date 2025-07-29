@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -93,9 +94,10 @@ func (r *ReadLine) Read() (string, error) {
 		r.scrollPos = 0
 	}
 
-	buf := make([]byte, 1)
+	// Buffer large enough to handle multi-byte characters
+	buf := make([]byte, 8)
 	for {
-		n, err := os.Stdin.Read(buf)
+		n, err := os.Stdin.Read(buf[:1])
 		if err != nil {
 			return "", err
 		}
@@ -163,9 +165,38 @@ func (r *ReadLine) Read() (string, error) {
 			r.handleEscapeSequence()
 
 		default:
-			if b >= 32 && b <= 126 { // Printable characters
+			// Handle ASCII printable characters directly
+			if b >= 32 && b <= 126 {
 				r.insertRune(rune(b))
 				r.refreshLine()
+			} else if b >= 128 {
+				// This is the start of a UTF-8 multi-byte sequence
+				// Determine how many bytes are in this character
+				totalBytes := 0
+				if b&0xE0 == 0xC0 { // 2 bytes
+					totalBytes = 2
+				} else if b&0xF0 == 0xE0 { // 3 bytes
+					totalBytes = 3
+				} else if b&0xF8 == 0xF0 { // 4 bytes
+					totalBytes = 4
+				}
+
+				if totalBytes > 1 {
+					// Already read first byte, read remaining bytes
+					for i := 1; i < totalBytes; i++ {
+						n, err := os.Stdin.Read(buf[i : i+1])
+						if err != nil || n == 0 {
+							// If error reading additional bytes, skip this character
+							break
+						}
+					}
+					// Convert complete sequence to rune and insert
+					char, _ := utf8.DecodeRune(buf[:totalBytes])
+					if char != utf8.RuneError {
+						r.insertRune(char)
+						r.refreshLine()
+					}
+				}
 			}
 		}
 	}
