@@ -1015,6 +1015,48 @@ func (r *REPL) getLastAssistantReply() (string, error) {
 	return "", fmt.Errorf("no assistant replies found in conversation history")
 }
 
+// handleSlurpCommand reads from stdin until EOF (Ctrl+D) and returns the content
+func (r *REPL) handleSlurpCommand() error {
+	// Save the current terminal state
+	oldState, err := term.GetState(int(os.Stdin.Fd()))
+	if err != nil {
+		return fmt.Errorf("failed to get terminal state: %v", err)
+	}
+
+	// Restore the terminal to normal mode so we can read multiline text
+	term.Restore(int(os.Stdin.Fd()), oldState)
+
+	fmt.Println("Enter your text (press Ctrl+D when finished):")
+
+	// Read from stdin until EOF
+	var content strings.Builder
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		content.WriteString(scanner.Text())
+		content.WriteString("\n")
+	}
+
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		// Make terminal raw again
+		term.MakeRaw(int(os.Stdin.Fd()))
+		return fmt.Errorf("error reading input: %v", err)
+	}
+
+	// Make terminal raw again
+	term.MakeRaw(int(os.Stdin.Fd()))
+
+	// Get the content
+	input := content.String()
+
+	if input == "" {
+		fmt.Println("No input provided.")
+		return nil
+	}
+
+	// Send the input to the AI
+	return r.sendToAI(input)
+}
+
 // initCommands initializes the command registry with all available commands
 func (r *REPL) initCommands() {
 	// Helper commands
@@ -1024,6 +1066,14 @@ func (r *REPL) initCommands() {
 		Handler: func(r *REPL, args []string) error {
 			r.showCommands()
 			return nil
+		},
+	}
+
+	r.commands["/slurp"] = Command{
+		Name:        "/slurp",
+		Description: "Read from stdin until EOF (Ctrl+D)",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleSlurpCommand()
 		},
 	}
 

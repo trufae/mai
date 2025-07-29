@@ -755,7 +755,6 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 						input += "\n\n# NextStep:\n" + nextStep + "\n----\n"
 						fmt.Printf("Tool requires iteration: %s\n\r", nextStep)
 
-
 						// Check for repeated tool calls
 						currentToolName := extractToolName(response)
 						fmt.Println("TOOLNAME ")
