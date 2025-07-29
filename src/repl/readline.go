@@ -97,6 +97,7 @@ func (r *ReadLine) Read() (string, error) {
 	// Buffer large enough to handle multi-byte characters
 	buf := make([]byte, 8)
 	for {
+		// Always read first byte and check if it's a control character or start of multi-byte sequence
 		n, err := os.Stdin.Read(buf[:1])
 		if err != nil {
 			return "", err
@@ -149,12 +150,15 @@ func (r *ReadLine) Read() (string, error) {
 
 		case 23: // Ctrl+W (delete word)
 			r.deleteWord()
+			continue
 
 		case 1: // Ctrl+A (beginning of line)
 			r.moveCursorToStart()
+			continue
 
 		case 5: // Ctrl+E (end of line)
 			r.moveCursorToEnd()
+			continue
 
 		case 9: // Tab (completion)
 			// Return a special value to indicate tab was pressed
@@ -163,6 +167,7 @@ func (r *ReadLine) Read() (string, error) {
 
 		case 27: // Escape sequence
 			r.handleEscapeSequence()
+			continue
 
 		default:
 			// Handle ASCII printable characters directly
