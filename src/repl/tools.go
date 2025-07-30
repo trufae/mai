@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"regexp"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -26,7 +26,6 @@ type Tool struct {
 	Progress    string   // Current progress through the plan
 	StepNumber  int      // Current step number in the execution
 }
-
 
 // Define an enum-like type
 type Format int
@@ -120,7 +119,6 @@ func getToolsFromJson(message string) ([]*Tool, error) {
 	return []*Tool{}, nil
 }
 
-
 // ExecuteTool runs a specified tool with provided arguments and returns the output
 // Kept for backward compatibility
 func ExecuteTool(toolName string, args ...string) (string, error) {
@@ -132,7 +130,7 @@ func ExecuteTool(toolName string, args ...string) (string, error) {
 }
 
 // getToolPrompt returns the content of the tool.md prompt file
-func (repl *REPL)getToolPrompt(foo string) (string, error) {
+func (repl *REPL) getToolPrompt(foo string) (string, error) {
 	// Get prompt directory path
 	toolPromptPath, err := repl.resolvePromptPath(foo)
 	if err != nil {
@@ -153,20 +151,19 @@ func buildMessageWithTools(toolPrompt string, userInput string, toolList string)
 	return msg
 }
 
-
 type ToolCall struct {
-	Name string `json:"name"`
+	Name       string                 `json:"name"`
 	Parameters map[string]interface{} `json:"parameters"`
-	Reasoning string `json:"reasoning"`
+	Reasoning  string                 `json:"reasoning"`
 }
 type PlanResponse struct {
-	Plan          []string `json:"plan"`
-	PlanIndex     int `json:"plan_index"`
-	Progress      string   `json:"progress"`
-	NextStep      string   `json:"next_step"`
-	Action        string   `json:"action"`
-	ToolRequired  bool     `json:"tool_required"`
-	SelectedTool  ToolCall `json:"selected_tool"`
+	Plan         []string `json:"plan"`
+	PlanIndex    int      `json:"plan_index"`
+	Progress     string   `json:"progress"`
+	NextStep     string   `json:"next_step"`
+	Action       string   `json:"action"`
+	ToolRequired bool     `json:"tool_required"`
+	SelectedTool ToolCall `json:"selected_tool"`
 }
 
 func mapToArray(m map[string]interface{}) []string {
@@ -191,7 +188,7 @@ func extractJSONBlock(text string) (string, error) {
 	return text, nil
 }
 
-func (r *REPL)toolStep(toolPrompt string, input string, toolList string) (PlanResponse, error) {
+func (r *REPL) toolStep(toolPrompt string, input string, toolList string) (PlanResponse, error) {
 	msg := buildMessageWithTools(toolPrompt, input, toolList)
 	query := msg
 	// trick + toolinput}}
@@ -200,7 +197,7 @@ func (r *REPL)toolStep(toolPrompt string, input string, toolList string) (PlanRe
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)
 	}
-// fmt.Println(responseText)
+	// fmt.Println(responseText)
 	responseJson, err := extractJSONBlock(responseText)
 	var response PlanResponse
 	err2 := json.Unmarshal([]byte(responseJson), &response)
@@ -233,12 +230,12 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		i := 0
 		for _, s := range step.Plan {
 			if i == step.PlanIndex {
-				fmt.Print (" >> ")
+				fmt.Print(" >> ")
 			} else {
-				fmt.Print (" -- ")
+				fmt.Print(" -- ")
 			}
-			fmt.Printf ("%s\r\n", s)
-			planString += fmt.Sprintf ("%d. %s\n", i, s)
+			fmt.Printf("%s\r\n", s)
+			planString += fmt.Sprintf("%d. %s\n", i, s)
 			i++
 		}
 		fmt.Printf("\033[0m")
@@ -251,18 +248,18 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 			Name: toolName,
 			Args: mapToArray(step.SelectedTool.Parameters),
 		}
-		fmt.Printf ("(tool) %s\r\n", tool)
-		fmt.Printf ("(reason) %s\r\n", step.SelectedTool.Reasoning)
+		fmt.Printf("(tool) %s\r\n", tool)
+		fmt.Printf("(reason) %s\r\n", step.SelectedTool.Reasoning)
 		result, err := callTool(tool)
 		if err != nil {
-			input += fmt.Sprintf ("\nTool execution failed: %s\n\n", tool)
+			input += fmt.Sprintf("\nTool execution failed: %s\n\n", tool)
 			continue
 			// return "", err
 		}
 		/*
-		fmt.Println ("<calltoolResult>")
-		fmt.Println (result)
-		fmt.Println ("</calltoolResult>")
+			fmt.Println ("<calltoolResult>")
+			fmt.Println (result)
+			fmt.Println ("</calltoolResult>")
 		*/
 		// results = append(results, result)
 		toolResponse := fmt.Sprintf("\n\n## Context\n\nToolName: %s\nResponse: %s\n", tool.Name, result)
@@ -272,4 +269,3 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 	}
 	return input, nil
 }
-

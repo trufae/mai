@@ -1,10 +1,10 @@
 package main
 
 import (
-	"strings"
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // extractToolName extracts the tool name from a response string
@@ -392,7 +392,6 @@ func GetToolsFromMarkdown(message string) ([]*Tool, error) {
 		StepNumber: stepNumber,
 	}}, nil
 }
-
 
 // ProcessToolExecution executes tool-based processing for the given input and REPL client
 // This function handles the multi-step, context-aware processing of user input with tools

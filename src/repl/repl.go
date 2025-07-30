@@ -789,7 +789,7 @@ func (r *REPL) sendToAI(input string) error {
 			if err != nil {
 				return fmt.Errorf("tool execution failed: %v", err)
 			}
-			input = tool 
+			input = tool
 		} else {
 			// markdown mode
 			enhancedInput, err := ProcessToolExecution(input, client, r)

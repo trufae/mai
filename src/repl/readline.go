@@ -62,7 +62,7 @@ func NewReadLine() (*ReadLine, error) {
 func (r *ReadLine) Restore() {
 	if r.oldState != nil {
 		term.Restore(int(os.Stdin.Fd()), r.oldState)
-	 	// r.oldState = nil
+		// r.oldState = nil
 	}
 }
 
@@ -141,9 +141,11 @@ func (r *ReadLine) Read() (string, error) {
 		case 4: // Ctrl+D
 			if len(r.buffer) == 0 {
 				fmt.Print("\r\n")
-			r.Restore()
+				r.Restore()
 				return "", io.EOF
 			}
+		case '\f': // Ctrl+L
+			fmt.Print("\033[2J\033[H\033[33m>>> ") // Clear screen ANSI
 
 		case 3: // Ctrl+C
 			fmt.Print("^C\r\n")
