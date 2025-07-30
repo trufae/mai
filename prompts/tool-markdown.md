@@ -23,22 +23,16 @@ For each tool execution, provide your response in the following format:
 
 # Automation Response
 
-```json
-{
-  "plan": ["[Array of multi-step strings explaining how to solve the problem]"],
-  "planIndex": 0, // Index in the array of the plan of the current step
-  "progress": "[Which step you're on and what's been completed]",
-  "next_step": "[Brief explanation of what should be done after running this tool]",
-  "action": "[Solve | Error | Iterate]"
-  "tool_required": true | false,
-  "selected_tool": {
-     "name": "[Selected mcp server]/[Selected tool name]",
-     "parameters": {
-         "parameter1": "[parameter1 value]"
-     }
-     "reasoning": "[Brief explanation of your decision]",
-  }
-}
+```
+Plan: [Brief outline of your multi-step plan to solve the entire problem]
+Progress: [Which step you're on and what's been completed]
+
+Tool Required: [Yes/No]
+Selected Tool: [Tool name or "None"]
+Parameters: [Space separated list of parameterName=parameterValue, or ""]
+Reasoning: [Brief explanation of your decision]
+Action: [Solve | Error | Iterate]
+NextStep: [Brief explanation of what should be done after running this tool]
 ```
 
 ## Important Guidelines
@@ -75,4 +69,3 @@ Based on these instructions, analyze the provided query and available tools to d
 Below you will find the user prompt and the list of tools
 
 ----
-

@@ -404,7 +404,6 @@ func (r *REPL) readLine() (string, error) {
 		// Read the line of input
 		input, err := r.readline.Read()
 		if err != nil {
-			r.readline.Restore()
 			return "", err
 		}
 
@@ -437,9 +436,7 @@ func (r *REPL) readLine() (string, error) {
 			}
 			continue
 		}
-
 		// Return the input
-		r.readline.Restore()
 		return input, nil
 	}
 }
@@ -784,16 +781,25 @@ func (r *REPL) sendToAI(input string) error {
 	r.currentClient = client
 	r.mu.Unlock()
 
-	// Process input with tools.go if enabled
+	newTools := true
 	if r.useToolsEnabled {
-		// Call the ProcessToolExecution function from tools.go
-		enhancedInput, err := ProcessToolExecution(input, client, r)
-		if err != nil {
-			return fmt.Errorf("tool execution failed: %v", err)
-		}
+		if newTools {
+			// new json mode
+			tool, err := r.QueryWithTools(input)
+			if err != nil {
+				return fmt.Errorf("tool execution failed: %v", err)
+			}
+			input = tool 
+		} else {
+			// markdown mode
+			enhancedInput, err := ProcessToolExecution(input, client, r)
+			if err != nil {
+				return fmt.Errorf("tool execution failed: %v", err)
+			}
 
-		// Use the enhanced input for the rest of the processing
-		input = enhancedInput
+			// Use the enhanced input for the rest of the processing
+			input = enhancedInput
+		}
 	}
 
 	// Add system prompt if present
@@ -2751,11 +2757,8 @@ func (r *REPL) handleCompactCommand() error {
 
 // handleToolCommand executes the mai-tool command with the given arguments
 func (r *REPL) handleToolCommand(args []string) error {
-	// var cmdArgs []string
-	// If no arguments provided, show usage
 	if len(args) < 2 {
-		// cmdArgs = []string{"-q", "list"}
-		tools, err := GetAvailableTools(true)
+		tools, err := GetAvailableTools(Quiet)
 		if err == nil {
 			fmt.Println(tools)
 		}
