@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -174,6 +175,32 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			},
 			UsageExamples: "Example: {\"filepath\": \"/server/path/file.txt\"} - Deletes the specified file",
 			Handler:       s.handleDeleteFile,
+		},
+
+		// 2. FileOperations - CreateFile
+		{
+			Name:        "CreateFile",
+			Description: "Creates a new file with the specified content.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"file_path": map[string]any{
+						"type":        "string",
+						"description": "The path of the file to create.",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "The content to write to the file.",
+					},
+					"base64content": map[string]any{
+						"type":        "string",
+						"description": "Base64 encoded content to write to the file.",
+					},
+				},
+				"required": []string{"file_path"},
+			},
+			UsageExamples: "Example: {\"file_path\": \"/server/path/file.txt\", \"content\": \"Hello, World!\"} - Creates a new file with the specified content\nExample: {\"file_path\": \"/server/path/image.jpg\", \"base64content\": \"SGVsbG8gV29ybGQh\"} - Creates a new file with base64 decoded content",
+			Handler:       s.handleCreateFile,
 		},
 
 		// 2. FileOperations - MoveFile
@@ -3569,6 +3596,19 @@ func (s *CodeService) findProjectExecutable(projectPath, buildSystem string) (st
 	return "", fmt.Errorf("could not find executable for project")
 }
 
+// decodeBase64 decodes a base64 encoded string to bytes
+func (s *CodeService) decodeBase64(encodedStr string) ([]byte, error) {
+	decoded, err := base64.StdEncoding.DecodeString(encodedStr)
+	if err != nil {
+		// Try URL encoding as fallback
+		decoded, err = base64.URLEncoding.DecodeString(encodedStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return decoded, nil
+}
+
 // findGoMainPackage looks for a Go file with package main
 func (s *CodeService) findGoMainPackage(dirPath string) (string, error) {
 	files, err := ioutil.ReadDir(dirPath)
@@ -3598,4 +3638,40 @@ func (s *CodeService) findGoMainPackage(dirPath string) (string, error) {
 	}
 
 	return "", fmt.Errorf("no main package found")
+}
+
+// handleCreateFile handles the CreateFile request
+func (s *CodeService) handleCreateFile(args map[string]any) (any, error) {
+	filePath, ok := args["file_path"].(string)
+	if !ok || filePath == "" {
+		return nil, fmt.Errorf("file_path is required")
+	}
+
+	// Check if base64content is provided
+	var fileContent []byte
+	if base64Content, ok := args["base64content"].(string); ok && base64Content != "" {
+		// Decode base64 content
+		var err error
+		fileContent, err = s.decodeBase64(base64Content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode base64 content: %v", err)
+		}
+	} else if content, ok := args["content"].(string); ok {
+		// Use regular content if provided
+		fileContent = []byte(content)
+	} else {
+		// Neither content nor base64content provided, create empty file
+		fileContent = []byte{}
+	}
+
+	// Write the file
+	err := ioutil.WriteFile(filePath, fileContent, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file: %v", err)
+	}
+
+	return map[string]any{
+		"success": true,
+		"file_path": filePath,
+	}, nil
 }
