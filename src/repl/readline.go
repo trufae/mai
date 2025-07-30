@@ -42,7 +42,7 @@ func NewReadLine() (*ReadLine, error) {
 		return nil, fmt.Errorf("failed to set terminal to raw mode: %v", err)
 	}
 
-	return &ReadLine{
+	r := &ReadLine{
 		buffer:        make([]rune, 0, 256),
 		cursorPos:     0,
 		scrollPos:     0,
@@ -53,14 +53,16 @@ func NewReadLine() (*ReadLine, error) {
 		completions:   nil,
 		completeIdx:   0,
 		interruptFunc: nil,
-	}, nil
+	}
+	r.Restore()
+	return r, nil
 }
 
 // Restore restores the terminal to its original state
 func (r *ReadLine) Restore() {
 	if r.oldState != nil {
 		term.Restore(int(os.Stdin.Fd()), r.oldState)
-		r.oldState = nil
+	 	// r.oldState = nil
 	}
 }
 
@@ -88,6 +90,11 @@ func (r *ReadLine) SetCompletions(completions []string) {
 
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
+	state, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return "", fmt.Errorf("failed to set terminal to raw mode: %v", err)
+	}
+	r.oldState = state
 	// Don't reset the buffer or cursor position for history continuity
 	if len(r.buffer) == 0 {
 		r.cursorPos = 0
@@ -100,6 +107,7 @@ func (r *ReadLine) Read() (string, error) {
 		// Always read first byte and check if it's a control character or start of multi-byte sequence
 		n, err := os.Stdin.Read(buf[:1])
 		if err != nil {
+			r.Restore()
 			return "", err
 		}
 
@@ -117,6 +125,7 @@ func (r *ReadLine) Read() (string, error) {
 			r.buffer = r.buffer[:0]
 			r.cursorPos = 0
 			r.scrollPos = 0
+			r.Restore()
 			return result, nil
 
 		case 127, 8: // Backspace
@@ -132,6 +141,7 @@ func (r *ReadLine) Read() (string, error) {
 		case 4: // Ctrl+D
 			if len(r.buffer) == 0 {
 				fmt.Print("\r\n")
+			r.Restore()
 				return "", io.EOF
 			}
 
