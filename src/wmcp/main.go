@@ -151,11 +151,17 @@ func NewMCPService(yoloMode bool, reportFile string) *MCPService {
 // getServerNameFromCommand extracts server name from the command string
 func getServerNameFromCommand(command string) string {
 	parts := strings.Fields(command)
-	lastPart := parts[len(parts)-1]
-	serverName := lastPart
-	if idx := strings.LastIndex(lastPart, "/"); idx != -1 {
-		serverName = lastPart[idx+1:]
+	if len(parts) == 0 {
+		return ""
 	}
+
+	firstPart := parts[0]
+	serverName := firstPart
+
+	if idx := strings.LastIndex(firstPart, "/"); idx != -1 {
+		serverName = firstPart[idx+1:]
+	}
+
 	return serverName
 }
 
