@@ -792,7 +792,7 @@ func (r *REPL) sendToAI(input string) error {
 			input = tool
 		} else {
 			// markdown mode
-			enhancedInput, err := ProcessToolExecution(input, client, r)
+			enhancedInput, err := r.ProcessToolExecution(input, client)
 			if err != nil {
 				return fmt.Errorf("tool execution failed: %v", err)
 			}

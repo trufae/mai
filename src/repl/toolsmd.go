@@ -395,14 +395,7 @@ func GetToolsFromMarkdown(message string) ([]*Tool, error) {
 
 // ProcessToolExecution executes tool-based processing for the given input and REPL client
 // This function handles the multi-step, context-aware processing of user input with tools
-func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (string, error) {
-	// Type assertion to access REPL methods and fields
-	replImpl, ok := repl.(*REPL)
-	if !ok {
-		// If type assertion fails, return an error
-		return "", fmt.Errorf("invalid REPL implementation")
-	}
-
+func (repl *REPL) ProcessToolExecution(input string, client *LLMClient) (string, error) {
 	// Initialize state tracking variables
 	contextHistory := []string{}
 	stepCount := 0
@@ -422,7 +415,7 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 			break
 		}
 		// Construct input with context history
-		toolinput := ProcessUserInput(input, repl)
+		toolinput := repl.ProcessUserInput(input, "")
 
 		// Add context history to the input
 		if len(contextHistory) > 0 {
@@ -460,7 +453,7 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 
 		// Handle the assistant's response based on logging settings
 		if err == nil && response != "" {
-			if replImpl.config.options.GetBool("debug") {
+			if repl.config.options.GetBool("debug") {
 				fmt.Println("==============TOOLS FROM MESSAGE=================")
 				fmt.Println(response)
 				fmt.Println("==============TOOLS FROM MESSAGE=================")
@@ -589,7 +582,7 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 		}
 	}
 
-	if replImpl.config.options.GetBool("debug") {
+	if repl.config.options.GetBool("debug") {
 		fmt.Println("-------------------")
 		fmt.Println(input)
 		fmt.Println("-------------------")
@@ -601,14 +594,7 @@ func ProcessToolExecution(input string, client *LLMClient, repl interface{}) (st
 // ProcessUserInput is a function that takes user input and the REPL context
 // and returns a processed string. When the "usetools" option is enabled,
 // user input is processed through this function.
-func ProcessUserInput(input string, repl interface{}) string {
-	// Type assertion to access REPL methods and fields
-	replImpl, ok := repl.(*REPL)
-	if !ok {
-		// If type assertion fails, return input unchanged
-		return input
-	}
-
+func (replImpl *REPL) ProcessUserInput(input string, ctx string) string {
 	// Get the tool prompt content
 	toolPrompt, err := replImpl.getToolPrompt("toolmd.md")
 	if err != nil {
@@ -620,11 +606,11 @@ func ProcessUserInput(input string, repl interface{}) string {
 	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {
 		// If can't get tool list, use tool.md and user input without tool list
-		return buildMessageWithTools(toolPrompt, input,
+		return buildMessageWithTools(toolPrompt, input, "",
 			fmt.Sprintf("[Error getting tool list: %v]", err))
 	}
 	// Build and return the processed input
-	return buildMessageWithTools(toolPrompt, input, toolList)
+	return buildMessageWithTools(toolPrompt, input, "", toolList)
 }
 
 // executeToolsInMessage processes any tool calls found in a message and returns results

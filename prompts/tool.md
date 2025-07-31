@@ -25,9 +25,9 @@ For each tool execution, provide your response in the following format:
 
 {
   "plan": [
-    "Step-by-step instructions in plain strings. Each step is a sentence describing an action to take."
+    "Complete, context-aware step-by-step instructions in plain strings. Each step is a sentence describing an action to take."
   ],
-  "planIndex": 0,
+  "current_plan_index": 0,
   "progress": "A sentence describing what has been done so far or what is currently happening.",
   "reasoning": "A sentence explaining *why* this tool was chosen for the current step."
   "next_step": "A short string describing what to do next.",
