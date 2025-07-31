@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 type Config struct {
@@ -918,8 +920,9 @@ func main() {
 		}
 	}
 
-	// Check for REPL mode flag
-	if len(args) > 0 && args[0] == "-r" || len(args) == 0 {
+	// Check for REPL mode: interactive terminal or explicit -r flag
+	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
+	if (len(args) > 0 && args[0] == "-r") || (len(args) == 0 && stdinIsTerminal) {
 		// Not stdin mode, will load .mairc
 		config.IsStdinMode = false
 
