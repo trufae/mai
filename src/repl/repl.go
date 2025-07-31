@@ -796,7 +796,7 @@ func (r *REPL) sendToAI(input string) error {
 		return fmt.Errorf("backtick substitution failed: %v", err)
 	}
 	input = processedInput
-	
+
 	// Process environment variable substitutions
 	processedInput, err = ExecuteEnvVarSubstitution(input)
 	if err != nil {
@@ -2004,7 +2004,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("command substitution failed: %v", err)
 	}
-	
+
 	// Process environment variable substitutions
 	processedQuery, err = ExecuteEnvVarSubstitution(processedQuery)
 	if err != nil {

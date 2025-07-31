@@ -60,7 +60,7 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("command substitution failed: %v", err)
 	}
-	
+
 	// Process environment variable substitutions
 	processed, err = ExecuteEnvVarSubstitution(processed)
 	if err != nil {

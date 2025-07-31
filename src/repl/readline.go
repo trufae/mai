@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -23,6 +24,13 @@ type ReadLine struct {
 	completions   []string
 	completeIdx   int
 	interruptFunc func()
+	// Heredoc support
+	isHeredoc     bool     // Whether we are in heredoc mode
+	heredocDelim  string   // The delimiter to look for
+	heredocBuffer []string // Lines collected in heredoc mode
+	// Line continuation support
+	isContinuation     bool     // Whether we are in line continuation mode
+	continuationBuffer []string // Lines collected in continuation mode
 }
 
 // NewReadLine creates a new ReadLine instance
@@ -43,16 +51,21 @@ func NewReadLine() (*ReadLine, error) {
 	}
 
 	r := &ReadLine{
-		buffer:        make([]rune, 0, 256),
-		cursorPos:     0,
-		scrollPos:     0,
-		width:         width,
-		history:       make([]string, 0),
-		historyPos:    -1,
-		oldState:      oldState,
-		completions:   nil,
-		completeIdx:   0,
-		interruptFunc: nil,
+		buffer:             make([]rune, 0, 256),
+		cursorPos:          0,
+		scrollPos:          0,
+		width:              width,
+		history:            make([]string, 0),
+		historyPos:         -1,
+		oldState:           oldState,
+		completions:        nil,
+		completeIdx:        0,
+		interruptFunc:      nil,
+		isHeredoc:          false,
+		heredocDelim:       "",
+		heredocBuffer:      nil,
+		isContinuation:     false,
+		continuationBuffer: nil,
 	}
 	r.Restore()
 	return r, nil
@@ -88,6 +101,36 @@ func (r *ReadLine) SetCompletions(completions []string) {
 	r.completeIdx = 0
 }
 
+// isHeredocSyntax checks if the buffer ends with heredoc syntax (<<DELIM)
+// and returns the delimiter if found
+func (r *ReadLine) isHeredocSyntax() (bool, string) {
+	content := string(r.buffer)
+	// Need at least <<X (3 chars) for valid heredoc
+	if len(content) < 3 {
+		return false, ""
+	}
+
+	// Check if the content ends with <<
+	if content[len(content)-2:] == "<<" {
+		// Found << without delimiter, use EOF as default
+		return true, "EOF"
+	}
+
+	// Find the position of << near the end
+	pos := strings.LastIndex(content, "<<")
+	// Must be at end or have space or delimiter between << and end
+	if pos != -1 && pos >= len(content)-10 && pos < len(content)-1 {
+		// Extract the delimiter (everything after <<)
+		delim := content[pos+2:]
+		// If valid delimiter found, return it
+		if delim != "" {
+			return true, delim
+		}
+	}
+
+	return false, ""
+}
+
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
 	state, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
@@ -121,6 +164,106 @@ func (r *ReadLine) Read() (string, error) {
 		case '\r', '\n': // Enter
 			fmt.Print("\n") // Changed from "\r\n" to "\n" to use terminal's natural translation
 			result := string(r.buffer)
+
+			// Check if we're in heredoc mode
+			if r.isHeredoc {
+				// Check if this line exactly matches the delimiter
+				if result == r.heredocDelim {
+					// End of heredoc, combine all lines with newlines
+					fullResult := strings.Join(r.heredocBuffer, "\n")
+					// Reset heredoc state
+					r.isHeredoc = false
+					r.heredocDelim = ""
+					r.heredocBuffer = nil
+					// Clear buffer for next input while preserving history
+					r.buffer = r.buffer[:0]
+					r.cursorPos = 0
+					r.scrollPos = 0
+					r.Restore()
+					return fullResult, nil
+				} else {
+					// Add the line to heredoc buffer
+					r.heredocBuffer = append(r.heredocBuffer, result)
+					// Show the prompt again for next line
+					fmt.Print("\x1b[33m... ")
+					// Clear buffer for next line
+					r.buffer = r.buffer[:0]
+					r.cursorPos = 0
+					r.scrollPos = 0
+					continue
+				}
+			}
+
+			// Check if we're in continuation mode
+			if r.isContinuation {
+				// Remove the trailing backslash if present
+				if len(result) > 0 && result[len(result)-1] == '\\' {
+					// Add line without the trailing backslash to buffer
+					r.continuationBuffer = append(r.continuationBuffer, result[:len(result)-1])
+					// Show prompt for next line
+					fmt.Print("\x1b[33m... ")
+					// Clear buffer for next line
+					r.buffer = r.buffer[:0]
+					r.cursorPos = 0
+					r.scrollPos = 0
+					continue
+				} else {
+					// No trailing backslash, end continuation
+					// Add the final line
+					r.continuationBuffer = append(r.continuationBuffer, result)
+					// Combine all lines
+					fullResult := strings.Join(r.continuationBuffer, "\n")
+					// Reset continuation state
+					r.isContinuation = false
+					r.continuationBuffer = nil
+					// Clear buffer for next input
+					r.buffer = r.buffer[:0]
+					r.cursorPos = 0
+					r.scrollPos = 0
+					r.Restore()
+					return fullResult, nil
+				}
+			}
+
+			// Check for heredoc syntax
+			isHeredoc, delim := r.isHeredocSyntax()
+			if isHeredoc {
+				// Enter heredoc mode
+				r.isHeredoc = true
+				r.heredocDelim = delim
+				r.heredocBuffer = []string{}
+
+				// Add the first line without the heredoc marker
+				firstLine := strings.TrimSuffix(result, "<<"+delim)
+				if firstLine != result { // If we trimmed something
+					r.heredocBuffer = append(r.heredocBuffer, firstLine)
+				}
+
+				// Show the prompt for next line
+				fmt.Print("\x1b[33m... ")
+				// Clear buffer for next line
+				r.buffer = r.buffer[:0]
+				r.cursorPos = 0
+				r.scrollPos = 0
+				continue
+			}
+
+			// Check if this line ends with a backslash for continuation
+			if len(result) > 0 && result[len(result)-1] == '\\' {
+				// Enter continuation mode
+				r.isContinuation = true
+				r.continuationBuffer = []string{result[:len(result)-1]} // Store line without backslash
+
+				// Show prompt for next line
+				fmt.Print("\x1b[33m... ")
+				// Clear buffer for next line
+				r.buffer = r.buffer[:0]
+				r.cursorPos = 0
+				r.scrollPos = 0
+				continue
+			}
+
+			// Regular line input (not heredoc or continuation)
 			// Clear buffer for next input while preserving history
 			r.buffer = r.buffer[:0]
 			r.cursorPos = 0
