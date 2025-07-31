@@ -180,16 +180,24 @@ func extractJSONBlock(text string) (string, string) {
 	if len(matches2) >= 2 {
 		return "{" + matches2[1], ""
 	}
+	nojson := strings.Index(text, "`{")
+	if nojson != -1 {
+		return "", text
+	}
 	start := strings.Index(text, "{")
 	if start != -1 {
 		newText := text[start:]
-		end := strings.Index(newText, "\n}")
+		end := strings.LastIndex(newText, "\n}")
 		if end != -1 {
 			return newText[:end+2], newText[end+2:]
 		}
 		end = strings.Index(newText, "```")
 		if end != -1 {
 			return newText[:end], ""
+		}
+		end = strings.LastIndex(newText, "}")
+		if end != -1 {
+			return newText[:end + 1], ""
 		}
 		return newText, ""
 	}
@@ -200,8 +208,10 @@ func stripJSONComments(input string) string {
 	lines := strings.Split(input, "\n")
 	var cleaned []string
 	commentRegex := regexp.MustCompile(`//.*$`)
+	comment2Regex := regexp.MustCompile(`^#.*$`)
 	for _, line := range lines {
 		clean := commentRegex.ReplaceAllString(line, "")
+		clean = comment2Regex.ReplaceAllString(clean, "")
 		cleaned = append(cleaned, clean)
 	}
 	return strings.Join(cleaned, "\n")
@@ -222,20 +232,29 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 	// fmt.Println(responseText)
 	responseJson, explainText := extractJSONBlock(responseText)
 	responseJson = stripJSONComments(responseJson)
-		fmt.Println("{{ JSONBLOCK")
-		fmt.Println(responseJson)
-		fmt.Println("}} JSONBLOCK")
+	/*
 		fmt.Println("{{ EXPLAIN")
 		fmt.Println(explainText)
 		fmt.Println("}} EXPLAIN")
+		*/
 	var response PlanResponse
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
+		if err2 != nil {
+			fmt.Println("{{ JSONBLOCK")
+			fmt.Println(responseJson)
+			fmt.Println("}} JSONBLOCK")
+		}
 		// response.NextStep += "<think>" + explainText + "</think>"
 		fmt.Println(response.NextStep)
 		return response, explainText, err2
 	}
 	return response, explainText, nil
+}
+
+func (t *Tool) ToString() string {
+	args := strings.Join(t.Args, " ")
+	return fmt.Sprintf("%s %s", t.Name, args)
 }
 
 func (r *REPL) QueryWithTools(input string) (string, error) {
@@ -301,7 +320,7 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 			Name: toolName,
 			Args: mapToArray(step.ToolArgs),
 		}
-		fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool)
+		fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
 		result, err := callTool(tool)
 		if err != nil {
 			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool, err.Error())
@@ -315,11 +334,11 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		*/
 		// results = append(results, result)
 		// toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**Next Step**: %s\n**ToolName**: %s\n**Contents**: %s\n", stepCount, step.Reasoning, step.NextStep, tool.Name, result)
-		toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**ToolName**: %s\n**Contents**: %s\n", stepCount, step.NextStep, tool.Name, result)
+		toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**ToolName**: %s\n**Contents**:\n\n```\n%s\n```\n\n", stepCount, step.NextStep, tool.Name, result)
 		toolResponse += fmt.Sprintf("reason: %s\n", step.Reasoning)
 		// fmt.Println (toolResponse)
 		if expl != "" {
-			context += "\n\n## Reasoning\n\n" + expl
+			context += "\n\n## Context\n\n" + expl
 			reasoning += "\n\n## Reasoning\n\n" + expl
 		}
 		reasoning += "- " + step.Progress + "\n"
@@ -330,5 +349,6 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		reasoning = "<think>\n"+reasoning+"</think>\n"
 	}
 	fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
-	return input + reasoning, nil
+	return input + context , nil
+	// return input + context + reasoning, nil
 }
