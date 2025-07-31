@@ -790,6 +790,13 @@ func (r *REPL) sendToAI(input string) error {
 	}
 	input = processedInput
 
+	// Process backtick substitutions
+	processedInput, err = ExecuteBacktickSubstitution(input, r)
+	if err != nil {
+		return fmt.Errorf("backtick substitution failed: %v", err)
+	}
+	input = processedInput
+
 	// Create client
 	client, err := NewLLMClient(r.config)
 	if err != nil {
@@ -1974,6 +1981,45 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 		// Update cursor position to end of line
 		r.cursorPos = line.Len()
 	}
+}
+
+// executeLLMQueryWithoutStreaming executes an LLM query without streaming and returns the result
+func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
+	// Create a new client for this query
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return "", fmt.Errorf("failed to create LLM client: %v", err)
+	}
+
+	// Process the query similar to sendToAI but without streaming
+	// Process command substitutions in the input
+	processedQuery, err := ExecuteCommandSubstitution(query)
+	if err != nil {
+		return "", fmt.Errorf("command substitution failed: %v", err)
+	}
+
+	// Build the messages array
+	messages := []Message{}
+	if r.systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+	}
+
+	// Add conversation history if we should include replies
+	if r.includeReplies && len(r.messages) > 0 {
+		messages = append(messages, r.messages...)
+	}
+
+	// Add the user query
+	messages = append(messages, Message{Role: "user", Content: processedQuery})
+
+	// Call the LLM with streaming disabled
+	response, err := client.SendMessage(messages, false)
+	if err != nil {
+		return "", fmt.Errorf("LLM query failed: %v", err)
+	}
+
+	// Return the response
+	return response, nil
 }
 
 // executeShellCommand executes a shell command and returns its output

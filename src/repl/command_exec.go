@@ -10,6 +10,10 @@ import (
 
 var cmdRegex = regexp.MustCompile(`\$\((.*?)\)`)
 
+// The backtick regex uses negative lookbehind (?<!\) to ensure we don't match escaped backticks (\`)
+// Note: Go's regexp doesn't support lookbehind, so we'll need a different approach
+var backtickRegex = regexp.MustCompile("`(.*?)`")
+
 // ExecuteCommandSubstitution processes text and replaces command substitutions $(command)
 // with the output of executing those commands. Returns the processed text.
 func ExecuteCommandSubstitution(input string) (string, error) {
@@ -30,6 +34,58 @@ func ExecuteCommandSubstitution(input string) (string, error) {
 		// Replace the command substitution with its output
 		result = strings.Replace(result, fullMatch, output, 1)
 	}
+
+	return result, nil
+}
+
+// ExecuteBacktickSubstitution processes text and replaces backtick command substitutions `command`
+// with the output of executing those commands. It also handles special case for LLM queries.
+// Returns the processed text.
+func ExecuteBacktickSubstitution(input string, r *REPL) (string, error) {
+	// Pre-process input to handle escaped backticks
+	// Replace \` with a temporary placeholder that won't match our regex
+	const escapedBacktickPlaceholder = "ESCAPED_BACKTICK_PLACEHOLDER"
+	processedInput := strings.ReplaceAll(input, "\\`", escapedBacktickPlaceholder)
+
+	// Find all backtick substitutions in the processed text
+	result := processedInput
+	matches := backtickRegex.FindAllStringSubmatchIndex(processedInput, -1)
+
+	// Process matches in reverse order so that replacements don't affect positions of later matches
+	for i := len(matches) - 1; i >= 0; i-- {
+		match := matches[i]
+
+		// Get the start and end positions of the match and content
+		fullMatchStart, fullMatchEnd := match[0], match[1]
+		contentStart, contentEnd := match[2], match[3]
+
+		// Extract the command content
+		command := processedInput[contentStart:contentEnd]
+
+		var output string
+		var err error
+
+		// Check if it's a shell command with ! prefix
+		if strings.HasPrefix(command, "!") {
+			// Execute as shell command
+			output, err = executeCommand(command[1:])
+			if err != nil {
+				return input, fmt.Errorf("backtick shell command execution failed: %v", err)
+			}
+		} else {
+			// Execute as LLM query with streaming disabled
+			output, err = r.executeLLMQueryWithoutStreaming(command)
+			if err != nil {
+				return input, fmt.Errorf("backtick LLM query failed: %v", err)
+			}
+		}
+
+		// Replace the backtick substitution with its output
+		result = result[:fullMatchStart] + output + result[fullMatchEnd:]
+	}
+
+	// Restore escaped backticks
+	result = strings.ReplaceAll(result, escapedBacktickPlaceholder, "`")
 
 	return result, nil
 }
