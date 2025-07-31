@@ -159,10 +159,11 @@ func (r *ReadLine) Read() (string, error) {
 	// Show the prompt immediately when starting to read
 	// Choose appropriate prompt based on mode
 	if r.isHeredoc || r.isContinuation {
-		fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
+		fmt.Printf("\r\x1b[33m%s ", r.readlinePrompt)
 	} else {
-		fmt.Printf("\x1b[33m%s ", r.prompt)
+		fmt.Printf("\r\x1b[33m%s ", r.prompt)
 	}
+				r.refreshLine()
 
 	// Buffer large enough to handle multi-byte characters
 	buf := make([]byte, 8)

@@ -7,7 +7,6 @@ all:
 	$(MAKE) -C src/mcps/wttr
 	$(MAKE) -C src/repl
 	$(MAKE) -C src/tool
-	./src/wmcp/mai-wmcp 'r2pm -r r2mcp' src/mcps/wttr/mai-mcp-wttr
 
 fmt:
 	go fmt $(shell ls src/repl/*.go )
@@ -23,6 +22,9 @@ install:
 
 run:
 	go run $(MAIN_FILE)
+
+mcprun:
+	./src/wmcp/mai-wmcp 'r2pm -r r2mcp' src/mcps/wttr/mai-mcp-wttr
 
 clean:
 	go clean
