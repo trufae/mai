@@ -745,14 +745,16 @@ func (r *REPL) addImage(imagePath string) error {
 		return fmt.Errorf("failed to read image: %v", err)
 	}
 
-	// Encode to base64
+	// Encode to base64 and build data URI
 	encoded := base64.StdEncoding.EncodeToString(imageData)
+	mimeType := http.DetectContentType(imageData)
+	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
 
-	// Add to pending files
+	// Add to pending files with data URI for image
 	r.pendingFiles = append(r.pendingFiles, pendingFile{
 		filePath: imagePath,
 		isImage:  true,
-		imageB64: encoded,
+		imageB64: dataURI,
 	})
 
 	r.addToHistory(fmt.Sprintf("/image %s", imagePath))
@@ -1069,7 +1071,7 @@ func (r *REPL) getLastAssistantReply() (string, error) {
 	// Iterate backwards through messages to find the last assistant message
 	for i := len(r.messages) - 1; i >= 0; i-- {
 		if r.messages[i].Role == "assistant" {
-			return r.messages[i].Content, nil
+			return r.messages[i].Content.(string), nil
 		}
 	}
 	return "", fmt.Errorf("no assistant replies found in conversation history")
@@ -2186,7 +2188,7 @@ func (r *REPL) displayConversationLog() {
 		fmt.Printf("[%d] %s: ", i+1, role)
 
 		// For log display, use a larger truncation limit
-		content := msg.Content
+		content := msg.Content.(string)
 		if len(content) > 100 {
 			content = content[:97] + "..."
 		}
@@ -2238,10 +2240,10 @@ func (r *REPL) displayFullConversationLog() {
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
 		if r.markdownEnabled {
-			fmt.Printf("%s\r\n", RenderMarkdown(msg.Content))
+			fmt.Printf("%s\r\n", RenderMarkdown(msg.Content.(string)))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
-			content := strings.ReplaceAll(msg.Content, "\n", "\r\n")
+			content := strings.ReplaceAll(msg.Content.(string), "\n", "\r\n")
 			fmt.Printf("%s\r\n", content)
 		}
 		fmt.Print("--------------------\r\n")
@@ -2265,7 +2267,7 @@ func (r *REPL) undoLastMessage() {
 
 	// Show information about the removed message
 	role := formatRole(lastMsg.Role)
-	content := truncateContent(lastMsg.Content)
+	content := truncateContent(lastMsg.Content.(string))
 
 	fmt.Printf("Removed last message (%s: %s)\r\n", role, content)
 	fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
@@ -2347,7 +2349,7 @@ func (r *REPL) undoMessageByIndex(indexStr string) {
 	// Get the message being removed for display
 	msg := r.messages[index]
 	role := formatRole(msg.Role)
-	content := truncateContent(msg.Content)
+	content := truncateContent(msg.Content.(string))
 
 	// Remove the message using slice operations
 	r.messages = append(r.messages[:index], r.messages[index+1:]...)
@@ -2800,7 +2802,7 @@ func (r *REPL) handleCompactCommand() error {
 
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
-		conversationText.WriteString(fmt.Sprintf("## %s %d:\n\n%s\n\n", role, i+1, msg.Content))
+		conversationText.WriteString(fmt.Sprintf("## %s %d:\n\n%s\n\n", role, i+1, msg.Content.(string)))
 	}
 
 	// Create a new message with the compact prompt and conversation history

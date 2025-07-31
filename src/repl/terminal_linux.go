@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package term
+package main
 
 import "golang.org/x/sys/unix"
 

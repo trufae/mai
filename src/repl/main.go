@@ -88,8 +88,8 @@ type OpenAPIRequest struct {
 }
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
 }
 
 type ClaudeResponse struct {
@@ -964,10 +964,11 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Encode image to base64
+		// Encode image to base64 and build data URI
 		encoded := base64.StdEncoding.EncodeToString(imageData)
-		images = append(images, encoded)
-
+		mimeType := http.DetectContentType(imageData)
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
+		images = append(images, dataURI)
 		fmt.Fprintf(os.Stderr, "Attaching image: %s (%d bytes)\n", config.ImagePath, len(imageData))
 	}
 

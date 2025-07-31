@@ -163,7 +163,7 @@ func (r *ReadLine) Read() (string, error) {
 	} else {
 		fmt.Printf("\r\x1b[33m%s ", r.prompt)
 	}
-				r.refreshLine()
+	r.refreshLine()
 
 	// Buffer large enough to handle multi-byte characters
 	buf := make([]byte, 8)

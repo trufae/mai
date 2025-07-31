@@ -29,6 +29,72 @@ type LLMProvider interface {
 	ListModels(ctx context.Context) ([]Model, error)
 }
 
+/*
+// sendOpenAIWithImages injects image data URIs into user messages for OpenAI vision-enabled models
+func (c *LLMClient) sendOpenAIWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// Prepend each image as a markdown image message before the rest
+	for _, uri := range images {
+		messages = append([]Message{{Role: "user", Content: fmt.Sprintf("![image](%s)", uri)}}, messages...)
+	}
+	// Delegate to the regular SendMessage path
+	return c.provider.SendMessage(ctx, messages, stream)
+}
+*/
+
+type ContentBlock struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL *struct {
+		URL string `json:"url"`
+	} `json:"image_url,omitempty"`
+}
+
+func (c *LLMClient) sendOpenAIWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// Add image blocks
+	var blocks []ContentBlock
+	for _, uri := range images {
+		blocks = append(blocks, ContentBlock{
+			Type: "image_url",
+			ImageURL: &struct {
+				URL string `json:"url"`
+			}{URL: uri},
+		})
+	}
+
+	// Add image content as one user message
+	if len(blocks) > 0 {
+		imageMessage := Message{
+			Role:    "user",
+			Content: blocks,
+		}
+		messages = append([]Message{imageMessage}, messages...)
+	}
+
+	return c.provider.SendMessage(ctx, messages, stream)
+}
+
+/*
+// workaround hack
+func (c *LLMClient) sendOpenAIWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// Build a single markdown string with all image URLs
+	var imageMarkdown string
+	for _, uri := range images {
+		imageMarkdown += fmt.Sprintf("![image](%s)\n", uri)
+	}
+
+	if imageMarkdown != "" {
+		// Insert image markdown as a new user message
+		imageMsg := Message{
+			Role:    "user",
+			Content: imageMarkdown,
+		}
+		messages = append([]Message{imageMsg}, messages...)
+	}
+
+	return c.provider.SendMessage(ctx, messages, stream)
+}
+*/
+
 // LLMResponse is a generic response handler for both streaming and non-streaming responses
 type LLMResponse struct {
 	Text string
@@ -140,8 +206,15 @@ func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, image
 	var response string
 	var err error
 
-	if len(images) > 0 && strings.ToLower(c.config.PROVIDER) == "ollama" {
-		response, err = c.sendOllamaWithImages(ctx, messages, stream && !c.config.NoStream, images)
+	if len(images) > 0 {
+		switch strings.ToLower(c.config.PROVIDER) {
+		case "ollama":
+			response, err = c.sendOllamaWithImages(ctx, messages, stream && !c.config.NoStream, images)
+		case "openai":
+			response, err = c.sendOpenAIWithImages(ctx, messages, stream && !c.config.NoStream, images)
+		default:
+			response, err = c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream)
+		}
 	} else {
 		response, err = c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream)
 	}
@@ -152,60 +225,82 @@ func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, image
 
 // sendOllamaWithImages sends a message with images to Ollama
 func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	// Create request with images field
-	request := map[string]interface{}{
-		"stream":   stream,
-		"model":    c.config.OllamaModel,
-		"messages": messages,
+	/*
+		// Create request with images field
+		request := map[string]interface{}{
+			"stream":   stream,
+			"model":    c.config.OllamaModel,
+			"messages": messages,
+		}
+
+		// Only add images if we have them and the model supports them (like llava)
+		if len(images) > 0 {
+			request["images"] = images
+
+			// Check if we're using a model that supports images
+		//		modelLower := strings.ToLower(c.config.OllamaModel)
+		//		if !strings.Contains(modelLower, "llava") && !strings.Contains(modelLower, "bakllava") {
+		//			fmt.Fprintf(os.Stderr, "Warning: Model %s might not support images. Consider using llava or bakllava.\n", c.config.OllamaModel)
+		//		}
+		}
+
+		jsonData, err := json.Marshal(request)
+		if err != nil {
+			return "", err
+		}
+
+		headers := map[string]string{
+			"Content-Type": "application/json",
+		}
+
+		// Build chat endpoint URL
+		url := buildURL("", c.config.BaseURL, c.config.OllamaHost, c.config.OllamaPort, "/api/chat")
+
+		// Handle streaming vs non-streaming the same way as regular requests
+		if stream {
+			provider := NewOllamaProvider(c.config)
+			return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
+		}
+
+		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+		if err != nil {
+			return "", err
+		}
+
+		var response struct {
+			Message struct {
+				Content string `json:"content""`
+			} `json:"message""`
+		}
+
+		if err := json.Unmarshal(respBody, &response); err != nil {
+			return "", err
+		}
+
+		fmt.Println(string(respBody))
+		return response.Message.Content, nil
+	*/
+	// Add image blocks
+	var blocks []ContentBlock
+	for _, uri := range images {
+		blocks = append(blocks, ContentBlock{
+			Type: "image_url",
+			ImageURL: &struct {
+				URL string `json:"url"`
+			}{URL: uri},
+		})
 	}
 
-	// Only add images if we have them and the model supports them (like llava)
-	if len(images) > 0 {
-		request["images"] = images
-
-		// Check if we're using a model that supports images
-		/*
-			modelLower := strings.ToLower(c.config.OllamaModel)
-			if !strings.Contains(modelLower, "llava") && !strings.Contains(modelLower, "bakllava") {
-				fmt.Fprintf(os.Stderr, "Warning: Model %s might not support images. Consider using llava or bakllava.\n", c.config.OllamaModel)
-			}
-		*/
+	// Add image content as one user message
+	if len(blocks) > 0 {
+		imageMessage := Message{
+			Role:    "user",
+			Content: blocks,
+		}
+		messages = append([]Message{imageMessage}, messages...)
 	}
 
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		return "", err
-	}
-
-	headers := map[string]string{
-		"Content-Type": "application/json",
-	}
-
-	// Build chat endpoint URL
-	url := buildURL("", c.config.BaseURL, c.config.OllamaHost, c.config.OllamaPort, "/api/chat")
-
-	// Handle streaming vs non-streaming the same way as regular requests
-	if stream {
-		provider := NewOllamaProvider(c.config)
-		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
-	}
-
-	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
-	if err != nil {
-		return "", err
-	}
-
-	var response struct {
-		Message struct {
-			Content string `json:"content""`
-		} `json:"message""`
-	}
-
-	if err := json.Unmarshal(respBody, &response); err != nil {
-		return "", err
-	}
-
-	return response.Message.Content, nil
+	return c.provider.SendMessage(ctx, messages, stream)
 }
 
 // ExtractSystemPrompt extracts a system prompt from the input if present
@@ -542,7 +637,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			// Format the content using our streaming-friendly formatter
 			content = FormatStreamingChunk(content, markdownEnabled)
 		}
-		fmt.Print(content)
+		//fmt.Print(content)
 		fullResponse.WriteString(response.Message.Content)
 
 		if response.Done {
@@ -639,8 +734,6 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	if stream {
 		request["stream"] = true
-	} else {
-		request["max_tokens"] = 4096
 	}
 
 	// Apply deterministic settings if enabled
@@ -695,6 +788,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		// Return raw content - newline conversion happens in the REPL
 		return response.Choices[0].Message.Content, nil
 	}
+	fmt.Println(string(respBody))
 
 	return "", fmt.Errorf("no content in response")
 }
@@ -1107,9 +1201,9 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	content := ""
 	for _, msg := range messages {
 		if msg.Role == "system" {
-			content += "System: " + msg.Content + "\n\n"
+			content += "System: " + msg.Content.(string) + "\n\n"
 		} else {
-			content += msg.Content
+			content += msg.Content.(string)
 		}
 	}
 
@@ -1845,9 +1939,9 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 	content := ""
 	for _, msg := range messages {
 		if msg.Role == "system" {
-			content += "System: " + msg.Content + "\n\n"
+			content += "System: " + msg.Content.(string) + "\n\n"
 		} else {
-			content += msg.Content
+			content += msg.Content.(string)
 		}
 	}
 
