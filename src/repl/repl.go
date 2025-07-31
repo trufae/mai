@@ -782,6 +782,14 @@ func (r *REPL) sendToAI(input string) error {
 		r.mu.Unlock()
 	}()
 
+	// Process command substitutions in the input
+	// originalInput := input // Store the original input for history
+	processedInput, err := ExecuteCommandSubstitution(input)
+	if err != nil {
+		return fmt.Errorf("command substitution failed: %v", err)
+	}
+	input = processedInput
+
 	// Create client
 	client, err := NewLLMClient(r.config)
 	if err != nil {
