@@ -23,23 +23,22 @@ For each tool execution, provide your response in the following format:
 
 # Automation Response
 
-```json
 {
-  "plan": ["[Array of multi-step strings explaining how to solve the problem]"],
-  "planIndex": 0, // Index in the array of the plan of the current step
-  "progress": "[Which step you're on and what's been completed]",
-  "next_step": "[Brief explanation of what should be done after running this tool]",
-  "action": "[Solve | Error | Iterate]"
-  "tool_required": true | false,
-  "selected_tool": {
-     "name": "[Selected mcp server]/[Selected tool name]",
-     "parameters": {
-         "parameter1": "[parameter1 value]"
-     }
-     "reasoning": "[Brief explanation of your decision]",
-  }
+  "plan": [
+    "Step-by-step instructions in plain strings. Each step is a sentence describing an action to take."
+  ],
+  "planIndex": 0,
+  "progress": "A sentence describing what has been done so far or what is currently happening.",
+  "reasoning": "A sentence explaining *why* this tool was chosen for the current step."
+  "next_step": "A short string describing what to do next.",
+  "action": "One word: either 'Solve', 'Iterate', or 'Error'.",
+  "tool_required": true,
+  "tool": "tool_provider/tool_name",
+  "tool_params": {
+    "key": "value"
+    // Add as many key-value pairs as the tool needs.
+  },
 }
-```
 
 ## Important Guidelines
 
