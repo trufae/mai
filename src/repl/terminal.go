@@ -20,7 +20,7 @@ func MakeRawPreserveNewline(fd int) (*term.State, error) {
 	}
 
 	// Get the current termios settings
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	termios, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func MakeRawPreserveNewline(fd int) (*term.State, error) {
 	// termios.Oflag &^= unix.ONLCR
 
 	// Set the new terminal settings
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, termios); err != nil {
+	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, termios); err != nil {
 		return nil, err
 	}
 
