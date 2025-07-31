@@ -1344,6 +1344,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	var response struct {
+		Message string `json:"message,omitempty"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content""`
@@ -1360,7 +1361,9 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		// Return raw content - newline conversion happens in the REPL
 		return response.Choices[0].Message.Content, nil
 	}
-
+	if response.Message != "" {
+		return "", fmt.Errorf(response.Message)
+	}
 	return "", fmt.Errorf("no content in response")
 }
 
