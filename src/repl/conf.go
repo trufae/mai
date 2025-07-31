@@ -47,6 +47,7 @@ func NewConfigOptions() *ConfigOptions {
 	// Define built-in options
 	co.RegisterOption("debug", BooleanOption, "Show internal processing logs", "false")
 	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
+	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
 	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
 	co.RegisterOption("systemprompt", StringOption, "System prompt text", "")
 	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")

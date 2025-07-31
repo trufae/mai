@@ -180,8 +180,9 @@ func NewREPL(config *Config) (*REPL, error) {
 	// Initialize command registry
 	repl.initCommands()
 
-	// Auto-detect and set promptdir
+	// Auto-detect and set promptdir and templatedir
 	repl.autoDetectPromptDir()
+	repl.autoDetectTemplateDir()
 
 	return repl, nil
 }
@@ -279,6 +280,8 @@ func (r *REPL) showCommands() {
 	// Display special commands that aren't in the registry
 	fmt.Print("  #              - List available prompt files (.md)\r\n")
 	fmt.Print("  #<n> <text>    - Use content from prompt file with text\r\n")
+	fmt.Print("  $              - List available template files\r\n")
+	fmt.Print("  $<n> <text>    - Use template with interactive prompts and optional text\r\n")
 	fmt.Print("  !<command>     - Execute shell command\r\n")
 	fmt.Print("  _              - Print the last assistant reply\r\n")
 
@@ -363,6 +366,13 @@ func (r *REPL) handleInput() error {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
 		return r.handlePromptCommand(input)
+	}
+
+	// Handle $ template commands
+	if strings.HasPrefix(input, "$") {
+		// Add to history
+		r.addToHistory(input)
+		return r.handleTemplateCommand(input)
 	}
 
 	// Handle ? prompt commands
