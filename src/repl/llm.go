@@ -225,82 +225,80 @@ func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, image
 
 // sendOllamaWithImages sends a message with images to Ollama
 func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	/*
-		// Create request with images field
-		request := map[string]interface{}{
-			"stream":   stream,
-			"model":    c.config.OllamaModel,
-			"messages": messages,
-		}
-
-		// Only add images if we have them and the model supports them (like llava)
-		if len(images) > 0 {
-			request["images"] = images
-
-			// Check if we're using a model that supports images
-		//		modelLower := strings.ToLower(c.config.OllamaModel)
-		//		if !strings.Contains(modelLower, "llava") && !strings.Contains(modelLower, "bakllava") {
-		//			fmt.Fprintf(os.Stderr, "Warning: Model %s might not support images. Consider using llava or bakllava.\n", c.config.OllamaModel)
-		//		}
-		}
-
-		jsonData, err := json.Marshal(request)
-		if err != nil {
-			return "", err
-		}
-
-		headers := map[string]string{
-			"Content-Type": "application/json",
-		}
-
-		// Build chat endpoint URL
-		url := buildURL("", c.config.BaseURL, c.config.OllamaHost, c.config.OllamaPort, "/api/chat")
-
-		// Handle streaming vs non-streaming the same way as regular requests
-		if stream {
-			provider := NewOllamaProvider(c.config)
-			return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
-		}
-
-		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
-		if err != nil {
-			return "", err
-		}
-
-		var response struct {
-			Message struct {
-				Content string `json:"content""`
-			} `json:"message""`
-		}
-
-		if err := json.Unmarshal(respBody, &response); err != nil {
-			return "", err
-		}
-
-		fmt.Println(string(respBody))
-		return response.Message.Content, nil
-	*/
-	// Add image blocks
-	var blocks []ContentBlock
+	// Build request JSON, injecting only raw base64 images into the first user message
+	var rawImages []string
 	for _, uri := range images {
-		blocks = append(blocks, ContentBlock{
-			Type: "image_url",
-			ImageURL: &struct {
-				URL string `json:"url"`
-			}{URL: uri},
-		})
-	}
-
-	// Add image content as one user message
-	if len(blocks) > 0 {
-		imageMessage := Message{
-			Role:    "user",
-			Content: blocks,
+		if idx := strings.Index(uri, ","); idx != -1 && strings.HasPrefix(uri, "data:") {
+			rawImages = append(rawImages, uri[idx+1:])
+		} else {
+			rawImages = append(rawImages, uri)
 		}
-		messages = append([]Message{imageMessage}, messages...)
+	}
+	var apiMessages []map[string]interface{}
+	for i, m := range messages {
+		msg := map[string]interface{}{
+			"role":    m.Role,
+			"content": m.Content,
+		}
+		if i == 0 && len(rawImages) > 0 {
+			msg["images"] = rawImages
+		}
+		apiMessages = append(apiMessages, msg)
+	}
+	// fmt.Println(apiMessages)
+
+	request := map[string]interface{}{
+		"stream":   stream,
+		"model":    c.config.OllamaModel,
+		"messages": apiMessages,
+	}
+	if c.config.options != nil && c.config.options.GetBool("deterministic") {
+		request["options"] = map[string]float64{
+			"repeat_last_n":  0,
+			"top_p":          0.0,
+			"top_k":          1.0,
+			"temperature":    0.0,
+			"repeat_penalty": 1.0,
+			"seed":           123,
+		}
 	}
 
-	return c.provider.SendMessage(ctx, messages, stream)
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return "", err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	url := fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
+	if c.config.BaseURL != "" {
+		url = strings.TrimRight(c.config.BaseURL, "/") + "/api/chat"
+	}
+
+	if stream {
+		provider := NewOllamaProvider(c.config)
+		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
+	}
+
+	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+	if err != nil {
+		fmt.Println(string(respBody))
+		return "", err
+	}
+
+	var response struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return "", err
+	}
+
+	return response.Message.Content, nil
 }
 
 // ExtractSystemPrompt extracts a system prompt from the input if present
