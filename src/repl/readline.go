@@ -24,6 +24,10 @@ type ReadLine struct {
 	completions   []string
 	completeIdx   int
 	interruptFunc func()
+	// Prompt customization
+	prompt         string // Main prompt string
+	readlinePrompt string // Prompt for heredoc/continuation mode
+	defaultPrompt  string // copy of prompt when using readlinePrompt
 	// Heredoc support
 	isHeredoc     bool     // Whether we are in heredoc mode
 	heredocDelim  string   // The delimiter to look for
@@ -41,8 +45,12 @@ func NewReadLine() (*ReadLine, error) {
 		width = 80
 	}
 
-	// Account for prompt length (>>> plus a space)
-	promptLen := 4
+	// Default prompts
+	prompt := ">>>"
+	readlinePrompt := "..." // multiline
+
+	// Account for prompt length plus a space
+	promptLen := len(prompt) + 1
 	width = width - promptLen
 
 	oldState, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
@@ -61,6 +69,9 @@ func NewReadLine() (*ReadLine, error) {
 		completions:        nil,
 		completeIdx:        0,
 		interruptFunc:      nil,
+		prompt:             prompt,
+		defaultPrompt:      prompt,
+		readlinePrompt:     readlinePrompt,
 		isHeredoc:          false,
 		heredocDelim:       "",
 		heredocBuffer:      nil,
@@ -133,6 +144,7 @@ func (r *ReadLine) isHeredocSyntax() (bool, string) {
 
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
+	r.prompt = r.defaultPrompt
 	state, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", fmt.Errorf("failed to set terminal to raw mode: %v", err)
@@ -142,6 +154,14 @@ func (r *ReadLine) Read() (string, error) {
 	if len(r.buffer) == 0 {
 		r.cursorPos = 0
 		r.scrollPos = 0
+	}
+
+	// Show the prompt immediately when starting to read
+	// Choose appropriate prompt based on mode
+	if r.isHeredoc || r.isContinuation {
+		fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
+	} else {
+		fmt.Printf("\x1b[33m%s ", r.prompt)
 	}
 
 	// Buffer large enough to handle multi-byte characters
@@ -185,7 +205,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add the line to heredoc buffer
 					r.heredocBuffer = append(r.heredocBuffer, result)
 					// Show the prompt again for next line
-					fmt.Print("\x1b[33m... ")
+					fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -201,7 +221,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add line without the trailing backslash to buffer
 					r.continuationBuffer = append(r.continuationBuffer, result[:len(result)-1])
 					// Show prompt for next line
-					fmt.Print("\x1b[33m... ")
+					fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -232,6 +252,8 @@ func (r *ReadLine) Read() (string, error) {
 				r.isHeredoc = true
 				r.heredocDelim = delim
 				r.heredocBuffer = []string{}
+				r.defaultPrompt = r.prompt
+				r.prompt = r.readlinePrompt
 
 				// Add the first line without the heredoc marker
 				firstLine := strings.TrimSuffix(result, "<<"+delim)
@@ -240,7 +262,7 @@ func (r *ReadLine) Read() (string, error) {
 				}
 
 				// Show the prompt for next line
-				fmt.Print("\x1b[33m... ")
+				fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -255,11 +277,12 @@ func (r *ReadLine) Read() (string, error) {
 				r.continuationBuffer = []string{result[:len(result)-1]} // Store line without backslash
 
 				// Show prompt for next line
-				fmt.Print("\x1b[33m... ")
+				fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
 				r.scrollPos = 0
+				r.prompt = r.readlinePrompt
 				continue
 			}
 
@@ -288,7 +311,7 @@ func (r *ReadLine) Read() (string, error) {
 				return "", io.EOF
 			}
 		case '\f': // Ctrl+L
-			fmt.Print("\033[2J\033[H\033[33m>>> ") // Clear screen ANSI
+			fmt.Printf("\033[2J\033[H\033[33m%s ", r.prompt) // Clear screen ANSI
 
 		case 3: // Ctrl+C
 			// This case may not get triggered if our custom terminal mode allows
@@ -302,7 +325,7 @@ func (r *ReadLine) Read() (string, error) {
 				r.interruptFunc()
 			}
 			// Continue reading input after interruption instead of returning error
-			fmt.Print("\x1b[33m>>> ")
+			fmt.Printf("\x1b[33m%s ", r.prompt)
 			continue
 
 		case 23: // Ctrl+W (delete word)
@@ -382,15 +405,16 @@ func (r *ReadLine) refreshLine() {
 	// Clear the current line
 	fmt.Print("\r\033[K")
 
-	// Print prompt
-	fmt.Print("\x1b[33m>>> ")
+	// Print prompt with color
+	fmt.Printf("\x1b[33m%s ", r.prompt)
 
 	// Print visible portion of the buffer
 	visibleText := string(r.buffer[r.scrollPos:visibleEnd])
 	fmt.Print(visibleText)
 
 	// Calculate cursor position on screen
-	screenPos := r.cursorPos - r.scrollPos + 4 // +4 for ">>> "
+	promptLen := len(r.prompt) + 1 // +1 for space
+	screenPos := r.cursorPos - r.scrollPos + promptLen
 
 	// Move cursor to the correct position
 	fmt.Printf("\r\033[%dC", screenPos)
@@ -506,6 +530,26 @@ func (r *ReadLine) SetCursorPos(pos int) {
 // SetInterruptFunc sets the function to be called when Ctrl+C is pressed
 func (r *ReadLine) SetInterruptFunc(fn func()) {
 	r.interruptFunc = fn
+}
+
+// SetPrompt sets the main prompt string
+func (r *ReadLine) SetPrompt(prompt string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.prompt = prompt
+
+	// Update width based on new prompt length
+	width, _, err := term.GetSize(int(os.Stdin.Fd()))
+	if err == nil {
+		r.width = width - len(prompt) - 1 // Account for prompt plus space
+	}
+}
+
+// SetReadlinePrompt sets the prompt used for heredoc and continuation lines
+func (r *ReadLine) SetReadlinePrompt(prompt string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.readlinePrompt = prompt
 }
 
 // handleTabCompletion handles tab completion (kept for reference)

@@ -110,6 +110,15 @@ func NewREPL(config *Config) (*REPL, error) {
 	repl.markdownEnabled = repl.config.options.GetBool("markdown")
 	repl.useToolsEnabled = repl.config.options.GetBool("usetools")
 
+	// Set prompts in the readline instance
+	if prompt := repl.config.options.Get("prompt"); prompt != "" {
+		repl.readline.SetPrompt(prompt)
+	}
+
+	if readlinePrompt := repl.config.options.Get("readlineprompt"); readlinePrompt != "" {
+		repl.readline.SetReadlinePrompt(readlinePrompt)
+	}
+
 	// Synchronize provider and model settings with config options
 	if provider := repl.config.options.Get("provider"); provider != "" {
 		repl.config.PROVIDER = provider
@@ -167,6 +176,19 @@ func NewREPL(config *Config) (*REPL, error) {
 	// Register listener to sync BaseURL when changed via config options
 	repl.config.options.RegisterOptionListener("baseurl", func(value string) {
 		repl.config.BaseURL = value
+	})
+
+	// Register listeners for prompt option changes
+	repl.config.options.RegisterOptionListener("prompt", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetPrompt(value)
+		}
+	})
+
+	repl.config.options.RegisterOptionListener("readlineprompt", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetReadlinePrompt(value)
+		}
 	})
 
 	// Set useragent from command line flag if provided
@@ -341,10 +363,8 @@ func (r *REPL) setupSignalHandler() {
 }
 
 func (r *REPL) handleInput() error {
-	fmt.Print("\x1b[33m>>> ")
-
 	input, err := r.readLine()
-	fmt.Print("\x1b[0m")
+	fmt.Print("\x1b[0m") // Reset color after input
 	if err != nil {
 		return err
 	}

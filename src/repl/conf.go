@@ -50,6 +50,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
 	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
 	co.RegisterOption("systemprompt", StringOption, "System prompt text", "")
+	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
+	co.RegisterOption("readlineprompt", StringOption, "Prompt string for heredoc/continuation lines", "...")
 	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
 	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
