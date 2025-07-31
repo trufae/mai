@@ -17,15 +17,13 @@ Set of commandline tools to use in batch or interactive mode against local and r
 ## Features
 
 - 🚀 **Multi-server support**: Run multiple MCP servers simultaneously
-- 🔧 **Auto-discovery**: Automatically discovers and catalogs tools from each server
+- 🔧 **Auto-discovery**: Automatically discovers and catalogs tools
 - 🌐 **REST API**: Simple HTTP endpoints for all MCP operations
-- 📝 **Human-readable output**: Returns responses in markdown/plaintext format
+- 📝 **Human-readable output**: Returns responses in json/markdown format
 - 🔄 **Flexible input**: Supports JSON, form data, and query parameters
 - 🛡️ **Error handling**: Robust error handling and graceful shutdown
 
 ## Usage
-
-### MAI Client
 
 Type `mai` to access the REPL. Then, enter `/help` and press `<tab>` to view all available commands.
 
@@ -54,29 +52,35 @@ Start multiple MCP servers in a single line of shell.
 ./mai-wmcp "r2pm -r r2mcp" "src/mcps/wttr/mai-mcp-wttr"
 ```
 
-Claude/VScode configuration files are also supported, so you can use any MCP from **Mai**.
+Claude/VScode config files are supported, and use any MCP with **Mai**.
 
-Just curl localhost:8080 or use the `mai-tool` client for quiet, json or markdown output.
+* Curl `localhost:8080` or use the `mai-tool` client for quiet, json or markdown output.
 
 ```bash
 # List all available tools
-./mai-tool list
+mai-tool list
 
 # Call a specific tool
-./mai-tool call server1/mytool param1=value1
+mai-tool call server1/mytool param1=value1
 
 # Get JSON output
-./mai-tool -j call server1/mytool param1=value1
+mai-tool -j call server1/mytool param1=value1
 ```
 
 ## Building
 
-It is written in **Go**, and it's orchestrated with **Makefiles**:
+Written in **Go** and orchestrated with **Makefiles**:
 
 ```bash
 make
-make install
+make install DESTDIR=/usr
 ```
+
+Right now that will create symlinks, so there's no need to install everytime you recompile.
+
+## Author
+
+pancake // Sergi Alvarez Capilla
 
 ## License
 

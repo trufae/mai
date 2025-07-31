@@ -52,7 +52,6 @@ func NewReadLine() (*ReadLine, error) {
 	// Account for prompt length plus a space
 	promptLen := len(prompt) + 1
 	width = width - promptLen
-
 	oldState, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set terminal to raw mode: %v", err)
@@ -145,6 +144,7 @@ func (r *ReadLine) isHeredocSyntax() (bool, string) {
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
 	r.prompt = r.defaultPrompt
+	r.Restore()
 	state, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", fmt.Errorf("failed to set terminal to raw mode: %v", err)
