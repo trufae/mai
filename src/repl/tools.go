@@ -193,7 +193,7 @@ func extractJSONBlock(text string) (string, string) {
 		}
 		return newText, ""
 	}
-	return text, ""
+	return "", text
 }
 
 func stripJSONComments(input string) string {
@@ -222,16 +222,20 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 	// fmt.Println(responseText)
 	responseJson, explainText := extractJSONBlock(responseText)
 	responseJson = stripJSONComments(responseJson)
-	/*
 		fmt.Println("{{ JSONBLOCK")
 		fmt.Println(responseJson)
 		fmt.Println("}} JSONBLOCK")
-	*/
+		fmt.Println("{{ EXPLAIN")
+		fmt.Println(explainText)
+		fmt.Println("}} EXPLAIN")
 	var response PlanResponse
-	err2 := json.Unmarshal([]byte(responseJson), &response)
-	// response.NextStep += "<think>" + explainText + "</think>"
-	fmt.Println(response.NextStep)
-	return response, explainText, err2
+	if responseJson != "" {
+		err2 := json.Unmarshal([]byte(responseJson), &response)
+		// response.NextStep += "<think>" + explainText + "</think>"
+		fmt.Println(response.NextStep)
+		return response, explainText, err2
+	}
+	return response, explainText, nil
 }
 
 func (r *REPL) QueryWithTools(input string) (string, error) {
@@ -249,7 +253,7 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 	}
 	context := ""
 	stepCount := 0
-	reasoning := "<think>"
+	reasoning := ""
 	clearScreen := true
 	for {
 		stepCount++
@@ -263,13 +267,13 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 			continue
 		}
 		if clearScreen {
-			fmt.Print("\033[2J\033[H\033[33m>>> " + input + "\n")
-			fmt.Printf("Context: %d bytes\n", len(context))
+			fmt.Print("\033[2J\033[H\033[33m>>> " + input + "\r\n")
+			fmt.Printf("Context: %d bytes\r\n", len(context))
 		}
 		fmt.Printf("\033[0m\n%s\r\n", step.Progress)
 		fmt.Printf("\r\n%s\r\n\r\n", step.Reasoning)
 		if showPlan {
-			planString := "## Plan\n\n"
+			planString := "## Plan\n\n\r"
 			i := 0
 			for _, s := range step.Plan {
 				if i == step.PlanIndex {
@@ -287,6 +291,9 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		fmt.Printf("\033[0m")
 
 		if !step.ToolRequired {
+			if expl != "" {
+				reasoning += "\n\n## Reasoning\n\n" + expl
+			}
 			break
 		}
 		toolName := strings.ReplaceAll(step.SelectedTool, ".", "/")
@@ -313,18 +320,15 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		// fmt.Println (toolResponse)
 		if expl != "" {
 			context += "\n\n## Reasoning\n\n" + expl
+			reasoning += "\n\n## Reasoning\n\n" + expl
 		}
 		reasoning += "- " + step.Progress + "\n"
 		context += toolResponse
 		// input += planString + toolResponse
 	}
-	reasoning += "</think>"
-	fmt.Println("REASONING")
-	fmt.Println("REASONING")
-	fmt.Println("REASONING")
-	fmt.Println("REASONING")
-	fmt.Println(reasoning)
-	fmt.Println("REASONING")
-	fmt.Println("REASONING")
+	if reasoning != "" {
+		reasoning = "<think>\n"+reasoning+"</think>\n"
+	}
+	fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
 	return input + reasoning, nil
 }
