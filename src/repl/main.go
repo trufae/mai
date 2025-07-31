@@ -773,6 +773,7 @@ func showHelp() {
 -p <provider> = select the provider to use
 -r = enter the repl mode (default behaviour) (see -- for stdin mode)
 -s = don't display the ---8<--- lines in the output
+-t = enable tools processing
 Files:
 ~/.mairc : script to be loaded before the repl is shown
 ./prompts : directory containing custom prompts
@@ -840,6 +841,11 @@ func main() {
 			i--
 		case "-s":
 			config.ShowScissors = true
+			args = append(args[:i], args[i+1:]...)
+			i--
+		case "-t":
+			// Set usetools to true
+			config.options.Set("usetools", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-1":
