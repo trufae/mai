@@ -736,7 +736,16 @@ func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
 		res[serverName] = tools
 		server.mutex.RUnlock()
 	}
-	json.NewEncoder(w).Encode(res)
+	// json.NewEncoder(w).Encode(res)
+
+	jsonBytes, err := json.Marshal(res) // compact JSON, no newline
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonBytes)
 }
 
 // quietToolsHandler returns all tools from all servers in a minimally formatted plain text

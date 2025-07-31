@@ -419,7 +419,7 @@ func listTools(config Config) {
 		debugPrint(config, "Response body: %s", string(body))
 	}
 
-	if config.JsonOutput {
+	if false && config.JsonOutput {
 		// Output is already in JSON format
 		var prettyJSON bytes.Buffer
 		if err := json.Indent(&prettyJSON, body, "", "  "); err != nil {
