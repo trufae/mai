@@ -37,7 +37,7 @@ func NewReadLine() (*ReadLine, error) {
 	promptLen := 4
 	width = width - promptLen
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	oldState, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set terminal to raw mode: %v", err)
 	}
@@ -90,7 +90,7 @@ func (r *ReadLine) SetCompletions(completions []string) {
 
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
-	state, err := term.MakeRaw(int(os.Stdin.Fd()))
+	state, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", fmt.Errorf("failed to set terminal to raw mode: %v", err)
 	}
@@ -119,7 +119,7 @@ func (r *ReadLine) Read() (string, error) {
 
 		switch b {
 		case '\r', '\n': // Enter
-			fmt.Print("\r\n")
+			fmt.Print("\n") // Changed from "\r\n" to "\n" to use terminal's natural translation
 			result := string(r.buffer)
 			// Clear buffer for next input while preserving history
 			r.buffer = r.buffer[:0]
@@ -140,7 +140,7 @@ func (r *ReadLine) Read() (string, error) {
 
 		case 4: // Ctrl+D
 			if len(r.buffer) == 0 {
-				fmt.Print("\r\n")
+				fmt.Print("\n")
 				r.Restore()
 				return "", io.EOF
 			}
@@ -148,7 +148,9 @@ func (r *ReadLine) Read() (string, error) {
 			fmt.Print("\033[2J\033[H\033[33m>>> ") // Clear screen ANSI
 
 		case 3: // Ctrl+C
-			fmt.Print("^C\r\n")
+			// This case may not get triggered if our custom terminal mode allows
+			// the OS signal handler to intercept Ctrl+C first. But we keep it for robustness.
+			fmt.Print("^C\n")
 			r.buffer = r.buffer[:0]
 			r.cursorPos = 0
 			r.scrollPos = 0

@@ -197,7 +197,7 @@ func extractJSONBlock(text string) (string, string) {
 		}
 		end = strings.LastIndex(newText, "}")
 		if end != -1 {
-			return newText[:end + 1], ""
+			return newText[:end+1], ""
 		}
 		return newText, ""
 	}
@@ -220,9 +220,9 @@ func stripJSONComments(input string) string {
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
 	query := buildMessageWithTools(toolPrompt, input, ctx, toolList)
 	/*
-	fmt.Println("==========================")
-	fmt.Println(query)
-	fmt.Println("==========================")
+		fmt.Println("==========================")
+		fmt.Println(query)
+		fmt.Println("==========================")
 	*/
 	messages := []Message{{"user", query}}
 	responseText, err := r.currentClient.SendMessage(messages, false)
@@ -236,7 +236,7 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		fmt.Println("{{ EXPLAIN")
 		fmt.Println(explainText)
 		fmt.Println("}} EXPLAIN")
-		*/
+	*/
 	var response PlanResponse
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
@@ -346,9 +346,9 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		// input += planString + toolResponse
 	}
 	if reasoning != "" {
-		reasoning = "<think>\n"+reasoning+"</think>\n"
+		reasoning = "<think>\n" + reasoning + "</think>\n"
 	}
 	fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
-	return input + context , nil
+	return input + context, nil
 	// return input + context + reasoning, nil
 }

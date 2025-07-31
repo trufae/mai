@@ -389,7 +389,7 @@ func (r *REPL) handleInput() error {
 		return r.executeShellCommand(input[1:])
 	}
 
-	// Add to history
+	// Add to history (original input with command substitutions preserved)
 	r.addToHistory(input)
 
 	// Send to AI
@@ -870,6 +870,8 @@ func (r *REPL) sendToAI(input string) error {
 	}
 
 	// Add user message with enhanced input
+	// Store the original input (with commands) for display in message history,
+	// but use the processed input (with command output) for sending to the AI
 	userMessage := Message{Role: "user", Content: enhancedInput}
 
 	// Handle conversation history based on logging settings
@@ -1062,12 +1064,12 @@ func (r *REPL) handleSlurpCommand() error {
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		// Make terminal raw again
-		term.MakeRaw(int(os.Stdin.Fd()))
+		MakeRawPreserveNewline(int(os.Stdin.Fd()))
 		return fmt.Errorf("error reading input: %v", err)
 	}
 
 	// Make terminal raw again
-	term.MakeRaw(int(os.Stdin.Fd()))
+	MakeRawPreserveNewline(int(os.Stdin.Fd()))
 
 	// Get the content
 	input := content.String()

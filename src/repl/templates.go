@@ -59,45 +59,45 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("command substitution failed: %v", err)
 	}
-	
+
 	// Regular expression to find text inside brackets [...]
 	re := regexp.MustCompile(`\[(.*?)\]`)
 	result := processed
 
 	// Find all matches for bracketed placeholders
 	matches := re.FindAllStringSubmatch(processed, -1)
-	
+
 	// Track processed placeholders to avoid duplicate prompts
 	processedPlaceholders := make(map[string]string)
-	
+
 	// Process each match
 	for _, match := range matches {
-		placeholder := match[0]      // The full placeholder with brackets [text]
-		question := match[1]         // Just the text inside brackets
-		
+		placeholder := match[0] // The full placeholder with brackets [text]
+		question := match[1]    // Just the text inside brackets
+
 		// Check if we've already processed this placeholder
 		if response, exists := processedPlaceholders[placeholder]; exists {
 			// Replace all occurrences of this placeholder with the same response
 			result = strings.ReplaceAll(result, placeholder, response)
 			continue
 		}
-		
+
 		// Prompt the user with the text from inside the brackets
 		fmt.Printf("%s?\n\r", question)
-		
+
 		// Read user response
 		response, err := r.readline.Read()
 		if err != nil {
 			return "", fmt.Errorf("error reading input: %v", err)
 		}
-		
+
 		// Store the response for this placeholder
 		processedPlaceholders[placeholder] = response
-		
+
 		// Replace the placeholder with the user's response
 		result = strings.ReplaceAll(result, placeholder, response)
 	}
-	
+
 	return result, nil
 }
 
@@ -168,12 +168,12 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 	// First try the templatedir configuration if set
 	if templateDir := r.config.options.Get("templatedir"); templateDir != "" {
 		templatePath := filepath.Join(templateDir, templateName)
-		
+
 		// Try with file as is
 		if _, err := os.Stat(templatePath); err == nil {
 			return templatePath, nil
 		}
-		
+
 		// Try with common extensions
 		commonExtensions := []string{".md", ".txt", ".template"}
 		for _, ext := range commonExtensions {
@@ -192,12 +192,12 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 	// Try each location
 	for _, location := range commonLocations {
 		templatePath := filepath.Join(location, templateName)
-		
+
 		// Try with file as is
 		if _, err := os.Stat(templatePath); err == nil {
 			return templatePath, nil
 		}
-		
+
 		// Try with common extensions
 		commonExtensions := []string{".md", ".txt", ".template"}
 		for _, ext := range commonExtensions {
