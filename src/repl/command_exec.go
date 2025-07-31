@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -13,6 +14,9 @@ var cmdRegex = regexp.MustCompile(`\$\((.*?)\)`)
 // The backtick regex uses negative lookbehind (?<!\) to ensure we don't match escaped backticks (\`)
 // Note: Go's regexp doesn't support lookbehind, so we'll need a different approach
 var backtickRegex = regexp.MustCompile("`(.*?)`")
+
+// Environment variable substitution regex matches ${VAR_NAME} patterns
+var envVarRegex = regexp.MustCompile(`\$\{([^{}]+)\}`)
 
 // ExecuteCommandSubstitution processes text and replaces command substitutions $(command)
 // with the output of executing those commands. Returns the processed text.
@@ -86,6 +90,27 @@ func ExecuteBacktickSubstitution(input string, r *REPL) (string, error) {
 
 	// Restore escaped backticks
 	result = strings.ReplaceAll(result, escapedBacktickPlaceholder, "`")
+
+	return result, nil
+}
+
+// ExecuteEnvVarSubstitution processes text and replaces environment variable references ${VAR_NAME}
+// with their values from the environment. Returns the processed text.
+func ExecuteEnvVarSubstitution(input string) (string, error) {
+	// Find all environment variable substitutions in the input text
+	result := input
+	matches := envVarRegex.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		fullMatch := match[0] // The full ${VAR_NAME} string
+		varName := match[1]   // Just the variable name inside the ${}
+
+		// Get the environment variable value
+		varValue := os.Getenv(varName)
+
+		// Replace the variable reference with its value
+		result = strings.Replace(result, fullMatch, varValue, 1)
+	}
 
 	return result, nil
 }

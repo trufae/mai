@@ -53,11 +53,18 @@ func (r *REPL) handleTemplateCommand(input string) error {
 // processTemplate processes template text by:
 // 1. Finding bracketed placeholders [text] and prompting the user to fill them in
 // 2. Executing command substitutions $(command) and replacing with command output
+// 3. Substituting environment variables ${VAR_NAME} with their values
 func (r *REPL) processTemplate(templateText string) (string, error) {
 	// First, process command substitutions
 	processed, err := ExecuteCommandSubstitution(templateText)
 	if err != nil {
 		return "", fmt.Errorf("command substitution failed: %v", err)
+	}
+	
+	// Process environment variable substitutions
+	processed, err = ExecuteEnvVarSubstitution(processed)
+	if err != nil {
+		return "", fmt.Errorf("environment variable substitution failed: %v", err)
 	}
 
 	// Regular expression to find text inside brackets [...]
@@ -83,10 +90,11 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 		}
 
 		// Prompt the user with the text from inside the brackets
-		fmt.Printf("%s?\n\r", question)
+		fmt.Printf("%s?\n\r>>> ", question)
 
 		// Read user response
 		response, err := r.readline.Read()
+		fmt.Print("\033[0m")
 		if err != nil {
 			return "", fmt.Errorf("error reading input: %v", err)
 		}

@@ -323,7 +323,7 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
 		result, err := callTool(tool)
 		if err != nil {
-			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool, err.Error())
+			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), err.Error())
 			continue
 			// return "", err
 		}
