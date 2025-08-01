@@ -942,6 +942,14 @@ func (r *REPL) handleChatCommand(args []string) error {
 	}
 }
 
+// sessionData holds messages plus session-specific settings saved to disk.
+type sessionData struct {
+	Messages []Message `json:"messages"`
+	Provider string    `json:"provider"`
+	Model    string    `json:"model"`
+	BaseURL  string    `json:"baseurl"`
+}
+
 // handleSessionCommand handles the /session command and its subcommands
 func (r *REPL) handleSessionCommand(args []string) error {
 	if len(args) < 2 {
@@ -1011,7 +1019,14 @@ func (r *REPL) saveSession(sessionName string) error {
 	sessionFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".json")
 	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
 
-	data, err := json.MarshalIndent(r.messages, "", "  ")
+	// Save messages plus current provider/model/baseurl
+	sess := sessionData{
+		Messages: r.messages,
+		Provider: r.config.PROVIDER,
+		Model:    r.config.options.Get("model"),
+		BaseURL:  r.config.BaseURL,
+	}
+	data, err := json.MarshalIndent(sess, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal session: %v", err)
 	}
@@ -1045,10 +1060,21 @@ func (r *REPL) loadSession(sessionName string) error {
 		return fmt.Errorf("cannot read session file: %v", err)
 	}
 
-	if err := json.Unmarshal(data, &r.messages); err != nil {
+	// Load messages and settings
+	var sess sessionData
+	if err := json.Unmarshal(data, &sess); err != nil {
 		return fmt.Errorf("cannot unmarshal session: %v", err)
 	}
-	fmt.Printf("Session loaded from %s\n\r", sessionFile)
+	r.messages = sess.Messages
+	// Restore provider, model, baseurl
+	r.config.PROVIDER = sess.Provider
+	r.config.options.Set("provider", sess.Provider)
+	setModelForProvider(r.config, sess.Model)
+	r.config.options.Set("model", sess.Model)
+	r.config.BaseURL = sess.BaseURL
+	r.config.options.Set("baseurl", sess.BaseURL)
+	fmt.Printf("Session '%s' loaded (provider=%s, model=%s, baseurl=%s)\r\n",
+		sessionName, sess.Provider, sess.Model, sess.BaseURL)
 	return nil
 }
 
