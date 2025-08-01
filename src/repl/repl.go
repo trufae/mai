@@ -379,8 +379,8 @@ func (r *REPL) handleInput() error {
 		return nil
 	}
 
-	// Handle commands
-	if strings.HasPrefix(input, "/") || input == "_" {
+	// Handle commands (slash- and dot-prefixed, plus '_' for last reply)
+	if strings.HasPrefix(input, "/") || strings.HasPrefix(input, ".") || input == "_" {
 		// Add to history
 		r.addToHistory(input)
 		return r.handleCommand(input)
@@ -520,7 +520,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 	// Check if we need to complete a file path for a command that accepts a file
 	parts := strings.SplitN(input, " ", 2)
-	if len(parts) == 2 && (parts[0] == "/image" || parts[0] == "/file") {
+	if len(parts) == 2 && (parts[0] == "/image" || parts[0] == "/file" || parts[0] == ".") {
 		r.handleFilePathCompletion(line, parts[0], parts[1])
 		return
 	}
@@ -1278,6 +1278,29 @@ func (r *REPL) initCommands() {
 		Description: "Read from stdin until EOF (Ctrl+D)",
 		Handler: func(r *REPL, args []string) error {
 			return r.handleSlurpCommand()
+		},
+	}
+
+	// Dot command: read one or more files and send their combined contents as a prompt
+	r.commands["."] = Command{
+		Name:        ".",
+		Description: "Load file(s) and send contents as a single prompt",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: . <path>\n\r")
+				return nil
+			}
+			var buf strings.Builder
+			for _, path := range args[1:] {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					fmt.Printf("failed to read file '%s': %v\n\r", path, err)
+					return nil
+				}
+				buf.Write(data)
+				buf.WriteString("\n")
+			}
+			return r.sendToAI(buf.String())
 		},
 	}
 
