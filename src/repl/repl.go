@@ -374,6 +374,8 @@ func (r *REPL) handleInput() error {
 		return err
 	}
 
+	skipMessage := strings.HasPrefix(input, " ")
+
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil
@@ -383,42 +385,32 @@ func (r *REPL) handleInput() error {
 	if strings.HasPrefix(input, "/") || strings.HasPrefix(input, ".") || input == "_" {
 		// Add to history
 		r.addToHistory(input)
-		return r.handleCommand(input)
-	}
-
-	// Handle # prompt commands
-	if strings.HasPrefix(input, "#") {
+		err = r.handleCommand(input)
+	} else if strings.HasPrefix(input, "#") {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
-		return r.handlePromptCommand(input)
-	}
-
-	// Handle $ template commands
-	if strings.HasPrefix(input, "$") {
+		err = r.handlePromptCommand(input)
+	} else if strings.HasPrefix(input, "$") {
 		// Add to history
 		r.addToHistory(input)
-		return r.handleTemplateCommand(input)
-	}
-
-	// Handle ? prompt commands
-	if strings.HasPrefix(input, "?") {
+		err = r.handleTemplateCommand(input)
+	} else if strings.HasPrefix(input, "?") {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
-		return r.handleCommand("/help")
-	}
-
-	// Handle shell commands
-	if strings.HasPrefix(input, "!") {
+		err = r.handleCommand("/help")
+	} else if strings.HasPrefix(input, "!") {
 		// Add to history
 		r.addToHistory(input)
-		return r.executeShellCommand(input[1:])
+		err = r.executeShellCommand(input[1:])
+	} else {
+		r.addToHistory(input)
+		err = r.sendToAI(input)
 	}
-
-	// Add to history (original input with command substitutions preserved)
-	r.addToHistory(input)
-
-	// Send to AI
-	return r.sendToAI(input)
+	if skipMessage {
+		r.handleCommand("/chat undo")
+		r.handleCommand("/chat undo")
+	}
+	return err
 }
 
 func (r *REPL) readLine() (string, error) {
@@ -2425,17 +2417,17 @@ func (r *REPL) undoLastMessage() {
 	}
 
 	// Get the last message to show what was removed
-	lastMsg := r.messages[len(r.messages)-1]
+	// lastMsg := r.messages[len(r.messages)-1]
 
 	// Remove the last message
 	r.messages = r.messages[:len(r.messages)-1]
 
 	// Show information about the removed message
-	role := formatRole(lastMsg.Role)
-	content := truncateContent(lastMsg.Content.(string))
+	// role := formatRole(lastMsg.Role)
+	// content := truncateContent(lastMsg.Content.(string))
 
-	fmt.Printf("Removed last message (%s: %s)\r\n", role, content)
-	fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
+	// fmt.Printf("Removed last message (%s: %s)\r\n", role, content)
+	// fmt.Printf("Remaining messages: %d\r\n", len(r.messages))
 }
 
 // clearPendingImages removes all pending images
