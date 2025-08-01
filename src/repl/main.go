@@ -78,19 +78,10 @@ func runStdinMode(config *Config, args []string) {
 
 	// Send to LLM without streaming (for stdin mode)
 	res, err := client.SendMessageWithImages(messages, false, images)
-	fmt.Println(res)
-
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
-		if config.PROVIDER == "ollama" {
-			fmt.Fprintf(os.Stderr, "Ollama troubleshooting tips:\n")
-			fmt.Fprintf(os.Stderr, "1. Check if Ollama is running: ps aux | grep ollama\n")
-			fmt.Fprintf(os.Stderr, "2. Verify Ollama server is accessible at %s:%s\n", config.OllamaHost, config.OllamaPort)
-			fmt.Fprintf(os.Stderr, "3. Confirm model '%s' is available: ollama list\n", config.OllamaModel)
-			fmt.Fprintf(os.Stderr, "4. Try pulling the model: ollama pull %s\n", config.OllamaModel)
-		}
-		// No need to exit on connection errors - matches REPL behavior
 	}
+	fmt.Println(res)
 }
 
 type ClaudeRequest struct {
@@ -813,23 +804,22 @@ BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 }
 func showHelp() {
 	fmt.Print(`$ mai-repl [--] | [-h] | [prompt] < INPUT
--- = stdin mode
--1 = don't stream response, print once at the end
--a <string> = set the user agent for HTTP requests
--b <url> = specify a custom base URL for API requests
--c <key=value> = set configuration option
--h = show this help message
--H = show help for the environment variables (same as -hh)
--i <path> = attach an image to send to the model
--m <model> = select the model for the given provider
--n = do not load ~/.mairc
--p <provider> = select the provider to use
--r = enter the repl mode (default behaviour) (see -- for stdin mode)
--s = don't display the ---8<--- lines in the output
--t = enable tools processing
+--               stdin mode (see -r)
+-1               don't stream response, print once at the end
+-a <string>      set the user agent for HTTP requests
+-b <url>         specify a custom base URL for API requests
+-c <key=value>   set configuration option
+-h               show this help message
+-H               show environment variables help (same as -hh)
+-i <path>        attach an image to send to the model
+-m <model>       select the model for the given provider
+-n               do not load ~/.mairc
+-p <provider>    select the provider to use
+-t               enable tools processing
 Files:
-~/.mairc : script to be loaded before the repl is shown
-./prompts : directory containing custom prompts
+~/.mairc      : script to be loaded before the repl is shown
+~/.mai/chats  : storage for all the mai chats
+./prompts     : directory containing custom prompts
 `)
 }
 
@@ -886,6 +876,7 @@ func main() {
 	if defaultModel := os.Getenv("MAI_MODEL"); defaultModel != "" {
 		setModelForProvider(config, defaultModel)
 	}
+	replMode := false
 
 	// Process command line flags
 	for i := 0; i < len(args); i++ {
@@ -895,10 +886,12 @@ func main() {
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
-		case "-s":
-			config.ShowScissors = true
-			args = append(args[:i], args[i+1:]...)
-			i--
+			/*
+				case "-s":
+					config.ShowScissors = true
+					args = append(args[:i], args[i+1:]...)
+					i--
+			*/
 		case "-t":
 			// Set usetools to true
 			config.options.Set("usetools", "true")
@@ -926,6 +919,8 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -p requires a provider argument\n")
 				os.Exit(1)
 			}
+		case "-r":
+			replMode = true
 		case "-b":
 			if i+1 < len(args) {
 				config.BaseURL = args[i+1]
@@ -976,7 +971,7 @@ func main() {
 
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
-	if (len(args) > 0 && args[0] == "-r") || (len(args) == 0 && stdinIsTerminal) {
+	if replMode || stdinIsTerminal {
 		// Not stdin mode, will load .mairc
 		config.IsStdinMode = false
 
@@ -986,15 +981,14 @@ func main() {
 			os.Exit(1)
 		}
 
+		// TODO: use MAI_COLORS ?
+		//	repl.config.options.Set("markdown", "false")
 		if err := repl.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-
-		// If we got here, we're in stdin mode
 		config.IsStdinMode = true
-
 		runStdinMode(config, args)
 	}
 }
