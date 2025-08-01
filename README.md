@@ -1,4 +1,4 @@
-<img width="250px" height="250px" align="left" style="float: left; margin: 0 10px 0 0;" alt="mailogo" src="https://raw.githubusercontent.com/trufae/mai/master/mai-logo.png?nocache">
+<img width="300px" height="300px" align="left" style="float: left; margin: 0 10px 0 0;" alt="mailogo" src="https://raw.githubusercontent.com/trufae/mai/master/mai-logo.png?nocache">
 
 ### MAI
 
