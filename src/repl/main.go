@@ -315,7 +315,7 @@ func readInput(args []string) string {
 		input.WriteString("\n")
 	}
 
-	input.WriteString("<INPUT>\n")
+	// input.WriteString("<INPUT>\n")
 
 	// Read from stdin
 	scanner := bufio.NewScanner(os.Stdin)
@@ -324,7 +324,7 @@ func readInput(args []string) string {
 		input.WriteString("\n")
 	}
 
-	input.WriteString("</INPUT>")
+	// input.WriteString("</INPUT>")
 
 	return input.String()
 }
