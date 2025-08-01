@@ -56,6 +56,7 @@ type REPL struct {
 	markdownEnabled  bool               // Whether to render markdown with colors
 	useToolsEnabled  bool               // Whether to process input using tools.go functions
 	commands         map[string]Command // Registry of available commands
+	currentSession   string             // Name of the active chat session
 }
 
 type pendingFile struct {
@@ -362,12 +363,19 @@ func (r *REPL) cleanup() {
 	if err := r.saveHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving history: %v\n", err)
 	}
-	// Auto-save the chat session if history is enabled and messages exist
+	// Auto-save the chat session if history is enabled and messages exist,
+	// updating the current session or creating a new one if none selected
 	if r.config.options.GetBool("history") && len(r.messages) > 0 {
-		sessionName := time.Now().Format("20060102150405")
-		if err := r.saveSession(sessionName); err != nil {
+		var name string
+		if r.currentSession != "" {
+			name = r.currentSession
+		} else {
+			name = time.Now().Format("20060102150405")
+		}
+		if err := r.saveSession(name); err != nil {
 			fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
 		}
+		r.currentSession = name
 	}
 }
 
@@ -932,6 +940,67 @@ func (r *REPL) handleChatCommand(args []string) error {
 		fmt.Print("Available actions: save, load, sessions, clear, list, log, undo, compact\r\n")
 		return nil
 	}
+}
+
+// handleSessionCommand handles the /session command and its subcommands
+func (r *REPL) handleSessionCommand(args []string) error {
+	if len(args) < 2 {
+		fmt.Print("Session management commands:\r\n")
+		fmt.Print("  /session new      - Start a new session (save current if non-empty)\r\n")
+		fmt.Print("  /session list     - List all saved sessions\r\n")
+		fmt.Print("  /session use <name> - Switch to the given session\r\n")
+		fmt.Print("  /session del <name> - Delete the given session\r\n")
+		return nil
+	}
+	action := args[1]
+	switch action {
+	case "new":
+		if len(r.messages) == 0 {
+			return nil
+		}
+		// Save current session under existing name or new timestamp
+		name := r.currentSession
+		if name == "" {
+			name = time.Now().Format("20060102150405")
+		}
+		if err := r.saveSession(name); err != nil {
+			return err
+		}
+		r.messages = []Message{}
+		r.currentSession = name
+		fmt.Printf("Started new session '%s'\r\n", name)
+	case "list":
+		return r.listSessions()
+	case "use":
+		if len(args) < 3 {
+			fmt.Print("Usage: /session use <session-name>\r\n")
+			return nil
+		}
+		if err := r.loadSession(args[2]); err != nil {
+			return err
+		}
+		r.currentSession = args[2]
+	case "del":
+		if len(args) < 3 {
+			fmt.Print("Usage: /session del <session-name>\r\n")
+			return nil
+		}
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot get home directory: %v", err)
+		}
+		chatDir := filepath.Join(homeDir, ".mai", "chat")
+		sessionFile := filepath.Join(chatDir, args[2]+".json")
+		topicFile := filepath.Join(chatDir, args[2]+".topic")
+		if err := os.Remove(sessionFile); err != nil {
+			fmt.Printf("Error deleting session: %v\r\n", err)
+		}
+		_ = os.Remove(topicFile)
+		fmt.Printf("Deleted session '%s'\r\n", args[2])
+	default:
+		fmt.Printf("Unknown session action: %s\r\n", action)
+	}
+	return nil
 }
 
 func (r *REPL) saveSession(sessionName string) error {
@@ -1552,23 +1621,12 @@ func (r *REPL) initCommands() {
 			return r.handleChatCommand(args)
 		},
 	}
-	// Top-level session commands
-	r.commands["/sessions"] = Command{
-		Name:        "/sessions",
-		Description: "List all saved chat sessions",
-		Handler: func(r *REPL, args []string) error {
-			return r.listSessions()
-		},
-	}
+	// Session management commands
 	r.commands["/session"] = Command{
 		Name:        "/session",
-		Description: "Switch to a different chat session",
+		Description: "Manage chat sessions (new, list, use, del)",
 		Handler: func(r *REPL, args []string) error {
-			if len(args) < 2 {
-				fmt.Print("Usage: /session <session-name>\r\n")
-				return nil
-			}
-			return r.loadSession(args[1])
+			return r.handleSessionCommand(args)
 		},
 	}
 
