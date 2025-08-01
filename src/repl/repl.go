@@ -555,7 +555,156 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	}
 
 	// Only handle tab completion at the beginning of the line for commands
-	if !strings.HasPrefix(input, "/") {
+	if !(strings.HasPrefix(input, "/") || strings.HasPrefix(input, "#") || strings.HasPrefix(input, "$")) {
+		return
+	}
+
+	// Prompt command completion for commands like "#<tab>"
+	if strings.HasPrefix(input, "#") {
+		needFreshOptions := false
+		if r.completeState == 0 ||
+			len(r.completeOptions) == 0 ||
+			r.completePrefix == "" ||
+			input == r.completePrefix {
+			needFreshOptions = true
+		}
+
+		if needFreshOptions {
+			// Determine prompt directory
+			promptDir := r.config.options.Get("promptdir")
+			if promptDir == "" {
+				for _, loc := range []string{"./prompts", "../prompts"} {
+					if _, err := os.Stat(loc); err == nil {
+						promptDir = loc
+						break
+					}
+				}
+				if promptDir == "" {
+					return
+				}
+			}
+			// Read prompt files
+			files, err := os.ReadDir(promptDir)
+			if err != nil {
+				return
+			}
+			var allPrompts []string
+			for _, f := range files {
+				if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") {
+					name := strings.TrimSuffix(f.Name(), ".md")
+					allPrompts = append(allPrompts, "#"+name)
+				}
+			}
+			sort.Strings(allPrompts)
+			r.completePrefix = input
+			r.completeOptions = nil
+			for _, p := range allPrompts {
+				if strings.HasPrefix(p, input) {
+					r.completeOptions = append(r.completeOptions, p)
+				}
+			}
+			if len(r.completeOptions) == 0 {
+				return
+			}
+			r.completeState = 1
+			r.completeIdx = 0
+			first := r.completeOptions[0]
+			for i := 0; i < len(input); i++ {
+				fmt.Print("\b \b")
+			}
+			fmt.Print(first)
+			line.Reset()
+			line.WriteString(first)
+			r.cursorPos = line.Len()
+		} else {
+			if len(r.completeOptions) <= 1 {
+				return
+			}
+			current := line.String()
+			r.completeIdx = (r.completeIdx + 1) % len(r.completeOptions)
+			next := r.completeOptions[r.completeIdx]
+			for i := 0; i < len(current); i++ {
+				fmt.Print("\b \b")
+			}
+			fmt.Print(next)
+			line.Reset()
+			line.WriteString(next)
+			r.cursorPos = line.Len()
+		}
+		return
+	}
+
+	// Template command completion for commands like "$<tab>"
+	if strings.HasPrefix(input, "$") {
+		needFreshOptions := false
+		if r.completeState == 0 ||
+			len(r.completeOptions) == 0 ||
+			r.completePrefix == "" ||
+			input == r.completePrefix {
+			needFreshOptions = true
+		}
+
+		if needFreshOptions {
+			// Determine template directory
+			templDir := r.config.options.Get("templatedir")
+			if templDir == "" {
+				for _, loc := range []string{"./templates", "../templates"} {
+					if _, err := os.Stat(loc); err == nil {
+						templDir = loc
+						break
+					}
+				}
+				if templDir == "" {
+					return
+				}
+			}
+			files, err := os.ReadDir(templDir)
+			if err != nil {
+				return
+			}
+			var allTemps []string
+			for _, f := range files {
+				if !f.IsDir() {
+					base := strings.TrimSuffix(f.Name(), filepath.Ext(f.Name()))
+					allTemps = append(allTemps, "$"+base)
+				}
+			}
+			sort.Strings(allTemps)
+			r.completePrefix = input
+			r.completeOptions = nil
+			for _, t := range allTemps {
+				if strings.HasPrefix(t, input) {
+					r.completeOptions = append(r.completeOptions, t)
+				}
+			}
+			if len(r.completeOptions) == 0 {
+				return
+			}
+			r.completeState = 1
+			r.completeIdx = 0
+			first := r.completeOptions[0]
+			for i := 0; i < len(input); i++ {
+				fmt.Print("\b \b")
+			}
+			fmt.Print(first)
+			line.Reset()
+			line.WriteString(first)
+			r.cursorPos = line.Len()
+		} else {
+			if len(r.completeOptions) <= 1 {
+				return
+			}
+			current := line.String()
+			r.completeIdx = (r.completeIdx + 1) % len(r.completeOptions)
+			next := r.completeOptions[r.completeIdx]
+			for i := 0; i < len(current); i++ {
+				fmt.Print("\b \b")
+			}
+			fmt.Print(next)
+			line.Reset()
+			line.WriteString(next)
+			r.cursorPos = line.Len()
+		}
 		return
 	}
 
