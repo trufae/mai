@@ -504,6 +504,11 @@ func (r *ReadLine) GetCursorPos() int {
 	return r.cursorPos
 }
 
+// GetHistory returns the command history
+func (r *ReadLine) GetHistory() []string {
+	return r.history
+}
+
 // SetCursorPos sets the cursor position to a specific location
 func (r *ReadLine) SetCursorPos(pos int) {
 	// Ensure the position is valid

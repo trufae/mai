@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -89,6 +90,11 @@ func NewREPL(config *Config) (*REPL, error) {
 		completeIdx:     0,                        // Initialize completion index
 		pendingFiles:    []pendingFile{},          // Initialize empty pending files slice
 		commands:        make(map[string]Command), // Initialize command registry
+	}
+
+	// Create chat directory and history file
+	if err := repl.setupHistory(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error setting up history: %v\n", err)
 	}
 
 	// Initialize streaming from options with the NoStream flag as a fallback
@@ -283,6 +289,35 @@ func (r *REPL) Run() error {
 	return nil
 }
 
+func (r *REPL) setupHistory() error {
+	if !r.config.options.GetBool("history") {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	maiDir := filepath.Join(homeDir, ".mai")
+	if _, err := os.Stat(maiDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(maiDir, 0755); err != nil {
+			return fmt.Errorf("cannot create %s: %v", maiDir, err)
+		}
+	}
+	chatDir := filepath.Join(maiDir, "chat")
+	if _, err := os.Stat(chatDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(chatDir, 0755); err != nil {
+			return fmt.Errorf("cannot create %s: %v", chatDir, err)
+		}
+	}
+	historyFile := filepath.Join(maiDir, "history.json")
+	if _, err := os.Stat(historyFile); os.IsNotExist(err) {
+		if _, err := os.Create(historyFile); err != nil {
+			return fmt.Errorf("cannot create %s: %v", historyFile, err)
+		}
+	}
+	return nil
+}
+
 func (r *REPL) showCommands() {
 	fmt.Print("Commands:\r\n")
 
@@ -324,6 +359,44 @@ func (r *REPL) cleanup() {
 		term.Restore(int(os.Stdin.Fd()), r.oldState)
 	}
 	r.cancel()
+	if err := r.saveHistory(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving history: %v\n", err)
+	}
+	// Auto-save the chat session if history is enabled and messages exist
+	if r.config.options.GetBool("history") && len(r.messages) > 0 {
+		sessionName := time.Now().Format("20060102150405")
+		if err := r.saveSession(sessionName); err != nil {
+			fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
+		}
+	}
+}
+
+func (r *REPL) saveHistory() error {
+	if !r.config.options.GetBool("history") {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	historyFile := filepath.Join(homeDir, ".mai", "history.json")
+
+	// Read existing history
+	var history []string
+	data, err := os.ReadFile(historyFile)
+	if err == nil {
+		json.Unmarshal(data, &history)
+	}
+
+	// Append new history
+	history = append(history, r.readline.GetHistory()...)
+
+	// Marshal and write history
+	data, err = json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return fmt.Errorf("cannot marshal history: %v", err)
+	}
+	return os.WriteFile(historyFile, data, 0644)
 }
 
 // interruptResponse interrupts the current LLM response if one is being generated
@@ -803,13 +876,14 @@ func (r *REPL) handleChatCommand(args []string) error {
 	// Show help if no arguments provided
 	if len(args) < 2 {
 		fmt.Print("Chat conversation management commands:\r\n")
-		fmt.Print("  /chat save <path> - Save conversation history to file\r\n")
-		fmt.Print("  /chat load <path> - Load conversation history from file\r\n")
-		fmt.Print("  /chat clear      - Clear conversation messages\r\n")
-		fmt.Print("  /chat list       - Display conversation messages (truncated)\r\n")
-		fmt.Print("  /chat log        - Display full conversation with preserved formatting\r\n")
-		fmt.Print("  /chat undo [N]   - Remove last or Nth message\r\n")
-		fmt.Print("  /chat compact    - Compact conversation into a single message\r\n")
+		fmt.Print("  /chat save [name] - Save conversation to a session file\r\n")
+		fmt.Print("  /chat load <name> - Load conversation from a session file\r\n")
+		fmt.Print("  /chat sessions    - List all saved sessions\r\n")
+		fmt.Print("  /chat clear       - Clear conversation messages\r\n")
+		fmt.Print("  /chat list        - Display conversation messages (truncated)\r\n")
+		fmt.Print("  /chat log         - Display full conversation with preserved formatting\r\n")
+		fmt.Print("  /chat undo [N]    - Remove last or Nth message\r\n")
+		fmt.Print("  /chat compact     - Compact conversation into a single message\r\n")
 		return nil
 	}
 
@@ -817,17 +891,21 @@ func (r *REPL) handleChatCommand(args []string) error {
 	action := args[1]
 	switch action {
 	case "save":
-		if len(args) < 3 {
-			fmt.Print("Usage: /chat save <path>\r\n")
-			return nil
+		var sessionName string
+		if len(args) > 2 {
+			sessionName = args[2]
+		} else {
+			sessionName = time.Now().Format("20060102150405")
 		}
-		return r.saveConversation(args[2])
+		return r.saveSession(sessionName)
 	case "load":
 		if len(args) < 3 {
-			fmt.Print("Usage: /chat load <path>\r\n")
+			fmt.Print("Usage: /chat load <name>\r\n")
 			return nil
 		}
-		return r.loadConversation(args[2])
+		return r.loadSession(args[2])
+	case "sessions":
+		return r.listSessions()
 	case "clear":
 		r.messages = []Message{}
 		fmt.Print("Conversation messages cleared\r\n")
@@ -851,9 +929,113 @@ func (r *REPL) handleChatCommand(args []string) error {
 		return r.handleCompactCommand()
 	default:
 		fmt.Printf("Unknown action: %s\r\n", action)
-		fmt.Print("Available actions: save, load, clear, list, log, undo, compact\r\n")
+		fmt.Print("Available actions: save, load, sessions, clear, list, log, undo, compact\r\n")
 		return nil
 	}
+}
+
+func (r *REPL) saveSession(sessionName string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	sessionFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".json")
+	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
+
+	data, err := json.MarshalIndent(r.messages, "", "  ")
+	if err != nil {
+		return fmt.Errorf("cannot marshal session: %v", err)
+	}
+	if err := os.WriteFile(sessionFile, data, 0644); err != nil {
+		return fmt.Errorf("cannot write session file: %v", err)
+	}
+
+	// Generate and save topic
+	topic, err := r.generateTopic()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating topic: %v\n", err)
+	} else {
+		if err := os.WriteFile(topicFile, []byte(topic), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing topic file: %v\n", err)
+		}
+	}
+
+	fmt.Printf("Session saved to %s\n\r", sessionFile)
+	return nil
+}
+
+func (r *REPL) loadSession(sessionName string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	sessionFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".json")
+
+	data, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return fmt.Errorf("cannot read session file: %v", err)
+	}
+
+	if err := json.Unmarshal(data, &r.messages); err != nil {
+		return fmt.Errorf("cannot unmarshal session: %v", err)
+	}
+	fmt.Printf("Session loaded from %s\n\r", sessionFile)
+	return nil
+}
+
+func (r *REPL) listSessions() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	chatDir := filepath.Join(homeDir, ".mai", "chat")
+
+	files, err := os.ReadDir(chatDir)
+	if err != nil {
+		return fmt.Errorf("cannot read chat directory: %v", err)
+	}
+
+	fmt.Print("Available sessions:\n\r")
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+			info, err := file.Info()
+			if err != nil {
+				continue
+			}
+			sessionName := strings.TrimSuffix(file.Name(), ".json")
+			topicFile := filepath.Join(chatDir, sessionName+".topic")
+			topic, err := os.ReadFile(topicFile)
+			if err != nil {
+				topic = []byte("-")
+			}
+			fmt.Printf("  %s (%d bytes) - %s\n\r", sessionName, info.Size(), string(topic))
+		}
+	}
+	return nil
+}
+
+func (r *REPL) generateTopic() (string, error) {
+	// Use the last message to generate a topic
+	if len(r.messages) == 0 {
+		return "", fmt.Errorf("no messages in conversation")
+	}
+	lastMessage := r.messages[len(r.messages)-1].Content.(string)
+	prompt := "Summarize the following text in a few words:\n\n" + lastMessage
+
+	client, err := NewLLMClient(r.config)
+	if err != nil {
+		return "", fmt.Errorf("failed to create LLM client: %v", err)
+	}
+
+	messages := []Message{
+		{Role: "user", Content: prompt},
+	}
+
+	response, err := client.SendMessage(messages, false)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate topic: %v", err)
+	}
+	return strings.TrimSpace(response), nil
 }
 
 func (r *REPL) handleCommand(input string) error {
@@ -1368,6 +1550,25 @@ func (r *REPL) initCommands() {
 		Description: "Manage conversation (save, load, clear, list, log, undo, compact)",
 		Handler: func(r *REPL, args []string) error {
 			return r.handleChatCommand(args)
+		},
+	}
+	// Top-level session commands
+	r.commands["/sessions"] = Command{
+		Name:        "/sessions",
+		Description: "List all saved chat sessions",
+		Handler: func(r *REPL, args []string) error {
+			return r.listSessions()
+		},
+	}
+	r.commands["/session"] = Command{
+		Name:        "/session",
+		Description: "Switch to a different chat session",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: /session <session-name>\r\n")
+				return nil
+			}
+			return r.loadSession(args[1])
 		},
 	}
 

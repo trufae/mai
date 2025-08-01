@@ -813,13 +813,14 @@ func showHelp() {
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
 -m <model>       select the model for the given provider
--n               do not load ~/.mairc
+-n               do not load ~/.mairc and disable REPL history
 -p <provider>    select the provider to use
 -t               enable tools processing
 Files:
-~/.mairc      : script to be loaded before the repl is shown
-~/.mai/chats  : storage for all the mai chats
-./prompts     : directory containing custom prompts
+~/.mairc           : script to be loaded before the repl is shown
+~/.mai/history.json: REPL command history file (JSON array)
+~/.mai/chat         : storage for chat session files
+./prompts          : directory containing custom prompts
 `)
 }
 
@@ -882,7 +883,8 @@ func main() {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-n":
-			// Skip loading ~/.mairc
+			// Skip loading ~/.mairc and disable REPL history
+			config.options.Set("history", "false")
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
