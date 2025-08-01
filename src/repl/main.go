@@ -241,8 +241,8 @@ func loadConfig() *Config {
 		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
-		BaseURL:       getEnvOrDefault("BASE_URL", ""),
-		UserAgent:     getEnvOrDefault("USER_AGENT", "mai-repl/1.0"),
+		BaseURL:       getEnvOrDefault("MAI_BASEURL", ""),
+		UserAgent:     getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
 		NoStream:      false,
 		options:       NewConfigOptions(), // Initialize configuration options
 	}
@@ -780,8 +780,8 @@ func showEnvHelp() {
 	fmt.Print(`
 MAI_PROVIDER=[ollama | gemini | deepseek | claude | openai | mistral | bedrock]
 MAI_MODEL=[modelname]
-BASE_URL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
-USER_AGENT=[custom user agent string for HTTP requests]
+MAI_BASEURL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
+MAI_USERAGENT=[custom user agent string for HTTP requests]
 
 Local:
 
