@@ -635,7 +635,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			// Format the content using our streaming-friendly formatter
 			content = FormatStreamingChunk(content, markdownEnabled)
 		}
-		//fmt.Print(content)
+		fmt.Print(content)
 		fullResponse.WriteString(response.Message.Content)
 
 		if response.Done {

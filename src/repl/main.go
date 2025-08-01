@@ -179,15 +179,15 @@ func loadConfig() *Config {
 		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
 		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
 		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "gemma3:1b"),
-		GeminiModel:   "gemini-1.5-flash",
-		OpenAIModel:   "gpt-4o",
-		ClaudeModel:   "claude-3-5-sonnet-20241022",
-		DeepSeekModel: "claude-3-5-sonnet-20241022",
-		MistralModel:  "mistral-large-latest",
+		GeminiModel:   getEnvOrDefault("GEMINI_MODEL", "gemini-1.5-flash"),
+		OpenAIModel:   getEnvOrDefault("OPENAI_MODEL", "gpt-4o"),
+		ClaudeModel:   getEnvOrDefault("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
+		DeepSeekModel: getEnvOrDefault("DEEPSEEK_MODEL", "deepseek-chat"),
+		MistralModel:  getEnvOrDefault("MISTRAL_MODEL", "mistral-large-latest"),
 		BedrockModel:  getEnvOrDefault("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-v1"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
 		ShowScissors:  false,
-		PROVIDER:      getEnvOrDefault("PROVIDER", "ollama"),
+		PROVIDER:      getEnvOrDefault("MAI_PROVIDER", "ollama"),
 		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
 		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
 		ClaudeKey:     os.Getenv("CLAUDE_API_KEY"),
@@ -731,9 +731,10 @@ func callOpenAPI(config *Config, input string) error {
 
 func showEnvHelp() {
 	fmt.Print(`
-PROVIDER= ollama | gemini | deepseek | claude | openai | mistral | bedrock
-BASE_URL= custom API base URL (e.g., https://api.moonshot.ai/anthropic)
-USER_AGENT= custom user agent string for HTTP requests
+MAI_PROVIDER=[ollama | gemini | deepseek | claude | openai | mistral | bedrock]
+MAI_MODEL=[modelname]
+BASE_URL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
+USER_AGENT=[custom user agent string for HTTP requests]
 
 Local:
 
@@ -749,11 +750,14 @@ OPENAI_API_KEY=(or set in ~/.r2ai.openai-key)
 CLAUDE_API_KEY=(or set in ~/.r2ai.anthropic-key)
 DEEPSEEK_API_KEY=(or set in ~/.r2ai.deepseek-key)
 MISTRAL_API_KEY=(or set in ~/.r2ai.mistral-key)
-# Model Selection
+
+Model Selection:
+
+OPENAI_MODEL=o4-mini
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
 MISTRAL_MODEL=mistral-large-latest
 
-Bedrock:
+Bedrock-Specific:
 
 AWS_ACCESS_KEY_ID=(or set in ~/.r2ai.bedrock-key)
 AWS_REGION=us-west-2
@@ -829,8 +833,11 @@ func main() {
 	config := loadConfig()
 
 	// For backwards compatibility - check if API env var is set
-	if apiVal := os.Getenv("API"); apiVal != "" && os.Getenv("PROVIDER") == "" {
+	if apiVal := os.Getenv("API"); apiVal != "" && os.Getenv("MAI_PROVIDER") == "" {
 		config.PROVIDER = apiVal
+	}
+	if defaultModel := os.Getenv("MAI_MODEL"); defaultModel != "" {
+		setModelForProvider(config, defaultModel)
 	}
 
 	// Process command line flags
