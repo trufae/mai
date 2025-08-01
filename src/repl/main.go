@@ -46,6 +46,53 @@ type Config struct {
 	options       *ConfigOptions // Configuration options
 }
 
+// runStdinMode handles sending messages to LLM in stdin mode.
+func runStdinMode(config *Config, args []string) {
+	input := readInput(args)
+
+	// Create LLM client
+	client, err := NewLLMClient(config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Prepare messages from input
+	messages := PrepareMessages(input)
+
+	// Prepare image if specified
+	var images []string
+	if config.ImagePath != "" {
+		imageData, err := os.ReadFile(config.ImagePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading image file: %v\n", err)
+			os.Exit(1)
+		}
+
+		encoded := base64.StdEncoding.EncodeToString(imageData)
+		mimeType := http.DetectContentType(imageData)
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
+		images = append(images, dataURI)
+		fmt.Fprintf(os.Stderr, "Attaching image: %s (%d bytes)\n", config.ImagePath, len(imageData))
+	}
+
+	// Send to LLM without streaming (for stdin mode)
+	res, err := client.SendMessageWithImages(messages, false, images)
+	fmt.Println(res)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
+		if config.PROVIDER == "ollama" {
+			fmt.Fprintf(os.Stderr, "Ollama troubleshooting tips:\n")
+			fmt.Fprintf(os.Stderr, "1. Check if Ollama is running: ps aux | grep ollama\n")
+			fmt.Fprintf(os.Stderr, "2. Verify Ollama server is accessible at %s:%s\n", config.OllamaHost, config.OllamaPort)
+			fmt.Fprintf(os.Stderr, "3. Confirm model '%s' is available: ollama list\n", config.OllamaModel)
+			fmt.Fprintf(os.Stderr, "4. Try pulling the model: ollama pull %s\n", config.OllamaModel)
+		}
+		// No need to exit on connection errors - matches REPL behavior
+	}
+}
+
 type ClaudeRequest struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
@@ -943,55 +990,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 			os.Exit(1)
 		}
-		return
-	}
+	} else {
 
-	// If we got here, we're in stdin mode
-	config.IsStdinMode = true
+		// If we got here, we're in stdin mode
+		config.IsStdinMode = true
 
-	input := readInput(args)
-
-	// Create LLM client
-	client, err := NewLLMClient(config)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Prepare messages from input
-	messages := PrepareMessages(input)
-
-	// Prepare image if specified
-	var images []string
-	if config.ImagePath != "" {
-		// Read image file
-		imageData, err := os.ReadFile(config.ImagePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading image file: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Encode image to base64 and build data URI
-		encoded := base64.StdEncoding.EncodeToString(imageData)
-		mimeType := http.DetectContentType(imageData)
-		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
-		images = append(images, dataURI)
-		fmt.Fprintf(os.Stderr, "Attaching image: %s (%d bytes)\n", config.ImagePath, len(imageData))
-	}
-
-	// Send to LLM without streaming (for stdin mode)
-	res, err := client.SendMessageWithImages(messages, false, images)
-	fmt.Println(res)
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
-		if config.PROVIDER == "ollama" {
-			fmt.Fprintf(os.Stderr, "Ollama troubleshooting tips:\n")
-			fmt.Fprintf(os.Stderr, "1. Check if Ollama is running: ps aux | grep ollama\n")
-			fmt.Fprintf(os.Stderr, "2. Verify Ollama server is accessible at %s:%s\n", config.OllamaHost, config.OllamaPort)
-			fmt.Fprintf(os.Stderr, "3. Confirm model '%s' is available: ollama list\n", config.OllamaModel)
-			fmt.Fprintf(os.Stderr, "4. Try pulling the model: ollama pull %s\n", config.OllamaModel)
-		}
-		// No need to exit on connection errors - matches REPL behavior
+		runStdinMode(config, args)
 	}
 }
