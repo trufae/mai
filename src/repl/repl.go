@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -653,6 +652,20 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		}
 	}
 
+	// Handle tab completion for /session subcommands
+	if strings.HasPrefix(input, "/session ") && len(parts) >= 2 {
+		if len(parts) == 2 {
+			// Complete /session subcommands
+			subcmd := parts[1]
+			r.handleSessionSubcommandCompletion(line, subcmd)
+			return
+		} else if len(parts) == 3 && (parts[1] == "use" || parts[1] == "del") {
+			// Complete session names for use/del
+			r.handleSessionNameCompletion(line, "/session "+parts[1], parts[2])
+			return
+		}
+	}
+
 	// Only handle tab completion at the beginning of the line for commands
 	if !(strings.HasPrefix(input, "/") || strings.HasPrefix(input, "#") || strings.HasPrefix(input, "$")) {
 		return
@@ -1033,6 +1046,89 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		fmt.Printf("Unknown session action: %s\r\n", action)
 	}
 	return nil
+}
+
+// handleSessionSubcommandCompletion handles tab completion for /session subcommands
+func (r *REPL) handleSessionSubcommandCompletion(line *strings.Builder, subcmd string) {
+	// Subcommands for /session
+	subcommands := []string{"new", "list", "use", "del", "purge"}
+	sort.Strings(subcommands)
+
+	// Check if we need fresh options
+	if r.completeState == 0 || len(r.completeOptions) == 0 || r.completePrefix != "/session " {
+		r.completePrefix = "/session "
+		r.completeOptions = nil
+		for _, sc := range subcommands {
+			if strings.HasPrefix(sc, subcmd) {
+				r.completeOptions = append(r.completeOptions, r.completePrefix+sc)
+			}
+		}
+		if len(r.completeOptions) == 0 {
+			return
+		}
+		r.completeState = 1
+		r.completeIdx = 0
+	}
+
+	// Cycle through options
+	if len(r.completeOptions) > 0 {
+		current := line.String()
+		next := r.completeOptions[r.completeIdx]
+		for i := 0; i < len(current); i++ {
+			fmt.Print("\b \b")
+		}
+		fmt.Print(next)
+		line.Reset()
+		line.WriteString(next)
+		r.cursorPos = line.Len()
+		r.completeIdx = (r.completeIdx + 1) % len(r.completeOptions)
+	}
+}
+
+// handleSessionNameCompletion handles tab completion for session names
+func (r *REPL) handleSessionNameCompletion(line *strings.Builder, command, partialName string) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	chatDir := filepath.Join(homeDir, ".mai", "chat")
+
+	if r.completeState == 0 || !strings.HasPrefix(line.String(), r.completePrefix) {
+		files, err := os.ReadDir(chatDir)
+		if err != nil {
+			return
+		}
+
+		r.completeOptions = nil
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+				sessionName := strings.TrimSuffix(file.Name(), ".json")
+				if strings.HasPrefix(sessionName, partialName) {
+					r.completeOptions = append(r.completeOptions, command+" "+sessionName)
+				}
+			}
+		}
+		if len(r.completeOptions) == 0 {
+			return
+		}
+		sort.Strings(r.completeOptions)
+		r.completeState = 1
+		r.completeIdx = 0
+		r.completePrefix = command + " "
+	}
+
+	if len(r.completeOptions) > 0 {
+		current := line.String()
+		next := r.completeOptions[r.completeIdx]
+		for i := 0; i < len(current); i++ {
+			fmt.Print("\b \b")
+		}
+		fmt.Print(next)
+		line.Reset()
+		line.WriteString(next)
+		r.cursorPos = line.Len()
+		r.completeIdx = (r.completeIdx + 1) % len(r.completeOptions)
+	}
 }
 
 func (r *REPL) saveSession(sessionName string) error {
