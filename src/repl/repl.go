@@ -835,25 +835,13 @@ func (r *REPL) sendToAI(input string) error {
 	r.currentClient = client
 	r.mu.Unlock()
 
-	newTools := true
 	if r.useToolsEnabled {
-		if newTools {
-			// new json mode
-			tool, err := r.QueryWithTools(input)
-			if err != nil {
-				return fmt.Errorf("tool execution failed: %v", err)
-			}
-			input = tool
-		} else {
-			// markdown mode
-			enhancedInput, err := r.ProcessToolExecution(input, client)
-			if err != nil {
-				return fmt.Errorf("tool execution failed: %v", err)
-			}
-
-			// Use the enhanced input for the rest of the processing
-			input = enhancedInput
+		// new json mode
+		tool, err := r.QueryWithTools(input)
+		if err != nil {
+			return fmt.Errorf("tool execution failed: %v", err)
 		}
+		input = tool
 	}
 
 	// Add system prompt if present
