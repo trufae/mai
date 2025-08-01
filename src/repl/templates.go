@@ -90,10 +90,13 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 		}
 
 		// Prompt the user with the text from inside the brackets
-		fmt.Printf("%s?\n\r>>> ", question)
+		fmt.Printf("%s\n\r>>> ", question)
 
+		p := r.readline.defaultPrompt
+		r.readline.defaultPrompt = "?"
 		// Read user response
 		response, err := r.readline.Read()
+		r.readline.defaultPrompt = p
 		fmt.Print("\033[0m")
 		if err != nil {
 			return "", fmt.Errorf("error reading input: %v", err)
