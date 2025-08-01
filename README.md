@@ -6,6 +6,8 @@ My Artificial Intelligence (🐱AI)
 
 Set of commandline tools to use in batch or interactive mode against local and remote AI providers bringing powerful shell style oneliners in conjuntion of MCP agents.
 
+[![CI](https://github.com/trufae/mai/actions/workflows/ci.yml/badge.svg)](https://github.com/trufae/mai/actions/workflows/ci.yml)
+
 --pancake
 
 ## Tools
