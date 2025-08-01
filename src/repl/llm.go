@@ -240,7 +240,7 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 			"role":    m.Role,
 			"content": m.Content,
 		}
-		if i == 0 && len(rawImages) > 0 {
+		if i == len(messages)-1 && len(rawImages) > 0 {
 			msg["images"] = rawImages
 		}
 		apiMessages = append(apiMessages, msg)
