@@ -97,6 +97,10 @@ func NewREPL(config *Config) (*REPL, error) {
 	if err := repl.setupHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error setting up history: %v\n", err)
 	}
+	// Load persistent REPL history into readline
+	if err := repl.loadHistory(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading history: %v\n", err)
+	}
 
 	// Initialize streaming from options with the NoStream flag as a fallback
 	streamDefault := "true"
@@ -389,18 +393,9 @@ func (r *REPL) saveHistory() error {
 	}
 	historyFile := filepath.Join(homeDir, ".mai", "history.json")
 
-	// Read existing history
-	var history []string
-	data, err := os.ReadFile(historyFile)
-	if err == nil {
-		json.Unmarshal(data, &history)
-	}
-
-	// Append new history
-	history = append(history, r.readline.GetHistory()...)
-
-	// Marshal and write history
-	data, err = json.MarshalIndent(history, "", "  ")
+	// Overwrite history file with updated history
+	history := r.readline.GetHistory()
+	data, err := json.MarshalIndent(history, "", "  ")
 	if err != nil {
 		return fmt.Errorf("cannot marshal history: %v", err)
 	}
@@ -431,6 +426,31 @@ func (r *REPL) interruptResponse() {
 			r.mu.Unlock()
 		}
 	}
+}
+
+// loadHistory reads the history file and loads entries into readline's history
+func (r *REPL) loadHistory() error {
+	if !r.config.options.GetBool("history") {
+		return nil
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	historyFile := filepath.Join(homeDir, ".mai", "history.json")
+	data, err := os.ReadFile(historyFile)
+	if err != nil {
+		// Nothing to load if file doesn't exist or cannot be read
+		return nil
+	}
+	var history []string
+	if err := json.Unmarshal(data, &history); err != nil {
+		return fmt.Errorf("cannot unmarshal history: %v", err)
+	}
+	for _, entry := range history {
+		r.readline.AddToHistory(entry)
+	}
+	return nil
 }
 
 func (r *REPL) setupSignalHandler() {
