@@ -357,6 +357,11 @@ func (r *REPL) setupSignalHandler() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
+		// Reset the current editing line when interrupted
+		if r.readline != nil {
+			fmt.Print("^C\n")
+			r.readline.SetContent("")
+		}
 		r.interruptResponse()
 		r.setupSignalHandler()
 	}()
