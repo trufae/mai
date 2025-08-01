@@ -73,7 +73,7 @@ Written in **Go** and orchestrated with **Makefiles**:
 
 ```bash
 make
-make install DESTDIR=/usr
+make install
 ```
 
 Right now that will create symlinks, so there's no need to install everytime you recompile.
