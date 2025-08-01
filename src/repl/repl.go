@@ -20,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"golang.org/x/term"
 )
@@ -978,6 +979,7 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		fmt.Print("  /session list     - List all saved sessions\r\n")
 		fmt.Print("  /session use <name> - Switch to the given session\r\n")
 		fmt.Print("  /session del <name> - Delete the given session\r\n")
+		fmt.Print("  /session purge    - Delete all saved sessions\r\n")
 		return nil
 	}
 	action := args[1]
@@ -1015,7 +1017,7 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		}
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("cannot get home directory: %v", err)
+			return fmt.Errorf("cannot get home directory: %v\r\n", err)
 		}
 		chatDir := filepath.Join(homeDir, ".mai", "chat")
 		sessionFile := filepath.Join(chatDir, args[2]+".json")
@@ -1025,6 +1027,8 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		}
 		_ = os.Remove(topicFile)
 		fmt.Printf("Deleted session '%s'\r\n", args[2])
+	case "purge":
+		return r.purgeSessions()
 	default:
 		fmt.Printf("Unknown session action: %s\r\n", action)
 	}
@@ -1126,6 +1130,36 @@ func (r *REPL) listSessions() error {
 			fmt.Printf("  %s (%d bytes) - %s\n\r", sessionName, info.Size(), string(topic))
 		}
 	}
+	return nil
+}
+
+func (r *REPL) purgeSessions() error {
+	fmt.Print("Are you sure you want to delete all saved sessions? (y/N) ")
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
+	if strings.TrimSpace(strings.ToLower(input)) != "y" {
+		fmt.Print("Session purge cancelled.\n\r")
+		return nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	chatDir := filepath.Join(homeDir, ".mai", "chat")
+
+	files, err := os.ReadDir(chatDir)
+	if err != nil {
+		return fmt.Errorf("cannot read chat directory: %v", err)
+	}
+
+	for _, file := range files {
+		if !file.IsDir() {
+			os.Remove(filepath.Join(chatDir, file.Name()))
+		}
+	}
+
+	fmt.Print("All saved sessions have been deleted.\n\r")
 	return nil
 }
 
@@ -1670,7 +1704,7 @@ func (r *REPL) initCommands() {
 	// Session management commands
 	r.commands["/session"] = Command{
 		Name:        "/session",
-		Description: "Manage chat sessions (new, list, use, del)",
+		Description: "Manage chat sessions (new, list, use, del, purge)",
 		Handler: func(r *REPL, args []string) error {
 			return r.handleSessionCommand(args)
 		},
@@ -2836,14 +2870,39 @@ func truncateContent(content string) string {
 	return strings.ReplaceAll(content, "\n", " ")
 }
 
+// extractAtMentionFilenames scans input text for @filename mentions,
+// supporting path separators and escaped spaces in filenames.
+func extractAtMentionFilenames(input string) []string {
+	var filenames []string
+	r := []rune(input)
+	for i := 0; i < len(r); i++ {
+		if r[i] == '@' {
+			i++
+			var sb strings.Builder
+			for i < len(r) {
+				if r[i] == '\\' && i+1 < len(r) && r[i+1] == ' ' {
+					sb.WriteRune(' ')
+					i += 2
+				} else if unicode.IsSpace(r[i]) {
+					break
+				} else {
+					sb.WriteRune(r[i])
+					i++
+				}
+			}
+			if sb.Len() > 0 {
+				filenames = append(filenames, sb.String())
+			}
+		}
+	}
+	return filenames
+}
+
 // processAtMentions extracts words starting with @ from input text,
 // checks if they correspond to existing files, and returns the enhanced prompt
 func (r *REPL) processAtMentions(input string) string {
-	// Use regex to find all words starting with @ including dots for filenames
-	re := regexp.MustCompile(`@[\w.]+`)
-	matches := re.FindAllString(input, -1)
-
-	if len(matches) == 0 {
+	filenames := extractAtMentionFilenames(input)
+	if len(filenames) == 0 {
 		return input // No @mentions found, return original input
 	}
 
@@ -2851,10 +2910,7 @@ func (r *REPL) processAtMentions(input string) string {
 	var fileContents []string
 	var processedFiles []string
 
-	for _, match := range matches {
-		// Remove the @ prefix to get the filename
-		filename := match[1:] // Skip the @ character
-
+	for _, filename := range filenames {
 		// Check if the file exists in the current directory
 		if _, err := os.Stat(filename); err == nil {
 			// File exists, read its content
