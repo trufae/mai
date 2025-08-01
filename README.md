@@ -1,12 +1,10 @@
 <img width="300px" height="300px" align="left" style="float: left; margin: 0 10px 0 0;" alt="mailogo" src="https://raw.githubusercontent.com/trufae/mai/master/mai-logo.png?nocache">
 
-### MAI
-
-My Artificial Intelligence (🐱AI)
-
-Set of commandline tools to use in batch or interactive mode against local and remote AI providers bringing powerful shell style oneliners in conjuntion of MCP agents.
+### M(🐱)AI: My Artificial Intelligence
 
 [![CI](https://github.com/trufae/mai/actions/workflows/ci.yml/badge.svg)](https://github.com/trufae/mai/actions/workflows/ci.yml)
+
+Set of commandline tools to use in batch or interactive mode against local and remote AI providers bringing powerful shell style oneliners in conjuntion of MCP agents.
 
 --pancake
 
