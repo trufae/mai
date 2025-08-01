@@ -96,8 +96,8 @@ type MarkdownRenderer struct {
 	linkURLBuffer     string
 	inLinkText        bool
 	inLinkURL         bool
-	boldMarker        byte // '*' or '_' for bold
-	italicMarker      byte // '*' or '_' for italic
+	boldMarker        rune // '*' or '_' for bold
+	italicMarker      rune // '*' or '_' for italic
 	nestingLevel      int  // For handling nested formatting
 
 	// State flags
@@ -137,9 +137,10 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 
 	var result strings.Builder
 
-	// Process character by character
-	for i := 0; i < len(chunk); i++ {
-		c := chunk[i]
+	// Process character by character, supporting multibyte UTF-8 runes
+	runes := []rune(chunk)
+	for i := 0; i < len(runes); i++ {
+		c := runes[i]
 
 		// Handle escape character
 		if c == '\\' && !r.isEscaping {
@@ -159,13 +160,13 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			if c == '#' {
 				headerCount := 1
 				j := i + 1
-				for j < len(chunk) && chunk[j] == '#' && headerCount < 6 {
+				for j < len(runes) && runes[j] == '#' && headerCount < 6 {
 					headerCount++
 					j++
 				}
 
 				// Validate that it's a proper header (needs space after #)
-				if j < len(chunk) && chunk[j] == ' ' {
+				if j < len(runes) && runes[j] == ' ' {
 					r.collectingHeader = true
 					r.headerLevel = headerCount
 					r.currentElement = MarkdownElement{Type: HeaderElement, Level: headerCount, Content: ""}
@@ -176,7 +177,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			}
 
 			// Handle list items (- item or * item)
-			if (c == '-' || c == '*') && i+1 < len(chunk) && chunk[i+1] == ' ' {
+			if (c == '-' || c == '*') && i+1 < len(runes) && runes[i+1] == ' ' {
 				r.collectingListItem = true
 				r.currentElement = MarkdownElement{Type: ListItemElement, Content: ""}
 				i += 1 // Skip the marker and space
@@ -187,10 +188,10 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			// Handle ordered list items (1. item)
 			if isDigit(c) {
 				j := i
-				for j < len(chunk) && isDigit(chunk[j]) {
+				for j < len(runes) && isDigit(runes[j]) {
 					j++
 				}
-				if j < len(chunk) && chunk[j] == '.' && j+1 < len(chunk) && chunk[j+1] == ' ' {
+				if j < len(runes) && runes[j] == '.' && j+1 < len(runes) && runes[j+1] == ' ' {
 					r.collectingListItem = true
 					r.currentElement = MarkdownElement{Type: ListItemElement, Content: ""}
 					i = j + 1 // Skip past the number, dot, and space
@@ -200,7 +201,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			}
 
 			// Handle blockquotes (> quote)
-			if c == '>' && i+1 < len(chunk) && chunk[i+1] == ' ' {
+			if c == '>' && i+1 < len(runes) && runes[i+1] == ' ' {
 				r.collectingBlockquote = true
 				r.currentElement = MarkdownElement{Type: BlockquoteElement, Content: ""}
 				i += 1 // Skip the > and space
@@ -209,20 +210,20 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			}
 
 			// Handle code fences (```)
-			if c == '`' && i+2 < len(chunk) && chunk[i+1] == '`' && chunk[i+2] == '`' {
+			if c == '`' && i+2 < len(runes) && runes[i+1] == '`' && runes[i+2] == '`' {
 				r.inCodeFence = !r.inCodeFence
 				if r.inCodeFence {
 					// Look for optional language identifier
 					langStart := i + 3
-					for langStart < len(chunk) && chunk[langStart] == ' ' {
+					for langStart < len(runes) && runes[langStart] == ' ' {
 						langStart++
 					}
 					langEnd := langStart
-					for langEnd < len(chunk) && chunk[langEnd] != '\n' {
+					for langEnd < len(runes) && runes[langEnd] != '\n' {
 						langEnd++
 					}
 					if langEnd > langStart {
-						r.codeLanguage = chunk[langStart:langEnd]
+						r.codeLanguage = string(runes[langStart:langEnd])
 					}
 					r.currentElement = MarkdownElement{Type: CodeBlockElement, Content: ""}
 				} else {
@@ -232,7 +233,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 					r.codeLanguage = ""
 				}
 				i += 2 // Skip past the ```
-				if i+1 < len(chunk) && chunk[i+1] == '\n' {
+				if i+1 < len(runes) && runes[i+1] == '\n' {
 					i++ // Skip the newline after code fence
 				}
 				r.isInLineStart = true
@@ -245,12 +246,12 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 		// Inside code fence - collect everything until the closing fence
 		if r.inCodeFence && r.currentElement.Type == CodeBlockElement {
 			// Check for closing fence
-			if c == '`' && i+2 < len(chunk) && chunk[i+1] == '`' && chunk[i+2] == '`' {
+			if c == '`' && i+2 < len(runes) && runes[i+1] == '`' && runes[i+2] == '`' {
 				r.inCodeFence = false
 				result.WriteString(formatElement(r.currentElement))
 				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 				i += 2 // Skip the remaining `` characters
-				if i+1 < len(chunk) && chunk[i+1] == '\n' {
+				if i+1 < len(runes) && runes[i+1] == '\n' {
 					i++ // Skip the newline after code fence
 				}
 				r.isInLineStart = true
@@ -285,7 +286,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 		}
 
 		// Handle bold formatting (** or __)
-		if (c == '*' || c == '_') && i+1 < len(chunk) && chunk[i+1] == c {
+		if (c == '*' || c == '_') && i+1 < len(runes) && runes[i+1] == c {
 			if r.collectingBold && c == r.boldMarker {
 				// End of bold, add the element
 				r.collectingBold = false
@@ -343,7 +344,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			continue
 		}
 
-		if c == ']' && r.collectingLinkText && i+1 < len(chunk) && chunk[i+1] == '(' {
+		if c == ']' && r.collectingLinkText && i+1 < len(runes) && runes[i+1] == '(' {
 			r.collectingLinkText = false
 			r.collectingLinkURL = true
 			i++ // Skip the opening (
@@ -507,7 +508,7 @@ func formatElement(element MarkdownElement) string {
 }
 
 // isDigit checks if a character is a digit
-func isDigit(c byte) bool {
+func isDigit(c rune) bool {
 	return c >= '0' && c <= '9'
 }
 
