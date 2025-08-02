@@ -266,6 +266,31 @@ func (r *REPL) loadRCFile() error {
 	return nil
 }
 
+func (r *REPL) findMaiMD() (string, error) {
+	if !r.config.options.GetBool("usemaimd") {
+		return "", nil
+	}
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		maiPath := filepath.Join(currentDir, "MAI.md")
+		if _, err := os.Stat(maiPath); err == nil {
+			content, err := os.ReadFile(maiPath)
+			if err != nil {
+				return "", err
+			}
+			return string(content), nil
+		}
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			return "", nil
+		}
+		currentDir = parentDir
+	}
+}
+
 func (r *REPL) Run() error {
 	defer r.cleanup()
 
@@ -294,6 +319,7 @@ func (r *REPL) Run() error {
 
 	return nil
 }
+
 
 func (r *REPL) setupHistory() error {
 	if !r.config.options.GetBool("history") {
@@ -1422,8 +1448,20 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Add system prompt if present
 	messages := []Message{}
-	if r.systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+	maiMdPrompt, err := r.findMaiMD()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding MAI.md: %v\r\n", err)
+	}
+	finalSystemPrompt := r.systemPrompt
+	if maiMdPrompt != "" {
+		if finalSystemPrompt != "" {
+			finalSystemPrompt += "\n\n" + maiMdPrompt
+		} else {
+			finalSystemPrompt = maiMdPrompt
+		}
+	}
+	if finalSystemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: finalSystemPrompt})
 	}
 
 	// Handle conversation history based on logging and reply settings
