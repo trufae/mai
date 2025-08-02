@@ -390,6 +390,13 @@ func (r *ReadLine) Read() (string, error) {
 
 // refreshLine redraws the current line with scrolling if needed
 func (r *ReadLine) refreshLine() {
+	// Get terminal width
+	width, _, err := term.GetSize(int(os.Stdin.Fd()))
+	if err == nil {
+		// Account for prompt length plus a space
+		promptLen := len(r.prompt) + 1
+		r.width = width - promptLen
+	}
 	// First, calculate the visible portion of the buffer
 	visibleEnd := r.scrollPos + r.width
 	if visibleEnd > len(r.buffer) {
@@ -420,6 +427,7 @@ func (r *ReadLine) refreshLine() {
 	// Move cursor to the correct position
 	fmt.Printf("\r\033[%dC", screenPos)
 }
+
 
 // insertRune inserts a character at the current cursor position
 func (r *ReadLine) insertRune(char rune) {
