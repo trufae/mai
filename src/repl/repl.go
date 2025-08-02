@@ -613,56 +613,63 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	}
 
 	// Check if we need to complete a file path for a command that accepts a file
-	parts := strings.SplitN(input, " ", 2)
-	if len(parts) == 2 && (parts[0] == "/image" || parts[0] == "/file" || parts[0] == ".") {
-		r.handleFilePathCompletion(line, parts[0], parts[1])
+	fileParts := strings.SplitN(input, " ", 2)
+	if len(fileParts) == 2 && (fileParts[0] == "/image" || fileParts[0] == "/file" || fileParts[0] == ".") {
+		r.handleFilePathCompletion(line, fileParts[0], fileParts[1])
 		return
 	}
 
 	// Check for /set promptfile and promptdir value completion
-	if len(parts) == 3 && parts[0] == "/set" {
-		switch parts[1] {
-		case "promptfile":
-			// Complete file paths for promptfile
-			r.handleFilePathCompletion(line, "/set promptfile", parts[2])
-			return
-		case "promptdir":
-			// Complete directory paths for promptdir
-			r.handleDirectoryCompletion(line, "/set promptdir", parts[2])
-			return
+	setParts := strings.SplitN(input, " ", 3)
+	if len(setParts) >= 2 && setParts[0] == "/set" {
+		if len(setParts) == 3 {
+			switch setParts[1] {
+			case "promptfile":
+				// Complete file paths for promptfile
+				r.handleFilePathCompletion(line, "/set promptfile", setParts[2])
+				return
+			case "promptdir":
+				// Complete directory paths for promptdir
+				r.handleDirectoryCompletion(line, "/set promptdir", setParts[2])
+				return
+			}
 		}
+		// Fallthrough for option completion
 	}
 
 	// Check for /set, /get, and /unset option completion
-	if len(parts) == 2 && (parts[0] == "/set" || parts[0] == "/get" || parts[0] == "/unset") {
-		r.handleOptionCompletion(line, parts[0], parts[1])
+	configParts := strings.SplitN(input, " ", 2)
+	if len(configParts) == 2 && (configParts[0] == "/set" || configParts[0] == "/get" || configParts[0] == "/unset") {
+		r.handleOptionCompletion(line, configParts[0], configParts[1])
 		return
 	}
 
 	// Handle tab completion for /chat subcommands
-	if strings.HasPrefix(input, "/chat ") && len(parts) >= 2 {
-		if len(parts) == 2 {
+	chatParts := strings.SplitN(input, " ", 3)
+	if strings.HasPrefix(input, "/chat ") && len(chatParts) >= 2 {
+		if len(chatParts) == 2 {
 			// Complete /chat subcommands
-			subcmd := parts[1]
+			subcmd := chatParts[1]
 			r.handleChatSubcommandCompletion(line, subcmd)
 			return
-		} else if len(parts) == 3 && (parts[1] == "save" || parts[1] == "load") {
+		} else if len(chatParts) == 3 && (chatParts[1] == "save" || chatParts[1] == "load") {
 			// Complete file paths for save/load
-			r.handleFilePathCompletion(line, "/chat "+parts[1], parts[2])
+			r.handleFilePathCompletion(line, "/chat "+chatParts[1], chatParts[2])
 			return
 		}
 	}
 
 	// Handle tab completion for /session subcommands
-	if strings.HasPrefix(input, "/session ") && len(parts) >= 2 {
-		if len(parts) == 2 {
+	sessionParts := strings.SplitN(input, " ", 3)
+	if strings.HasPrefix(input, "/session ") && len(sessionParts) >= 2 {
+		if len(sessionParts) == 2 {
 			// Complete /session subcommands
-			subcmd := parts[1]
+			subcmd := sessionParts[1]
 			r.handleSessionSubcommandCompletion(line, subcmd)
 			return
-		} else if len(parts) == 3 && (parts[1] == "use" || parts[1] == "del") {
+		} else if len(sessionParts) == 3 && (sessionParts[1] == "use" || sessionParts[1] == "del") {
 			// Complete session names for use/del
-			r.handleSessionNameCompletion(line, "/session "+parts[1], parts[2])
+			r.handleSessionNameCompletion(line, "/session "+sessionParts[1], sessionParts[2])
 			return
 		}
 	}
@@ -1094,6 +1101,10 @@ func (r *REPL) handleSessionNameCompletion(line *strings.Builder, command, parti
 	}
 	chatDir := filepath.Join(homeDir, ".mai", "chat")
 
+	// Check if we need to generate fresh completion options
+	// We need fresh options if:
+	// 1. It's the first tab press (completeState == 0)
+	// 2. The input has changed since the last completion
 	if r.completeState == 0 || !strings.HasPrefix(line.String(), r.completePrefix) {
 		files, err := os.ReadDir(chatDir)
 		if err != nil {
@@ -1115,7 +1126,7 @@ func (r *REPL) handleSessionNameCompletion(line *strings.Builder, command, parti
 		sort.Strings(r.completeOptions)
 		r.completeState = 1
 		r.completeIdx = 0
-		r.completePrefix = command + " "
+		r.completePrefix = command + " " + partialName
 	}
 
 	if len(r.completeOptions) > 0 {
