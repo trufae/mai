@@ -45,7 +45,8 @@ type REPL struct {
 	completeState    int
 	completeOptions  []string
 	completePrefix   string
-	completeIdx      int // Current index in completion options
+	completeIdx      int    // Current index in completion options
+	lastTabInput     string // last input text when Tab was pressed
 	streamingEnabled bool
 	systemPrompt     string
 	messages         []Message
@@ -571,29 +572,19 @@ func (r *REPL) readLine() (string, error) {
 }
 
 func (r *REPL) handleTabCompletion(line *strings.Builder) {
-	input := line.String()
+	// Capture original input and ensure lastTabInput is updated after completion
+	origInput := line.String()
+	defer func() {
+		r.lastTabInput = line.String()
+	}()
+	input := origInput
 
-	// Only reset completion state if necessary
-	// This makes backspace handling simpler - if the user has modified
-	// the input so it's no longer related to our completion,
-	// we reset the completion state
-	if r.completeState != 0 {
-		// Reset if input has been modified to be unrelated to current completion
-		// but preserve state for proper cycling
-		if input != r.completePrefix {
-			var currentOption string
-			if r.completeIdx < len(r.completeOptions) {
-				currentOption = r.completeOptions[r.completeIdx]
-			}
-			// Check if input matches the option itself (for commands) or prefix+option (for @ path)
-			if r.completeIdx >= len(r.completeOptions) ||
-				(input != currentOption && input != r.completePrefix+currentOption) {
-				r.completeState = 0
-				r.completeIdx = 0
-				r.completeOptions = nil
-				r.completePrefix = ""
-			}
-		}
+	// Fresh vs cycling: reset if first tab or input changed since last tab press
+	if r.completeState == 0 || origInput != r.lastTabInput {
+		r.completeState = 0
+		r.completeIdx = 0
+		r.completeOptions = nil
+		r.completePrefix = ""
 	}
 
 	// Check if input contains @ for file path completion
