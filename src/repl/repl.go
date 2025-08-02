@@ -374,7 +374,8 @@ func (r *REPL) cleanup() {
 		if r.currentSession != "" {
 			name = r.currentSession
 		} else {
-			name = time.Now().Format("20060102150405")
+			// name = time.Now().Format("20060102150405")
+			name = time.Now().Format("05041502012006")
 		}
 		if err := r.saveSession(name); err != nil {
 			fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
