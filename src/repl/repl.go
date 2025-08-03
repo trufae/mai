@@ -58,6 +58,7 @@ type REPL struct {
 	useToolsEnabled  bool               // Whether to process input using tools.go functions
 	commands         map[string]Command // Registry of available commands
 	currentSession   string             // Name of the active chat session
+	unsavedTopic     string             // Topic for unsaved session before saving to disk
 }
 
 type pendingFile struct {
@@ -319,7 +320,6 @@ func (r *REPL) Run() error {
 
 	return nil
 }
-
 
 func (r *REPL) setupHistory() error {
 	if !r.config.options.GetBool("history") {
@@ -1018,6 +1018,8 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		fmt.Print("  /session use <name> - Switch to the given session\r\n")
 		fmt.Print("  /session del <name> - Delete the given session\r\n")
 		fmt.Print("  /session purge    - Delete all saved sessions\r\n")
+		fmt.Print("  /session topic [t] - Show or set session topic\r\n")
+		fmt.Print("  /session aitopic  - Generate AI session topic and set unsaved topic\r\n")
 		return nil
 	}
 	action := args[1]
@@ -1036,6 +1038,7 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		}
 		r.messages = []Message{}
 		r.currentSession = name
+		r.unsavedTopic = ""
 		fmt.Printf("Started new session '%s'\r\n", name)
 	case "list":
 		return r.listSessions()
@@ -1048,6 +1051,7 @@ func (r *REPL) handleSessionCommand(args []string) error {
 			return err
 		}
 		r.currentSession = args[2]
+		r.unsavedTopic = ""
 	case "del":
 		if len(args) < 3 {
 			fmt.Print("Usage: /session del <session-name>\r\n")
@@ -1065,18 +1069,75 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		}
 		_ = os.Remove(topicFile)
 		fmt.Printf("Deleted session '%s'\r\n", args[2])
+	case "topic":
+		if len(args) > 2 {
+			topic := strings.Join(args[2:], " ")
+			if r.currentSession == "" {
+				r.unsavedTopic = topic
+			} else {
+				r.setSessionTopic(r.currentSession, topic)
+			}
+		} else {
+			if r.currentSession == "" {
+				fmt.Printf("Current session topic: %s\r\n", r.unsavedTopic)
+			} else {
+				fmt.Printf("Current session topic: %s\r\n", r.getSessionTopic(r.currentSession))
+			}
+		}
 	case "purge":
 		return r.purgeSessions()
+	case "aitopic":
+		// Generate an AI topic and store its first line as the unsaved topic
+		topic, err := r.generateAndSetTopic()
+		if err != nil {
+			fmt.Printf("Error generating AI topic: %v\r\n", err)
+		} else {
+			fmt.Printf("AI session topic: %s\r\n", topic)
+		}
 	default:
 		fmt.Printf("Unknown session action: %s\r\n", action)
 	}
 	return nil
 }
 
+func (r *REPL) getSessionTopic(sessionName string) string {
+	if sessionName == "" {
+		return ""
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
+	if _, err := os.Stat(topicFile); os.IsNotExist(err) {
+		return ""
+	}
+	content, err := os.ReadFile(topicFile)
+	if err != nil {
+		return ""
+	}
+	return string(content)
+}
+
+func (r *REPL) setSessionTopic(sessionName string, topic string) {
+	if sessionName == "" {
+		return
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
+	err = os.WriteFile(topicFile, []byte(topic), 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing topic file: %v\n", err)
+	}
+}
+
 // handleSessionSubcommandCompletion handles tab completion for /session subcommands
 func (r *REPL) handleSessionSubcommandCompletion(line *strings.Builder, subcmd string) {
 	// Subcommands for /session
-	subcommands := []string{"new", "list", "use", "del", "purge"}
+	subcommands := []string{"new", "list", "use", "del", "purge", "topic", "aitopic"}
 	sort.Strings(subcommands)
 
 	// Check if we need fresh options
@@ -1183,15 +1244,24 @@ func (r *REPL) saveSession(sessionName string) error {
 		return fmt.Errorf("cannot write session file: %v", err)
 	}
 
-	// Generate and save topic
-	topic, err := r.generateTopic()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating topic: %v\n", err)
-	} else {
-		if err := os.WriteFile(topicFile, []byte(topic), 0644); err != nil {
+	// Generate and save topic if AI topic generation is enabled or a manual topic was set
+	if r.config.options.GetBool("aitopic") {
+		full, err := r.generateAndSetTopic()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating topic: %v\n", err)
+		} else {
+			fmt.Println(full)
+			if err := os.WriteFile(topicFile, []byte(r.unsavedTopic), 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing topic file: %v\n", err)
+			}
+		}
+	} else if r.unsavedTopic != "" {
+		if err := os.WriteFile(topicFile, []byte(r.unsavedTopic), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing topic file: %v\n", err)
 		}
 	}
+	// Clear manual or AI-generated unsaved topic after saving
+	r.unsavedTopic = ""
 
 	fmt.Printf("Session saved to %s\n\r", sessionFile)
 	return nil
@@ -1239,21 +1309,46 @@ func (r *REPL) listSessions() error {
 		return fmt.Errorf("cannot read chat directory: %v", err)
 	}
 
-	fmt.Print("Available sessions:\n\r")
+	// Collect and sort session files by their timestamp names
+	type sessionEntry struct {
+		name  string
+		info  os.FileInfo
+		topic []byte
+		time  time.Time
+	}
+	var sessions []sessionEntry
 	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
-			info, err := file.Info()
-			if err != nil {
-				continue
-			}
-			sessionName := strings.TrimSuffix(file.Name(), ".json")
-			topicFile := filepath.Join(chatDir, sessionName+".topic")
-			topic, err := os.ReadFile(topicFile)
-			if err != nil {
-				topic = []byte("-")
-			}
-			fmt.Printf("  %s (%d bytes) - %s\n\r", sessionName, info.Size(), string(topic))
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
 		}
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+		sessionName := strings.TrimSuffix(file.Name(), ".json")
+		topicFile := filepath.Join(chatDir, sessionName+".topic")
+		topic, err := os.ReadFile(topicFile)
+		if err != nil {
+			topic = []byte("-")
+		}
+		// parsedTime, err := time.Parse("20060102150405", sessionName)
+		parsedTime, err := time.Parse("05041502012006", sessionName)
+		if err != nil {
+			parsedTime = time.Time{}
+		}
+		sessions = append(sessions, sessionEntry{name: sessionName, info: info, topic: topic, time: parsedTime})
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].time.Equal(sessions[j].time) {
+			return sessions[i].name < sessions[j].name
+		}
+		return sessions[i].time.Before(sessions[j].time)
+	})
+
+	fmt.Print("Available sessions:\n\r")
+	for _, s := range sessions {
+		fmt.Printf("  %s (%d bytes) - %s\n\r", s.name, s.info.Size(), string(s.topic))
 	}
 	return nil
 }
@@ -1309,7 +1404,24 @@ func (r *REPL) generateTopic() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to generate topic: %v", err)
 	}
+	// Trim and return AI-generated topic summary
 	return strings.TrimSpace(response), nil
+}
+
+// generateAndSetTopic runs the AI topic generator, sets the first line
+// as the unsavedTopic, and returns the full generated topic.
+func (r *REPL) generateAndSetTopic() (string, error) {
+	full, err := r.generateTopic()
+	if err != nil {
+		return "", err
+	}
+	// Extract first line for unsaved topic
+	first := full
+	if idx := strings.IndexByte(full, '\n'); idx != -1 {
+		first = full[:idx]
+	}
+	r.unsavedTopic = first
+	return full, nil
 }
 
 func (r *REPL) handleCommand(input string) error {
@@ -1478,8 +1590,9 @@ func (r *REPL) sendToAI(input string) error {
 				}
 			}
 		}
+	} else {
+		// When logging is disabled, we don't append any previous messages
 	}
-	// When logging is disabled, we don't append any previous messages
 
 	// Process @mentions in the input
 	enhancedInput := r.processAtMentions(input)
@@ -1519,6 +1632,17 @@ func (r *REPL) sendToAI(input string) error {
 	} else {
 		// When logging is disabled, replace the entire history with just this message
 		r.messages = []Message{userMessage}
+	}
+
+	// Set default topic from first user message for unsaved sessions
+	if r.currentSession == "" && r.unsavedTopic == "" {
+		// Use the first few words of the message as the session topic
+		words := strings.Fields(userMessage.Content.(string))
+		snippetWords := words
+		if len(words) > 5 {
+			snippetWords = words[:5]
+		}
+		r.unsavedTopic = strings.Join(snippetWords, " ")
 	}
 
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM

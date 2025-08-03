@@ -67,6 +67,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
 	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
 	co.RegisterOption("usemaimd", BooleanOption, "Look for and use MAI.md as a system prompt", "true")
+	// Enable automatic AI-generated session topics (#topic)
+	co.RegisterOption("aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
 
 	co.initialized = true
 

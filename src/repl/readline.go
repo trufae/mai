@@ -428,7 +428,6 @@ func (r *ReadLine) refreshLine() {
 	fmt.Printf("\r\033[%dC", screenPos)
 }
 
-
 // insertRune inserts a character at the current cursor position
 func (r *ReadLine) insertRune(char rune) {
 	if r.cursorPos == len(r.buffer) {
