@@ -684,7 +684,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			subcmd := sessionParts[1]
 			r.handleSessionSubcommandCompletion(line, subcmd)
 			return
-		} else if len(sessionParts) == 3 && (sessionParts[1] == "use" || sessionParts[1] == "del") {
+		} else if len(sessionParts) == 3 && (sessionParts[1] == "use" || sessionParts[1] == "del" || sessionParts[1] == "show") {
 			// Complete session names for use/del
 			r.handleSessionNameCompletion(line, "/session "+sessionParts[1], sessionParts[2])
 			return
@@ -1015,6 +1015,7 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		fmt.Print("Session management commands:\r\n")
 		fmt.Print("  /session new      - Start a new session (save current if non-empty)\r\n")
 		fmt.Print("  /session list     - List all saved sessions\r\n")
+		fmt.Print("  /session show <name> - Display full conversation with preserved formatting for the given session\r\n")
 		fmt.Print("  /session use <name> - Switch to the given session\r\n")
 		fmt.Print("  /session del <name> - Delete the given session\r\n")
 		fmt.Print("  /session purge    - Delete all saved sessions\r\n")
@@ -1042,6 +1043,35 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		fmt.Printf("Started new session '%s'\r\n", name)
 	case "list":
 		return r.listSessions()
+
+	case "show":
+		if len(args) < 3 {
+			fmt.Print("Usage: /session show <session-name>\r\n")
+			return nil
+		}
+		// Load specified session without switching current session
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Printf("Cannot get home directory: %v\r\n", err)
+			return nil
+		}
+		sessionFile := filepath.Join(homeDir, ".mai", "chat", args[2]+".json")
+		data, err := os.ReadFile(sessionFile)
+		if err != nil {
+			fmt.Printf("Cannot read session file: %v\r\n", err)
+			return nil
+		}
+		var sess sessionData
+		if err := json.Unmarshal(data, &sess); err != nil {
+			fmt.Printf("Cannot parse session data: %v\r\n", err)
+			return nil
+		}
+		origMsgs := r.messages
+		r.messages = sess.Messages
+		r.displayFullConversationLog()
+		r.messages = origMsgs
+		return nil
+
 	case "use":
 		if len(args) < 3 {
 			fmt.Print("Usage: /session use <session-name>\r\n")
@@ -1137,7 +1167,7 @@ func (r *REPL) setSessionTopic(sessionName string, topic string) {
 // handleSessionSubcommandCompletion handles tab completion for /session subcommands
 func (r *REPL) handleSessionSubcommandCompletion(line *strings.Builder, subcmd string) {
 	// Subcommands for /session
-	subcommands := []string{"new", "list", "use", "del", "purge", "topic", "aitopic"}
+	subcommands := []string{"new", "list", "show", "use", "del", "purge", "topic", "aitopic"}
 	sort.Strings(subcommands)
 
 	// Check if we need fresh options
