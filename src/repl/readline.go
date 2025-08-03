@@ -341,6 +341,14 @@ func (r *ReadLine) Read() (string, error) {
 			r.moveCursorToEnd()
 			continue
 
+		case 16: // Ctrl+P (previous history)
+			r.navigateHistory(-1)
+			continue
+
+		case 14: // Ctrl+N (next history)
+			r.navigateHistory(1)
+			continue
+
 		case 9: // Tab (completion)
 			// Return a special value to indicate tab was pressed
 			// This will be handled by the REPL's tab completion logic
