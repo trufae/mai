@@ -78,6 +78,7 @@ func NewREPL(config *Config) (*REPL, error) {
 	// Create a persistent readline instance
 	readLine, err := NewReadLine()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to initialize readline: %v", err)
 	}
 

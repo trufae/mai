@@ -115,10 +115,6 @@ func callTool(tool *Tool) (string, error) {
 	return result, nil
 }
 
-func getToolsFromJson(message string) ([]*Tool, error) {
-	return []*Tool{}, nil
-}
-
 // ExecuteTool runs a specified tool with provided arguments and returns the output
 // Kept for backward compatibility
 func ExecuteTool(toolName string, args ...string) (string, error) {
