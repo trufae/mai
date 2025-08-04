@@ -32,6 +32,8 @@ Commands:
   servers                        List all available servers
   call <server> <tool> [params]  Call a specific tool
 
+Note: When parameters are provided, the client sends them as a JSON POST request, enabling multiline values and special characters without URL-encoding.
+
 Examples:
   mcpcli list
   mcpcli -j list

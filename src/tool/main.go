@@ -460,32 +460,36 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 	toolUrl := buildApiUrl(config, endpoint)
 	// fmt.Println (toolUrl)
 
-	// Prepare parameters as query params
-	queryParams := make([]string, 0, len(params))
-	for k, v := range params {
-		queryParams = append(queryParams, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	if len(queryParams) > 0 {
-		toolUrl = toolUrl + "?" + strings.Join(queryParams, "&")
-	}
-
-	// Debug logging for parameters
-	if config.Debug {
-		debugPrint(config, "Query parameters: %v", queryParams)
-	}
-
-	// Make GET request
-	debugPrint(config, "Making GET request to: %s", toolUrl)
-
 	// Create HTTP client with debug transport if needed
 	client := &http.Client{}
 	if config.Debug {
 		client.Transport = createDebugTransport(config)
 	}
-
-	// Execute the request
-	resp, requestErr = client.Get(toolUrl)
+	if len(params) > 0 {
+		// JSON POST request with arguments in body for multiline support
+		bodyBytes, err := json.Marshal(params)
+		if err != nil {
+			if !config.Quiet {
+				fmt.Fprintf(os.Stderr, "Error encoding JSON parameters: %v\n", err)
+			}
+			os.Exit(1)
+		}
+		debugPrint(config, "JSON request body: %v", params)
+		req, err := http.NewRequest("POST", toolUrl, bytes.NewReader(bodyBytes))
+		if err != nil {
+			if !config.Quiet {
+				fmt.Fprintf(os.Stderr, "Error creating request: %v\n", err)
+			}
+			os.Exit(1)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		debugPrint(config, "Making POST request to: %s", toolUrl)
+		resp, requestErr = client.Do(req)
+	} else {
+		// Fallback to GET request for no parameters
+		debugPrint(config, "Making GET request to: %s", toolUrl)
+		resp, requestErr = client.Get(toolUrl)
+	}
 
 	// Handle request errors
 	if requestErr != nil {

@@ -75,9 +75,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 		},
 
 		// Base tools from original implementation
-		// 1. CommandExecutor
+		// 1. ExecuteCommand
 		{
-			Name:        "CommandExecutor",
+			Name:        "ExecuteCommand",
 			Description: "Executes shell commands on the MCP server and returns the standard output, standard error, and return code.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -94,7 +94,7 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 				"required": []string{"command"},
 			},
 			UsageExamples: "Example: {\"command\": \"ls -la\"} - Lists files in the current directory with details",
-			Handler:       s.handleCommandExecutor,
+			Handler:       s.handleExecuteCommand,
 		},
 
 		// 2. FileOperations - ReadFile
@@ -645,8 +645,8 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 
 // Handler implementations
 
-// handleCommandExecutor handles the CommandExecutor request
-func (s *CodeService) handleCommandExecutor(args map[string]any) (any, error) {
+// handleExecuteCommand handles the ExecuteCommand request
+func (s *CodeService) handleExecuteCommand(args map[string]any) (any, error) {
 	command, ok := args["command"].(string)
 	if !ok || command == "" {
 		return nil, fmt.Errorf("command is required")

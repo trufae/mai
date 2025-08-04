@@ -201,16 +201,8 @@ func extractJSONBlock(text string) (string, string) {
 }
 
 func stripJSONComments(input string) string {
-	lines := strings.Split(input, "\n")
-	var cleaned []string
-	commentRegex := regexp.MustCompile(`//.*$`)
-	comment2Regex := regexp.MustCompile(`^#.*$`)
-	for _, line := range lines {
-		clean := commentRegex.ReplaceAllString(line, "")
-		clean = comment2Regex.ReplaceAllString(clean, "")
-		cleaned = append(cleaned, clean)
-	}
-	return strings.Join(cleaned, "\n")
+	// No-op: preserve all characters, including lines starting with '#'.
+	return input
 }
 
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
