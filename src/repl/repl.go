@@ -222,74 +222,60 @@ func NewREPL(config *Config) (*REPL, error) {
 	return repl, nil
 }
 
-// loadRCFile loads and processes commands from ~/.mairc file
+// loadRCFile loads and processes commands from the 'rc' file in the project or home .mai directory
 func (r *REPL) loadRCFile() error {
-	// Get user's home directory
-	homeDir, err := os.UserHomeDir()
+	// Load commands from the 'rc' file in the project or home .mai directory
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("failed to get home directory: %v", err)
+		return err
 	}
-
-	// Form the path to the .mairc file
-	rcFilePath := filepath.Join(homeDir, ".mairc")
-
-	// Check if the file exists
+	rcFilePath := filepath.Join(maiDir, "rc")
 	if _, err := os.Stat(rcFilePath); os.IsNotExist(err) {
-		// File doesn't exist, not an error
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("error checking .mairc file: %v", err)
+		return fmt.Errorf("error checking rc file: %v", err)
 	}
-
-	// Read the file
-	rcFileContent, err := os.ReadFile(rcFilePath)
+	content, err := os.ReadFile(rcFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to read .mairc file: %v", err)
+		return fmt.Errorf("failed to read rc file: %v", err)
 	}
-
-	// Process each line in the file
-	lines := strings.Split(string(rcFileContent), "\n")
-	for _, line := range lines {
-		// Trim whitespace
+	for _, line := range strings.Split(string(content), "\n") {
 		line = strings.TrimSpace(line)
-
-		// Skip empty lines and lines that don't start with /
 		if line == "" || !strings.HasPrefix(line, "/") {
 			continue
 		}
-
-		// Process the command
 		if err := r.handleCommand(line); err != nil {
-			fmt.Printf("Error in .mairc: %v\r\n", err)
+			fmt.Printf("Error in rc file %s: %v\r\n", rcFilePath, err)
 		}
 	}
-
 	return nil
 }
 
-func (r *REPL) findMaiMD() (string, error) {
-	if !r.config.options.GetBool("usemaimd") {
-		return "", nil
-	}
+// findMaiMD is no longer used; system prompt file loading is handled dynamically
+
+// findMaiDir searches for a .mai directory from the current directory up to root,
+// and returns it, or falls back to $HOME/.mai if none found.
+func findMaiDir() (string, error) {
 	currentDir, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get working directory: %v", err)
 	}
 	for {
-		maiPath := filepath.Join(currentDir, "MAI.md")
-		if _, err := os.Stat(maiPath); err == nil {
-			content, err := os.ReadFile(maiPath)
-			if err != nil {
-				return "", err
-			}
-			return string(content), nil
+		candidate := filepath.Join(currentDir, ".mai")
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			return candidate, nil
 		}
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			return "", nil
+		parent := filepath.Dir(currentDir)
+		if parent == currentDir {
+			break
 		}
-		currentDir = parentDir
+		currentDir = parent
 	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %v", err)
+	}
+	return filepath.Join(homeDir, ".mai"), nil
 }
 
 func (r *REPL) Run() error {
@@ -300,10 +286,10 @@ func (r *REPL) Run() error {
 
 	fmt.Print(fmt.Sprintf("mai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 
-	// Load and process ~/.mairc if not in stdin mode and not skipped
+	// Load and process 'rc' file from project or home .mai directory if not in stdin mode and not skipped
 	if !r.config.IsStdinMode && !r.config.SkipRcFile {
 		if err := r.loadRCFile(); err != nil {
-			fmt.Printf("Error loading .mairc: %v\r\n", err)
+			fmt.Printf("Error loading rc file: %v\r\n", err)
 		}
 	}
 
@@ -325,11 +311,11 @@ func (r *REPL) setupHistory() error {
 	if !r.config.options.GetBool("history") {
 		return nil
 	}
-	homeDir, err := os.UserHomeDir()
+	// Determine the .mai directory for history/chat storage: search project dirs or fallback to home
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return err
 	}
-	maiDir := filepath.Join(homeDir, ".mai")
 	if _, err := os.Stat(maiDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(maiDir, 0755); err != nil {
 			return fmt.Errorf("cannot create %s: %v", maiDir, err)
@@ -1590,16 +1576,26 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Add system prompt if present
 	messages := []Message{}
-	maiMdPrompt, err := r.findMaiMD()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error finding MAI.md: %v\r\n", err)
-	}
+	// Determine the final system prompt, giving user-set text priority
 	finalSystemPrompt := r.systemPrompt
-	if maiMdPrompt != "" {
-		if finalSystemPrompt != "" {
-			finalSystemPrompt += "\n\n" + maiMdPrompt
-		} else {
-			finalSystemPrompt = maiMdPrompt
+	if finalSystemPrompt == "" {
+		// Try systempromptfile option or default .mai/systemprompt.md
+		spFile := r.config.options.Get("systempromptfile")
+		if spFile == "" {
+			if d, err := findMaiDir(); err == nil {
+				candidate := filepath.Join(d, "systemprompt.md")
+				if _, err := os.Stat(candidate); err == nil {
+					spFile = candidate
+					r.config.options.Set("systempromptfile", spFile)
+				}
+			}
+		}
+		if spFile != "" {
+			if content, err := os.ReadFile(spFile); err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading system prompt file %s: %v\r\n", spFile, err)
+			} else {
+				finalSystemPrompt = string(content)
+			}
 		}
 	}
 	if finalSystemPrompt != "" {

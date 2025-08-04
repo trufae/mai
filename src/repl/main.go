@@ -42,7 +42,7 @@ type Config struct {
 	BaseURL       string         // Base URL to connect to LLM API
 	UserAgent     string         // User agent for HTTP requests
 	IsStdinMode   bool           // Whether running in stdin mode
-	SkipRcFile    bool           // Whether to skip loading ~/.mairc
+	SkipRcFile    bool           // Whether to skip loading rc file from .mai/rc
 	options       *ConfigOptions // Configuration options
 }
 
@@ -813,13 +813,13 @@ func showHelp() {
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
 -m <model>       select the model for the given provider
--n               do not load ~/.mairc and disable REPL history
+	-n               do not load rc file and disable REPL history
 -p <provider>    select the provider to use
 -t               enable tools processing
-Files:
-~/.mairc           : script to be loaded before the repl is shown
-~/.mai/history.json: REPL command history file (JSON array)
-~/.mai/chat         : storage for chat session files
+.mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
+.mai/history.json (project or ~/.mai) : REPL command history file (JSON array)
+.mai/chat (project or ~/.mai)         : storage for chat session files
+.mai/systemprompt.md (project or ~/.mai) : system prompt file
 ./prompts          : directory containing custom prompts
 `)
 }
@@ -883,7 +883,7 @@ func main() {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-n":
-			// Skip loading ~/.mairc and disable REPL history
+			// Skip loading rc file and disable REPL history
 			config.options.Set("history", "false")
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
@@ -974,7 +974,7 @@ func main() {
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
 	if replMode || stdinIsTerminal {
-		// Not stdin mode, will load .mairc
+		// Not stdin mode, will load 'rc' file and start REPL
 		config.IsStdinMode = false
 
 		repl, err := NewREPL(config)

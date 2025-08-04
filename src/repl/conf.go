@@ -49,7 +49,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
 	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
 	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
-	co.RegisterOption("systemprompt", StringOption, "System prompt text", "")
+	co.RegisterOption("systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
+	co.RegisterOption("systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
 	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
 	co.RegisterOption("readlineprompt", StringOption, "Prompt string for heredoc/continuation lines", "...")
 	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
@@ -66,7 +67,6 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
 	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
 	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
-	co.RegisterOption("usemaimd", BooleanOption, "Look for and use MAI.md as a system prompt", "true")
 	// Enable automatic AI-generated session topics (#topic)
 	co.RegisterOption("aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
 
