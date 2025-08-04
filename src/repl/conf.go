@@ -312,7 +312,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 		fmt.Print("Available options:\r\n")
 		for _, option := range GetAvailableOptions() {
 			optType := GetOptionType(option)
-			fmt.Printf("  %s (%s) - %s\r\n", option, optType, GetOptionDescription(option))
+			fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", GetOptionDescription(option))
 		}
 		return nil
 	}
@@ -416,7 +416,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 		// List all available options and their current values
 		for _, option := range GetAvailableOptions() {
 			value := r.config.options.Get(option)
-			optType := GetOptionType(option)
+			// optType := GetOptionType(option)
 
 			var status string
 			if value == "" {
@@ -429,9 +429,9 @@ func (r *REPL) handleGetCommand(args []string) error {
 			} else {
 				status = value
 			}
-
-			fmt.Printf("  %s = %s (type: %s) - %s\r\n",
-				option, status, optType, GetOptionDescription(option))
+			// fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", GetOptionDescription(option))
+			fmt.Printf("  %-20s = %-15s\r\n", option, status)
+			// (type: %s) - %s\r\n", option, status, optType, GetOptionDescription(option))
 		}
 		return nil
 	}

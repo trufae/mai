@@ -181,7 +181,7 @@ func extractJSONBlock(text string) (string, string) {
 		return "", text
 	}
 	start := strings.Index(text, "{")
-	if start != -1 {
+	if start > 0 {
 		newText := text[start:]
 		end := strings.LastIndex(newText, "\n}")
 		if end != -1 {
