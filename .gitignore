@@ -2,3 +2,6 @@ src/repl/mai-repl
 src/tool/mai-tool
 src/wmcp/mai-wmcp
 src/mcps/wttr/mai-mcp-wttr
+src/mcps/pipe/mai-mcp-pipe
+src/mcps/gemcode/mai-mcp-gemcode
+src/mcps/code/mai-mcp-code
