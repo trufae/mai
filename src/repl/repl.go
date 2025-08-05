@@ -168,11 +168,13 @@ func NewREPL(config *Config) (*REPL, error) {
 		}
 	}
 
-	// Load system prompt from promptfile if set
+	// Load system prompt from promptfile if set, processing include directives
 	if promptFile := repl.config.options.Get("promptfile"); promptFile != "" {
 		content, err := os.ReadFile(promptFile)
 		if err == nil {
-			repl.systemPrompt = string(content)
+			promptText := string(content)
+			promptText = repl.processIncludeStatements(promptText, filepath.Dir(promptFile))
+			repl.systemPrompt = promptText
 		}
 	} else if systemPrompt := repl.config.options.Get("systemprompt"); systemPrompt != "" {
 		// Or use systemprompt text if set
@@ -1595,7 +1597,9 @@ func (r *REPL) sendToAI(input string) error {
 			if content, err := os.ReadFile(spFile); err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading system prompt file %s: %v\r\n", spFile, err)
 			} else {
-				finalSystemPrompt = string(content)
+				text := string(content)
+				text = r.processIncludeStatements(text, filepath.Dir(spFile))
+				finalSystemPrompt = text
 			}
 		}
 	}
@@ -3236,6 +3240,31 @@ func (r *REPL) processAtMentions(input string) string {
 	}
 
 	return enhancedInput
+}
+
+// processIncludeStatements processes include directives in prompt content.
+// Lines starting with '@' are treated as file paths to include.
+func (r *REPL) processIncludeStatements(content, baseDir string) string {
+	var out []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "@") {
+			incPath := strings.TrimSpace(trimmed[1:])
+			target := incPath
+			if !filepath.IsAbs(incPath) && baseDir != "" {
+				target = filepath.Join(baseDir, incPath)
+			}
+			if data, err := os.ReadFile(target); err != nil {
+				fmt.Fprintf(os.Stderr, "Error including file %s: %v\n", target, err)
+				out = append(out, line)
+			} else {
+				out = append(out, string(data))
+			}
+		} else {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // autoDetectPromptDir attempts to find a prompts directory relative to the executable path

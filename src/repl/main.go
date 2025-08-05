@@ -819,7 +819,7 @@ func showHelp() {
 .mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
 .mai/history.json (project or ~/.mai) : REPL command history file (JSON array)
 .mai/chat (project or ~/.mai)         : storage for chat session files
-.mai/systemprompt.md (project or ~/.mai) : system prompt file
+	.mai/systemprompt.md (project or ~/.mai) : system prompt file (supports '@' include directives)
 ./prompts          : directory containing custom prompts
 `)
 }
