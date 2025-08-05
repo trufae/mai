@@ -165,44 +165,72 @@ func mapToArray(m map[string]interface{}) []string {
 	return result
 }
 
+// extractJSONBlock locates the first balanced JSON object in text (or fenced JSON)
+// and returns it plus any remaining tail text.
 func extractJSONBlock(text string) (string, string) {
+	// Attempt fenced JSON block: ```json ... ```
 	re := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```")
 	matches := re.FindStringSubmatch(text)
 	if len(matches) >= 2 {
-		return matches[1], ""
+		content := matches[1]
+		// Trim any prefix before the first '{' to remove titles or comments
+		if idx := strings.Index(content, "{"); idx >= 0 {
+			content = content[idx:]
+		}
+		return content, ""
 	}
+	// Attempt fenced JSON-like block: ``` { ... ```
 	re2 := regexp.MustCompile("(?s)```\\s*{(.*?)\\s*```")
 	matches2 := re2.FindStringSubmatch(text)
 	if len(matches2) >= 2 {
-		return "{" + matches2[1], ""
+		content := "{" + matches2[1]
+		// Trim any prefix before the first '{' to remove titles or comments
+		if idx := strings.Index(content, "{"); idx >= 0 {
+			content = content[idx:]
+		}
+		return content, ""
 	}
-	nojson := strings.Index(text, "`{")
-	if nojson != -1 {
+	// Find first '{'
+	start := strings.Index(text, "{")
+	if start < 0 {
 		return "", text
 	}
-	start := strings.Index(text, "{")
-	if start > 0 {
-		newText := text[start:]
-		end := strings.LastIndex(newText, "\n}")
-		if end != -1 {
-			return newText[:end+2], newText[end+2:]
+	// Scan for balanced braces
+	in := text[start:]
+	depth := 0
+	endIdx := -1
+	for i, r := range in {
+		switch r {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				endIdx = i
+				break
+			}
 		}
-		end = strings.Index(newText, "```")
-		if end != -1 {
-			return newText[:end], ""
+		if endIdx != -1 {
+			break
 		}
-		end = strings.LastIndex(newText, "}")
-		if end != -1 {
-			return newText[:end+1], ""
-		}
-		return newText, ""
 	}
-	return "", text
+	if endIdx != -1 {
+		// JSON block is in[:endIdx+1], remainder follows
+		return in[:endIdx+1], in[endIdx+1:]
+	}
+	// No balanced end; return from first '{' to end
+	return in, ""
 }
 
+// stripJSONComments removes single-line (//) and block (/* */) comments from JSON input.
 func stripJSONComments(input string) string {
-	// No-op: preserve all characters, including lines starting with '#'.
-	return input
+	// Remove single-line comments (// ...)
+	reLine := regexp.MustCompile(`(?m)//.*$`)
+	noLine := reLine.ReplaceAllString(input, "")
+	// Remove block comments (/* ... */)
+	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
+	noBlock := reBlock.ReplaceAllString(noLine, "")
+	return noBlock
 }
 
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {

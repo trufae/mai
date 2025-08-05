@@ -23,6 +23,7 @@ For each tool execution, provide your response in the following format:
 
 # Automation Response
 
+```json
 {
   "plan": [
     "Complete, context-aware step-by-step instructions in plain strings. Each step is a sentence describing an action to take."
@@ -35,10 +36,11 @@ For each tool execution, provide your response in the following format:
   "tool_required": true,
   "tool": "tool_provider/tool_name",
   "tool_params": {
-    "key": "value"
-    // Add as many key-value pairs as the tool needs.
+    "param1": "value1",
+    "param2": "value2",
   },
 }
+```
 
 ## Important Guidelines
 
