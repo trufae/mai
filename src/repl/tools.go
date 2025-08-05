@@ -100,8 +100,8 @@ func callTool(tool *Tool) (string, error) {
 	cmd := exec.CommandContext(timeoutCtx, "mai-tool", cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
-	fmt.Println("MAITOOLRUN " + toolName)
-	fmt.Println("MAITOOLARG " + strings.Join(cmdArgs, " '"))
+	// fmt.Println("MAITOOLRUN " + toolName)
+	// fmt.Println("MAITOOLARG " + strings.Join(cmdArgs, " '"))
 
 	err := cmd.Run()
 	if err != nil {
