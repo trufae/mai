@@ -173,7 +173,7 @@ func mapToArray(m map[string]interface{}) []string {
 // extractJSONBlock locates the first balanced JSON object in text (or fenced JSON)
 // and returns it plus any remaining tail text.
 func extractJSONBlock(text string) (string, string) {
-	if !strings.Contains(text, "\"plan\"") {
+	if !strings.Contains(text, "\"plan\":") {
 		return "", text
 	}
 	// Attempt fenced JSON block: ```json ... ```

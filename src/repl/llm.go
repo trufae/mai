@@ -585,10 +585,14 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		Message struct {
 			Content string `json:"content""`
 		} `json:"message""`
+		Error string `json:"error,omitempty""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
 		return "", err
+	}
+	if response.Error != "" {
+		return "", fmt.Errorf(response.Error)
 	}
 
 	// Return raw content - newline conversion happens in the REPL
