@@ -7,7 +7,9 @@ BINS+=pipe
 BINS+=shell
 BINS+=time
 
-all:
+all clean:
+	for a in $(BINS); do $(MAKE) -C $$a $< ; done
+
 
 install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

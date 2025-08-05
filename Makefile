@@ -4,7 +4,7 @@ include config.mk
 
 all:
 	$(MAKE) -C src/wmcp
-	$(MAKE) -C src/mcps/wttr
+	$(MAKE) -C src/mcps
 	$(MAKE) -C src/repl
 	$(MAKE) -C src/tool
 
@@ -12,7 +12,7 @@ fmt:
 	go fmt $(shell ls src/repl/*.go )
 	go fmt $(shell ls src/wmcp/*.go )
 	go fmt $(shell ls src/tool/*.go )
-	go fmt $(shell ls src/mcps/wttr/*.go )
+	go fmt $(shell ls src/mcps/*/*.go )
 
 install:
 	$(MAKE) -C src/wmcp install
