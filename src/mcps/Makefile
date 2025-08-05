@@ -1,9 +1,17 @@
 include ../../config.mk
-BIN=mai-mcpd-wttr
+
+BINS=code
+BINS+=gemcode
+BINS+=wttr
+BINS+=pipe
+BINS+=shell
+BINS+=time
 
 all:
 
 install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	ln -fs $(shell pwd)/$(BIN) \
-		$(DESTDIR)$(PREFIX)/bin/$(BIN)
+	for a in $(BINS); do \
+		ln -fs $(shell pwd)/$$a/mai-mcp-$$a \
+			$(DESTDIR)$(PREFIX)/bin/mai-mcp-$$a ; \
+	done
