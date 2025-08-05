@@ -35,6 +35,7 @@ Below is a detailed list of tools designed to facilitate interaction with markdo
 5. **search(query or queries)**:
    - **Function**: Locates and returns sections corresponding to a search query or a list of search queries.
    - **Use Case**: Effective for finding multiple terms or keywords without scanning the entire document.
+   - **Notes**: Search is case-insensitive and supports multi-word phrases as a single query (e.g., `{"query": "multi-word phrase"}`).
 
 6. **summarize(section)**: 
    - **Function**: Generates a concise summary of a specified section.

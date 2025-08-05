@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"mcplib"
 )
@@ -119,7 +120,7 @@ func (s *MDownService) GetTools() []mcplib.Tool {
 		},
 		{
 			Name:        "search",
-			Description: "Locates and returns sections that correspond to a search query or list of search queries.",
+			Description: "Locates and returns sections that correspond to a search query or list of search queries. If there are no results try with less words",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -156,6 +157,17 @@ func (s *MDownService) handleListSections(args map[string]any) (any, error) {
 	return map[string]any{"sections": out}, nil
 }
 
+// normalizeSectionName trims surrounding whitespace and punctuation and lowercases the name
+func normalizeSectionName(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimFunc(s, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsPunct(r)
+	})
+	return strings.ToLower(s)
+}
+
+// handleGetContents retrieves the full content of a given section,
+// matching names case-insensitively and ignoring surrounding punctuation.
 func (s *MDownService) handleGetContents(args map[string]any) (any, error) {
 	name, ok := args["section"].(string)
 	if !ok || name == "" {
@@ -163,9 +175,36 @@ func (s *MDownService) handleGetContents(args map[string]any) (any, error) {
 	}
 	content, ok := s.sectionContent[name]
 	if !ok {
+		norm := normalizeSectionName(name)
+		// try normalized exact match
+		for secName, secContent := range s.sectionContent {
+			if normalizeSectionName(secName) == norm {
+				content = secContent
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		norm := normalizeSectionName(name)
+		// try normalized substring match
+		for secName, secContent := range s.sectionContent {
+			if strings.Contains(normalizeSectionName(secName), norm) {
+				content = secContent
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		return "Section not found", nil
 		return nil, fmt.Errorf("section %q not found", name)
 	}
-	return map[string]any{"content": content}, nil
+	res := map[string]any{"content": content}
+	if res != nil {
+		return res, nil
+	}
+	return "", fmt.Errorf("Cannot find contents")
 }
 
 func (s *MDownService) handleShowContents(args map[string]any) (any, error) {
@@ -174,8 +213,10 @@ func (s *MDownService) handleShowContents(args map[string]any) (any, error) {
 		return nil, err
 	}
 	content := res.(map[string]any)["content"].(string)
-	fmt.Println(content)
-	return nil, nil
+	if content != "" {
+		return content, nil
+	}
+	return nil, fmt.Errorf("Cannot find contents")
 }
 
 func (s *MDownService) handleShowTree(args map[string]any) (any, error) {
@@ -204,8 +245,12 @@ func (s *MDownService) handleSearch(args map[string]any) (any, error) {
 	}
 	var matches []string
 	for name, content := range s.sectionContent {
+		// Perform case-insensitive matching for search terms, supporting multi-word phrases.
+		lowerName := strings.ToLower(name)
+		lowerContent := strings.ToLower(content)
 		for _, term := range terms {
-			if strings.Contains(name, term) || strings.Contains(content, term) {
+			lowerTerm := strings.ToLower(term)
+			if strings.Contains(lowerName, lowerTerm) || strings.Contains(lowerContent, lowerTerm) {
 				matches = append(matches, name)
 				break
 			}

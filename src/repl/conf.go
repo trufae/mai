@@ -56,7 +56,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
 	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
-	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "true")
+	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "false")
 	co.RegisterOption("markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
 	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")

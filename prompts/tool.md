@@ -54,7 +54,7 @@ When it is required to call a tool, respond only in JSON without any explanation
   "next_step": "What should happen next.",
   "action": "Solve | Think | Iterate | Error",
   "tool_required": true,
-  "tool": "tool_provider/tool_name",
+  "tool": "tool_name",
   "tool_params": {
     "param1": "value1",
     "param2": "value2"
