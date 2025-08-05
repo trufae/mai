@@ -731,13 +731,35 @@ func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error)
 			returnCode = -1
 		}
 	}
-
-	return map[string]any{
-		"stdout":    stdout.String(),
-		"stderr":    stderr.String(),
+	stdoutString := stdout.String()
+	stderrString := stderr.String()
+	result := ""
+	if stdoutString == "" {
+		if returnCode == 0 {
+			result = "Success"
+		} else {
+			result = "Failure"
+		}
+	}
+	res := map[string]any{
+		command: result,
+		/*
+		"command":   command,
 		"exit_code": returnCode,
-		"error":     errStr,
-	}, nil
+		"result":    result,
+		*/
+	}
+	if stdoutString != "" {
+		res["stdout"] = stdoutString
+	}
+	if stderrString != "" {
+		res["stderr"] = stderrString
+	}
+	if errStr != "" {
+		res["error"] = errStr
+	}
+
+	return res, nil
 }
 
 func (s *GemCodeService) handleSaveMemory(args map[string]any) (any, error) {
