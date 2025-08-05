@@ -719,6 +719,8 @@ func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	fmt.Fprintln(os.Stderr, "This is the command: " + command)
+
 	err := cmd.Run()
 
 	returnCode := 0

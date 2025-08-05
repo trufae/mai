@@ -146,14 +146,19 @@ func main() {
 			toolName = slicedText[1]
 			params = parseParams(flag.Args()[2:])
 		} else {
-			if nargs < 3 {
-				fmt.Println("Error: 'call' requires server and tool name")
-				fmt.Println("Usage: mcpcli call <server> <tool> [param1=value1] [param2=value2] ...")
-				os.Exit(1)
-			}
-			serverName = flag.Args()[1]
-			toolName = flag.Args()[2]
-			params = parseParams(flag.Args()[3:])
+			serverName = ""
+			toolName = arg1
+			params = parseParams(flag.Args()[1:])
+			/*
+				if nargs < 3 {
+					fmt.Println("Error: 'call' requires server and tool name")
+					fmt.Println("Usage: mcpcli call <server> <tool> [param1=value1] [param2=value2] ...")
+					os.Exit(1)
+				}
+				serverName = flag.Args()[1]
+				toolName = flag.Args()[2]
+				params = parseParams(flag.Args()[3:])
+			*/
 		}
 		callTool(config, serverName, toolName, params)
 	case "servers":
@@ -440,6 +445,8 @@ func listTools(config Config) {
 func callTool(config Config, serverName, toolName string, params map[string]string) {
 	var resp *http.Response
 	var requestErr error
+	// fmt.Println("server: "+serverName)
+	// fmt.Println("tool: "+toolName)
 
 	// If serverName contains a slash, it's in the format "server/tool"
 	if strings.Contains(serverName, "/") {
@@ -453,8 +460,12 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 
 	// Standard tool call for other tools
 	var endpoint string
-	// Always use /call endpoint for tool calls
-	endpoint = fmt.Sprintf("/call/%s/%s", serverName, toolName)
+	if serverName == "" {
+		endpoint = fmt.Sprintf("/call/%s", toolName)
+	} else {
+		// Always use /call endpoint for tool calls
+		endpoint = fmt.Sprintf("/call/%s/%s", serverName, toolName)
+	}
 
 	// Build the tool URL
 	toolUrl := buildApiUrl(config, endpoint)

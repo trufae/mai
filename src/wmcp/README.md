@@ -27,9 +27,11 @@ Shows the status of all running MCP servers.
 ### Call a Tool
 ```bash
 GET /call/{server}/{tool}?param=value
+GET /call/{tool}?param=value
 POST /call/{server}/{tool}
+POST /call/{tool}
 ```
-Calls a specific tool on a specific server.
+Calls a specific tool on a specific server, or uses auto-discovery when only the tool is specified.
 
 ## Examples
 
@@ -156,4 +158,3 @@ curl -X POST "http://localhost:8080/tools/server1/openFile" \
   -d '{"invalid": "parameter"}'
 # HTTP 400: Tool call failed: missing required parameter 'filePath'
 ```
-

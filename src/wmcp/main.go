@@ -879,6 +879,21 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	server, exists := s.servers[serverName]
 	s.mutex.RUnlock()
+	if !exists {
+		for name, _server := range s.servers {
+			for _, tool := range _server.Tools {
+				if toolName == tool.Name {
+					serverName = name
+					server = _server
+					exists = true
+					break
+				}
+			}
+			if exists {
+				break
+			}
+		}
+	}
 
 	if !exists {
 		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
@@ -1190,6 +1205,7 @@ func main() {
 	// Call a specific tool (old endpoint for backward compatibility)
 	router.HandleFunc("/tools/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
 	// Call a specific tool (new endpoint)
+	router.HandleFunc("/call/{tool}", service.callToolHandler).Methods("GET", "POST")
 	router.HandleFunc("/call/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
 
 	// Root endpoint with usage info
@@ -1206,8 +1222,10 @@ Available endpoints:
 - GET /tools/markdown - List all tools in markdown format
 - GET /tools/{server}/{tool}?param=value - Call tool with query parameters (legacy)
 - GET /call/{server}/{tool}?param=value - Call tool with query parameters
+- GET /call/{tool}?param=value - Call tool on auto-discovered server
 - POST /tools/{server}/{tool} - Call tool with JSON body or form data (legacy)
 - POST /call/{server}/{tool} - Call tool with JSON body or form data
+- POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
 
 Examples:
 - curl http://localhost:8080/tools

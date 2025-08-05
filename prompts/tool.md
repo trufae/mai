@@ -24,6 +24,8 @@ Before executing any tools:
 > 🔁 **Avoid loops:** If you find yourself proposing the same step again, stop and re-evaluate.  
 > ❌ **No validation:** Once a tool is executed, do not re-check it unless new input justifies it
 
+**IMPORTANT** Create a new plan if we find out new information that is relevant to solve the user request.
+
 ## Execution
 
 When executing the plan:

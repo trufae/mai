@@ -79,29 +79,34 @@ func callTool(tool *Tool) (string, error) {
 		}
 	}
 
-	// Combine the tool name and arguments for the mai-tool command
-	// tool.Name may be in the format "server/tool"
-	cmdArgs := append([]string{"call", toolName}, safeArgs...)
-	cmd := exec.Command("mai-tool", cmdArgs...)
-
 	var out bytes.Buffer
 	var stderr bytes.Buffer
+	// Combine the tool name and arguments for the mai-tool command
+	// tool.Name may be in the format "server/tool"
+	/*
+	cmd := exec.Command("mai-tool", cmdArgs...)
+
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
+	*/
+	timeout := 60
+	cmdArgs := append([]string{"call", toolName}, safeArgs...)
 
 	// Set a timeout for the command execution
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Set the command context with timeout
-	cmd = exec.CommandContext(timeoutCtx, "mai-tool", cmdArgs...)
+	cmd := exec.CommandContext(timeoutCtx, "mai-tool", cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
+	fmt.Println("MAITOOLRUN " + toolName)
+	fmt.Println("MAITOOLARG " + strings.Join(cmdArgs, " '"))
 
 	err := cmd.Run()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return "", fmt.Errorf("tool execution timed out after 30 seconds: %s", tool.Name)
+			return "", fmt.Errorf("tool execution timed out after %d seconds: %s", timeout, tool.Name)
 		}
 		return "", fmt.Errorf("error executing tool %s: %v: %s", tool.Name, err, stderr.String())
 	}
@@ -168,6 +173,9 @@ func mapToArray(m map[string]interface{}) []string {
 // extractJSONBlock locates the first balanced JSON object in text (or fenced JSON)
 // and returns it plus any remaining tail text.
 func extractJSONBlock(text string) (string, string) {
+	if !strings.Contains(text, "\"plan\"") {
+		return "", text
+	}
 	// Attempt fenced JSON block: ```json ... ```
 	re := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```")
 	matches := re.FindStringSubmatch(text)
