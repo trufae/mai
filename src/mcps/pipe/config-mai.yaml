@@ -1,0 +1,16 @@
+# config.yaml
+tools:
+  word_count:
+    description: "Assessment Details"
+    arguments:
+      content:
+        description: "text to use as input"
+        required: true
+        type: "string"
+    command:
+      program: "mai"
+      args:
+        - "-p"
+        - "mistral"
+        - "-c"
+        - "systemprompt=you are security analyst responding questions about this assessment: @/tmp/security.md"

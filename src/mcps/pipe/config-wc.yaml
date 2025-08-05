@@ -1,0 +1,15 @@
+# config.yaml
+tools:
+  word_count:
+    description: "Count words"
+    arguments:
+      content:
+        description: "text to use as input"
+        required: true
+        type: "string"
+    command:
+      program: "wc"
+      environment:
+        LANG: "C"
+      args:
+        - "-w"
