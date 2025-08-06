@@ -760,7 +760,8 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
-			output.WriteString(fmt.Sprintf("%s %s", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("/* %s */\n", tool.Description))
+			output.WriteString(fmt.Sprintf("Tool: %s/%s", serverName, tool.Name))
 			// Use the Parameters array if available
 			if len(tool.Parameters) > 0 {
 				for _, param := range tool.Parameters {
