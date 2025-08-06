@@ -1525,6 +1525,59 @@ func (r *REPL) addFile(filePath string) error {
 	return nil
 }
 
+func (r *REPL) substituteInput(input string) (string, error) {
+	processedInput, err := ExecuteCommandSubstitution(input)
+	if err != nil {
+		return "", fmt.Errorf("command substitution failed: %v", err)
+	}
+	input = processedInput
+
+	// Process backtick substitutions
+	processedInput, err = ExecuteBacktickSubstitution(input, r)
+	if err != nil {
+		return "", fmt.Errorf("backtick substitution failed: %v", err)
+	}
+	input = processedInput
+
+	// Process environment variable substitutions
+	processedInput, err = ExecuteEnvVarSubstitution(input)
+	if err != nil {
+		return "", fmt.Errorf("environment variable substitution failed: %v", err)
+	}
+	input = processedInput
+
+	// Process @mentions in the input
+	enhancedInput := r.processAtMentions(input)
+
+	// Process pending files and incorporate them into the input
+	var images []string // For storing base64 encoded images for Ollama
+
+	if len(r.pendingFiles) > 0 {
+		// Add file contents to the input
+		enhancedInput += "\n\n"
+
+		for _, file := range r.pendingFiles {
+			if strings.Contains(file.filePath, "://") {
+				enhancedInput += fmt.Sprintf("URL Link: `%s`\n", file)
+			} else if file.isImage {
+				// For images, we'll collect them separately for providers that support image attachments
+				images = append(images, file.imageB64)
+				enhancedInput += fmt.Sprintf("[Image attached: %s]\n", filepath.Base(file.filePath))
+			} else {
+				// For regular files, add the content
+				enhancedInput += fmt.Sprintf("File content from %s:\n```\n%s\n```\n\n",
+					file.filePath, file.content)
+			}
+		}
+
+		// Clear pending files after use
+		r.pendingFiles = []pendingFile{}
+	}
+	input = enhancedInput
+
+	return input, nil
+}
+
 func (r *REPL) sendToAI(input string) error {
 	r.mu.Lock()
 	r.isStreaming = true
@@ -1537,25 +1590,9 @@ func (r *REPL) sendToAI(input string) error {
 		r.mu.Unlock()
 	}()
 
-	// Process command substitutions in the input
-	// originalInput := input // Store the original input for history
-	processedInput, err := ExecuteCommandSubstitution(input)
+	processedInput, err := r.substituteInput(input)
 	if err != nil {
-		return fmt.Errorf("command substitution failed: %v", err)
-	}
-	input = processedInput
-
-	// Process backtick substitutions
-	processedInput, err = ExecuteBacktickSubstitution(input, r)
-	if err != nil {
-		return fmt.Errorf("backtick substitution failed: %v", err)
-	}
-	input = processedInput
-
-	// Process environment variable substitutions
-	processedInput, err = ExecuteEnvVarSubstitution(input)
-	if err != nil {
-		return fmt.Errorf("environment variable substitution failed: %v", err)
+		return err
 	}
 	input = processedInput
 
@@ -1567,15 +1604,6 @@ func (r *REPL) sendToAI(input string) error {
 	r.mu.Lock()
 	r.currentClient = client
 	r.mu.Unlock()
-
-	if r.useToolsEnabled {
-		// new json mode
-		tool, err := r.QueryWithTools(input)
-		if err != nil {
-			return fmt.Errorf("tool execution failed: %v", err)
-		}
-		input = tool
-	}
 
 	// Add system prompt if present
 	messages := []Message{}
@@ -1625,36 +1653,20 @@ func (r *REPL) sendToAI(input string) error {
 		// When logging is disabled, we don't append any previous messages
 	}
 
-	// Process @mentions in the input
-	enhancedInput := r.processAtMentions(input)
-
-	// Process pending files and incorporate them into the input
-	var images []string // For storing base64 encoded images for Ollama
-
-	if len(r.pendingFiles) > 0 {
-		// Add file contents to the input
-		enhancedInput += "\n\n"
-
-		for _, file := range r.pendingFiles {
-			if file.isImage {
-				// For images, we'll collect them separately for providers that support image attachments
-				images = append(images, file.imageB64)
-				enhancedInput += fmt.Sprintf("[Image attached: %s]\n", filepath.Base(file.filePath))
-			} else {
-				// For regular files, add the content
-				enhancedInput += fmt.Sprintf("File content from %s:\n```\n%s\n```\n\n",
-					file.filePath, file.content)
-			}
+	if r.useToolsEnabled {
+		// new json mode
+		tool, err := r.QueryWithTools(messages, input)
+		if err != nil {
+			return fmt.Errorf("tool execution failed: %v", err)
 		}
-
-		// Clear pending files after use
-		r.pendingFiles = []pendingFile{}
+		input = tool
+		fmt.Println("(tools) loop finished.")
 	}
 
 	// Add user message with enhanced input
 	// Store the original input (with commands) for display in message history,
 	// but use the processed input (with command output) for sending to the AI
-	userMessage := Message{Role: "user", Content: enhancedInput}
+	userMessage := Message{Role: "user", Content: input}
 
 	// Handle conversation history based on logging settings
 	if r.loggingEnabled {
@@ -1682,8 +1694,9 @@ func (r *REPL) sendToAI(input string) error {
 		messagesCopy := make([]Message, len(messages))
 		copy(messagesCopy, messages)
 
+		disable_reasoning := "\n# Reasoning\nDo /nothink /no_think\nUse Reasoning: low\n\n"
 		// Append the user message with /no_think to the copy
-		messagesCopy = append(messagesCopy, Message{Role: "user", Content: enhancedInput + "/no_think"})
+		messagesCopy = append(messagesCopy, Message{Role: "user", Content: input + disable_reasoning})
 		messages = messagesCopy
 	} else {
 		// Add the original user message
@@ -1695,6 +1708,13 @@ func (r *REPL) sendToAI(input string) error {
 		ResetStreamRenderer()
 	}
 
+	var images []string // base64 encoded images
+
+	for _, file := range r.pendingFiles {
+		if file.isImage {
+			images = append(images, file.imageB64)
+		}
+	}
 	// Send message with streaming based on REPL settings
 	response, err := client.SendMessageWithImages(messages, r.streamingEnabled, images)
 

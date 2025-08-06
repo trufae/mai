@@ -84,10 +84,10 @@ func callTool(tool *Tool) (string, error) {
 	// Combine the tool name and arguments for the mai-tool command
 	// tool.Name may be in the format "server/tool"
 	/*
-	cmd := exec.Command("mai-tool", cmdArgs...)
+		cmd := exec.Command("mai-tool", cmdArgs...)
 
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
+		cmd.Stdout = &out
+		cmd.Stderr = &stderr
 	*/
 	timeout := 60
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
@@ -224,7 +224,7 @@ func extractJSONBlock(text string) (string, string) {
 	}
 	if endIdx != -1 {
 		// JSON block is in[:endIdx+1], remainder follows
-		return in[:endIdx+1], in[endIdx+1:]
+		return in[:endIdx+1], strings.TrimSpace(in[endIdx+1:])
 	}
 	// No balanced end; return from first '{' to end
 	return in, ""
@@ -238,7 +238,7 @@ func stripJSONComments(input string) string {
 	// Remove block comments (/* ... */)
 	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
 	noBlock := reBlock.ReplaceAllString(noLine, "")
-	return noBlock
+	return strings.TrimSpace(noBlock)
 }
 
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
@@ -249,9 +249,25 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		fmt.Println("==========================")
 	*/
 	messages := []Message{{"user", query}}
+	/*
+	fmt.Println("-------------------------8<-------------------------")
+	fmt.Println(query)
+	fmt.Println("------------------------->8-------------------------")
+	*/
 	responseText, err := r.currentClient.SendMessage(messages, false)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
+	}
+	/*
+	fmt.Println("-------------------------8<-------------------------")
+	fmt.Println(responseText)
+	fmt.Println("------------------------->8-------------------------")
+	*/
+	// strip out any internal reasoning between <think>...</think> before processing
+	reThink := regexp.MustCompile(`(?s)\s*<think>.*?</think>\s*`)
+	responseText = reThink.ReplaceAllString(responseText, "")
+	if responseText == "" {
+		return PlanResponse{}, "", fmt.Errorf("cancel empty response from the llm")
 	}
 	// fmt.Println(responseText)
 	responseJson, explainText := extractJSONBlock(responseText)
@@ -265,11 +281,21 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
 		if err2 != nil {
-			fmt.Println("{{ JSONBLOCK")
-			fmt.Println(responseJson)
-			fmt.Println("}} JSONBLOCK")
+			/*
+				fmt.Println("{{ JSONBLOCK")
+				fmt.Println(responseJson)
+				fmt.Println("}} JSONBLOCK")
+			*/
+			if strings.Contains(responseJson, "\"action\": \"Done\"") {
+				response = PlanResponse{
+					NextStep: "Cannot recover from invalid json parsing",
+					Action:   "Done",
+				}
+				explainText = responseJson
+			}
 		}
 		// response.NextStep += "<think>" + explainText + "</think>"
+		fmt.Println(response)
 		fmt.Println(response.NextStep)
 		return response, explainText, err2
 	}
@@ -281,7 +307,8 @@ func (t *Tool) ToString() string {
 	return fmt.Sprintf("%s %s", t.Name, args)
 }
 
-func (r *REPL) QueryWithTools(input string) (string, error) {
+func (r *REPL) QueryWithTools(messages []Message, input string) (string, error) {
+	// TODO: Do something with the previous messages
 	showPlan := true
 	toolPrompt, err := r.getToolPrompt("tool.md")
 	if err != nil {
@@ -289,7 +316,7 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		return input, err
 	}
 
-	toolList, err := GetAvailableTools(JSON)
+	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
@@ -311,7 +338,10 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		}
 		if clearScreen {
 			fmt.Print("\033[2J\033[H\033[33m>>> " + input + "\r\n")
-			fmt.Printf("Context: %d bytes\r\n", len(context))
+			cl := len(context)
+			if cl > 0 {
+				fmt.Printf("Context: %d bytes\r\n", cl)
+			}
 		}
 		fmt.Printf("\033[0m\n%s\r\n", step.Progress)
 		fmt.Printf("\r\n%s\r\n\r\n", step.Reasoning)
@@ -333,11 +363,21 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		}
 		fmt.Printf("\033[0m")
 
-		if !step.ToolRequired {
-			if expl != "" {
-				reasoning += "\n\n## Reasoning\n\n" + expl
-			}
+		if step.Action == "" || step.Action == "Solve" || step.Action == "Done" {
+			fmt.Println("(tools) Problem solved")
 			break
+		}
+		fmt.Println("Action: " + step.Action)
+		/*
+			if !step.ToolRequired {
+				if expl != "" {
+					reasoning += "\n\n## Reasoning\n\n" + expl
+				}
+				break
+			}
+		*/
+		if step.SelectedTool == "" {
+			continue
 		}
 		toolName := strings.ReplaceAll(step.SelectedTool, ".", "/")
 		tool := &Tool{
@@ -370,7 +410,7 @@ func (r *REPL) QueryWithTools(input string) (string, error) {
 		// input += planString + toolResponse
 	}
 	if reasoning != "" {
-		reasoning = "<think>\n" + reasoning + "</think>\n"
+		reasoning = "<reasoning>\n" + reasoning + "</reasoning>\n"
 	}
 	fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
 	return input + context, nil
