@@ -88,7 +88,7 @@ func formatJSON(data interface{}, indent int) string {
 				sb.WriteString(formatJSON(val, indent+1))
 			default:
 				// For primitive values, format inline
-				sb.WriteString(fmt.Sprintf("%v", val))
+				sb.WriteString(fmt.Sprintf("%v ", val))
 			}
 		}
 	default:
