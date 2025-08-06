@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,8 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	googlesearch "github.com/rocketlaunchr/google-search"
 )
 
 // GemCodeService handles all code-related operations
@@ -50,13 +47,13 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 		// 1. list_directory
 		{
 			Name:        "list_directory",
-			Description: "Lists the names of files and subdirectories directly within a specified directory path. Can optionally ignore entries matching provided glob patterns.",
+			Description: "Lists names of files and subdirectories in a specified directory, with optional exclusion of entries matching glob patterns.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"path": map[string]any{
 						"type":        "string",
-						"description": "The absolute path to the directory to list (must be absolute, not relative)",
+						"description": "The absolute path to the directory to list",
 					},
 					"ignore": map[string]any{
 						"type": "array",
@@ -86,7 +83,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 		// 2. read_file
 		{
 			Name:        "read_file",
-			Description: "Reads and returns the content of a specified file from the local filesystem. Handles text, images (PNG, JPG, GIF, WEBP, SVG, BMP), and PDF files. For text files, it can read specific line ranges.",
+			Description: "Reads and returns the content of a specified file from the local filesystem. For large files, it can read specific line ranges.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -110,7 +107,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 		// 3. search_file_content
 		{
 			Name:        "search_file_content",
-			Description: "Searches for a regular expression pattern within the content of files in a specified directory (or current working directory). Can filter files by a glob pattern. Returns the lines containing matches, along with their file paths and line numbers.",
+			Description: "Searches for a regex pattern in files within a specified directory, filtered by a glob pattern. Returns matching lines with their file paths and line numbers.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -120,21 +117,21 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 					},
 					"path": map[string]any{
 						"type":        "string",
-						"description": "Optional: The absolute path to the directory to search within. If omitted, searches the current working directory.",
+						"description": "The absolute path to the directory to search within. If omitted, searches the current working directory.",
 					},
 					"include": map[string]any{
 						"type":        "string",
 						"description": "Optional: A glob pattern to filter which files are searched (e.g., '*.js', '*.{ts,tsx}', 'src/**'). If omitted, searches all files (respecting potential global ignores).",
 					},
 				},
-				"required": []string{"pattern"},
+				"required": []string{"pattern", "path"},
 			},
 			Handler: s.handleSearchFileContent,
 		},
 		// 4. glob
 		{
 			Name:        "glob",
-			Description: "Efficiently finds files matching specific glob patterns (e.g., `src/**/*.ts`, `**/*.md`), returning absolute paths sorted by modification time (newest first). Ideal for quickly locating files based on their name or path structure, especially in large codebases.",
+			Description: "Finds file names matching specific glob patterns (e.g., `src/**/*.ts`, `**/*.md`), returning absolute paths",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -317,22 +314,6 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 				"required": []string{"fact"},
 			},
 			Handler: s.handleSaveMemory,
-		},
-		// 11. google_web_search
-		{
-			Name:        "google_web_search",
-			Description: "Performs a web search using Google Search (via the Gemini API) and returns the results. This tool is useful for finding information on the internet based on a query.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "The search query to find information on the web.",
-					},
-				},
-				"required": []string{"query"},
-			},
-			Handler: s.handleGoogleWebSearch,
 		},
 	}
 }
@@ -544,18 +525,29 @@ func (s *GemCodeService) handleSearchFileContent(args map[string]any) (any, erro
 
 func (s *GemCodeService) handleGlob(args map[string]any) (any, error) {
 	pattern, ok := args["pattern"].(string)
-	if !ok || pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
+	if !ok || strings.TrimSpace(pattern) == "" {
+		pattern = "*"
 	}
 
-	path := "."
-	if p, ok := args["path"].(string); ok && p != "" {
-		path = p
+	base := "."
+	if p, ok := args["path"].(string); ok && strings.TrimSpace(p) != "" {
+		base = p
 	}
 
-	matches, err := filepath.Glob(filepath.Join(path, pattern))
+	// If the user supplied an absolute pattern, don't join it with base.
+	full := pattern
+	if !filepath.IsAbs(pattern) {
+		full = filepath.Join(base, pattern)
+	}
+
+	matches, err := filepath.Glob(full)
 	if err != nil {
 		return nil, fmt.Errorf("glob failed: %w", err)
+	}
+
+	// Ensure JSON renders [] instead of null when there are no matches.
+	if matches == nil {
+		matches = []string{}
 	}
 
 	return map[string]any{"files": matches}, nil
@@ -719,7 +711,7 @@ func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	fmt.Fprintln(os.Stderr, "This is the command: " + command)
+	fmt.Fprintln(os.Stderr, "This is the command: "+command)
 
 	err := cmd.Run()
 
@@ -746,9 +738,9 @@ func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error)
 	res := map[string]any{
 		command: result,
 		/*
-		"command":   command,
-		"exit_code": returnCode,
-		"result":    result,
+			"command":   command,
+			"exit_code": returnCode,
+			"result":    result,
 		*/
 	}
 	if stdoutString != "" {
@@ -776,18 +768,4 @@ func (s *GemCodeService) handleSaveMemory(args map[string]any) (any, error) {
 	return map[string]any{
 		"success": true,
 	}, nil
-}
-
-func (s *GemCodeService) handleGoogleWebSearch(args map[string]any) (any, error) {
-	query, ok := args["query"].(string)
-	if !ok || query == "" {
-		return nil, fmt.Errorf("query is required")
-	}
-
-	results, err := googlesearch.Search(context.Background(), query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to perform google search: %v", err)
-	}
-
-	return results, nil
 }
