@@ -69,6 +69,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
 	// Enable automatic AI-generated session topics (#topic)
 	co.RegisterOption("aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
+	// Set session save behavior on exit: always, never, or prompt
+	co.RegisterOption("session_save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
 
 	co.initialized = true
 

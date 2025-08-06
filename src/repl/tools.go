@@ -250,18 +250,18 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 	*/
 	messages := []Message{{"user", query}}
 	/*
-	fmt.Println("-------------------------8<-------------------------")
-	fmt.Println(query)
-	fmt.Println("------------------------->8-------------------------")
+		fmt.Println("-------------------------8<-------------------------")
+		fmt.Println(query)
+		fmt.Println("------------------------->8-------------------------")
 	*/
 	responseText, err := r.currentClient.SendMessage(messages, false)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
 	}
 	/*
-	fmt.Println("-------------------------8<-------------------------")
-	fmt.Println(responseText)
-	fmt.Println("------------------------->8-------------------------")
+		fmt.Println("-------------------------8<-------------------------")
+		fmt.Println(responseText)
+		fmt.Println("------------------------->8-------------------------")
 	*/
 	// strip out any internal reasoning between <think>...</think> before processing
 	reThink := regexp.MustCompile(`(?s)\s*<think>.*?</think>\s*`)

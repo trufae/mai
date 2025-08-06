@@ -72,6 +72,46 @@ type StreamingClient interface {
 	StreamChat(ctx context.Context, messages []Message) (<-chan string, <-chan error)
 }
 
+// AskYesNo prompts the user with a yes/no question, defaulting to 'y' or 'n'.
+// Returns true for yes, false for no.
+func AskYesNo(question string, defaultVal rune) bool {
+	defaultVal = rune(strings.ToLower(string(defaultVal))[0])
+	if defaultVal != 'y' && defaultVal != 'n' {
+		panic("default value must be 'y' or 'n'")
+	}
+
+	var defaultText string
+	if defaultVal == 'y' {
+		defaultText = "[Y/n]"
+	} else {
+		defaultText = "[y/N]"
+	}
+
+	fmt.Printf("%s %s ", question, defaultText)
+
+	// Put terminal in raw mode
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		panic(err)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// Read one byte
+	var buf [1]byte
+	_, err = os.Stdin.Read(buf[:])
+	if err != nil {
+		panic(err)
+	}
+
+	c := buf[0]
+	if c == '\r' || c == '\n' { // Enter pressed -> use default
+		return defaultVal == 'y'
+	}
+
+	c = byte(strings.ToLower(string(c))[0])
+	return c == 'y'
+}
+
 func NewREPL(config *Config) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -386,17 +426,25 @@ func (r *REPL) cleanup() {
 	// Auto-save the chat session if history is enabled and messages exist,
 	// updating the current session or creating a new one if none selected
 	if r.config.options.GetBool("history") && len(r.messages) > 0 {
-		var name string
-		if r.currentSession != "" {
-			name = r.currentSession
-		} else {
-			// name = time.Now().Format("20060102150405")
-			name = time.Now().Format("05041502012006")
+		mode := r.config.options.Get("session_save")
+		if mode != "never" {
+			var name string
+			if r.currentSession != "" {
+				name = r.currentSession
+			} else {
+				// name = time.Now().Format("20060102150405")
+				name = time.Now().Format("05041502012006")
+			}
+			if mode == "prompt" {
+				if !AskYesNo("Save session %q? (Y/n) ", 'y') {
+					return
+				}
+			}
+			if err := r.saveSession(name); err != nil {
+				fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
+			}
+			r.currentSession = name
 		}
-		if err := r.saveSession(name); err != nil {
-			fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
-		}
-		r.currentSession = name
 	}
 }
 
