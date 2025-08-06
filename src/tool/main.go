@@ -52,7 +52,7 @@ func formatJSON(data interface{}, indent int) string {
 
 		// Process each key-value pair in the object
 		for key, value := range v {
-			if key != "type" && key != "content" {
+			if key != "text" && key != "type" && key != "content" {
 				// sb.WriteString(indentStr)
 				sb.WriteString(key)
 				sb.WriteString(": ")
@@ -62,13 +62,11 @@ func formatJSON(data interface{}, indent int) string {
 			switch val := value.(type) {
 			case map[string]interface{}, []interface{}:
 				// For nested objects and arrays, add newline and format with increased indent
-				sb.WriteString("\n")
 				sb.WriteString(formatJSON(val, indent+1))
 			default:
 				// For primitive values, format inline
 				if val != "text" {
 					sb.WriteString(fmt.Sprintf("%v", val))
-					sb.WriteString("\n")
 				}
 			}
 		}
@@ -87,12 +85,10 @@ func formatJSON(data interface{}, indent int) string {
 			switch val := item.(type) {
 			case map[string]interface{}, []interface{}:
 				// For nested objects and arrays, add newline and format with increased indent
-				sb.WriteString("\n")
 				sb.WriteString(formatJSON(val, indent+1))
 			default:
 				// For primitive values, format inline
 				sb.WriteString(fmt.Sprintf("%v", val))
-				sb.WriteString("\n")
 			}
 		}
 	default:
