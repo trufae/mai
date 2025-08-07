@@ -167,6 +167,74 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+	if p.config.Rawdog {
+		stream = false
+		messageline := "" // <start_of_turn>user\nhello world<end_of_turn>\n<start_of_turn>model\n"
+		for _, msg := range messages {
+			messageline += msg.Content.(string)
+		}
+		request := struct {
+			Model   string             `json:"model""`
+			Prompt  string             `json:"prompt""`
+			Stream  bool               `json:"stream""`
+			Options map[string]float64 `json:"options,omitempty""`
+		}{
+			Stream: stream,
+			Model:  p.config.OllamaModel,
+			Prompt: messageline,
+		}
+		// Apply deterministic settings if enabled
+		if p.config.Deterministic {
+			request.Options = map[string]float64{
+				"repeat_last_n":  0,
+				"top_p":          0.0,
+				"top_k":          1.0,
+				"temperature":    0.0,
+				"repeat_penalty": 1.0,
+				"seed":           123,
+			}
+		}
+		jsonData, err := json.Marshal(request)
+		if err != nil {
+			return "", err
+		}
+
+		headers := map[string]string{
+			"Content-Type": "application/json",
+		}
+
+		fmt.Println("(send)" + string(jsonData))
+		// Use the configured base URL if available, otherwise construct from host/port
+		url := fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
+		if p.config.BaseURL != "" {
+			url = strings.TrimRight(p.config.BaseURL, "/") + "/api/generate"
+		}
+
+		// stream-mode
+		// if stream { return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream) }
+
+		// non-stream
+		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+		if err != nil {
+			return "", err
+		}
+		fmt.Println("(recv)" + string(respBody))
+
+		// fmt.Println(string(respBody))
+		var response struct {
+			Response string `json:"response""`
+			Error    string `json:"error,omitempty""`
+		}
+
+		if err := json.Unmarshal(respBody, &response); err != nil {
+			return "", err
+		}
+		if response.Error != "" {
+			return "", fmt.Errorf(response.Error)
+		}
+		// Return raw content - newline conversion happens in the REPL
+		return response.Response, nil
+	}
 	request := struct {
 		Stream   bool               `json:"stream""`
 		Model    string             `json:"model""`
@@ -209,6 +277,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
 	}
 
+	// fmt.Println(string(jsonData))
 	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
 	if err != nil {
 		return "", err

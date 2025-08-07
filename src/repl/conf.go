@@ -45,33 +45,34 @@ func NewConfigOptions() *ConfigOptions {
 	}
 
 	// Define built-in options
+
+	// Enable automatic AI-generated session topics (#topic)
+	// Set session save behavior on exit: always, never, or prompt
+	co.RegisterOption("aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
+	co.RegisterOption("baseurl", StringOption, "Custom base URL for API requests", "")
 	co.RegisterOption("debug", BooleanOption, "Show internal processing logs", "false")
-	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
-	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
-	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
-	co.RegisterOption("systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
-	co.RegisterOption("systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
-	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
-	co.RegisterOption("readlineprompt", StringOption, "Prompt string for heredoc/continuation lines", "...")
-	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
+	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
+	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
 	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
-	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "false")
 	co.RegisterOption("markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
-	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
 	co.RegisterOption("model", StringOption, "AI model to use", "")
+	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
+	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
+	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
 	co.RegisterOption("provider", StringOption, "AI provider to use", "")
-	co.RegisterOption("baseurl", StringOption, "Custom base URL for API requests", "")
-	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
-	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
-	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
-	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
-	// Enable automatic AI-generated session topics (#topic)
-	co.RegisterOption("aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
-	// Set session save behavior on exit: always, never, or prompt
+	co.RegisterOption("rawdog", BooleanOption, "Send messages in raw", "false")
+	co.RegisterOption("readlineprompt", StringOption, "Prompt string for heredoc/continuation lines", "...")
+	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "false")
 	co.RegisterOption("session_save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
-
+	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
+	co.RegisterOption("systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
+	co.RegisterOption("systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
+	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
+	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
+	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
+	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
 	co.initialized = true
 
 	// Set the global reference to this config
@@ -284,28 +285,29 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	return "", fmt.Errorf("prompt not found: %s", promptName)
 }
 
+// TODO: move into repl.go?
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) error {
 	// Special handling for specific configOptions
 	if len(args) >= 3 {
 		switch args[1] {
+		case "rawdog":
+			fmt.Println("RAWDOG")
+			r.config.Rawdog = true
+			return nil
 		case "promptfile":
-			// Load system prompt from file
 			filePath := args[2]
 			return r.loadSystemPrompt(filePath)
 		case "systemprompt":
-			// Set system prompt directly
 			promptText := strings.Join(args[2:], " ")
 			r.systemPrompt = promptText
 			r.configOptions.Set("systemprompt", promptText)
 			fmt.Printf("System prompt set (%d chars)\r\n", len(promptText))
 			return nil
 		case "model":
-			// Set model
 			model := strings.Join(args[2:], " ")
 			return r.setModel(model)
 		case "provider":
-			// Set provider
 			provider := strings.ToLower(args[2])
 			return r.setProvider(provider)
 		}
@@ -484,6 +486,8 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 
 	// Handle special options that require updating REPL state
 	switch option {
+	case "rawdog":
+		r.config.Rawdog = false
 	case "stream":
 		r.streamingEnabled = r.configOptions.GetBool("stream")
 		streamStatus := "enabled"

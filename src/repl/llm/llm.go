@@ -141,13 +141,6 @@ func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-// printScissors outputs separators if enabled in config.
-func (c *LLMClient) printScissors() {
-	if c.config.ShowScissors {
-		fmt.Print("\n\r------------8<------------\n\r")
-	}
-}
-
 // createProvider instantiates the appropriate provider based on config
 func createProvider(config *Config) (LLMProvider, error) {
 	provider := strings.ToLower(config.PROVIDER)
@@ -199,7 +192,6 @@ func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, image
 	ctx, cancel := c.newContext()
 	defer cancel()
 
-	c.printScissors()
 	var response string
 	var err error
 
@@ -216,7 +208,6 @@ func (c *LLMClient) SendMessageWithImages(messages []Message, stream bool, image
 		response, err = c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream)
 	}
 
-	c.printScissors()
 	return response, err
 }
 

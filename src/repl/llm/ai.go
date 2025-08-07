@@ -26,17 +26,15 @@ type Config struct {
 	BedrockKey    string
 	BedrockModel  string
 	BedrockRegion string
-	ShowScissors  bool
 	PROVIDER      string
 	NoStream      bool
 	ImagePath     string
 	BaseURL       string
 	UserAgent     string
+
 	IsStdinMode   bool
 	SkipRcFile    bool
 	Deterministic bool
 	Markdown      bool
-
-	// options provides access to additional boolean config flags.
-	// Options ConfigOptions
+	Rawdog        bool
 }
