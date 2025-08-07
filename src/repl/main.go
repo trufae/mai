@@ -57,21 +57,21 @@ func runStdinMode(config *llm.Config, args []string) {
 }
 
 type ClaudeRequest struct {
-	Model     string    `json:"model"`
-	MaxTokens int       `json:"max_tokens"`
+	Model     string        `json:"model"`
+	MaxTokens int           `json:"max_tokens"`
 	Messages  []llm.Message `json:"messages"`
 }
 
 type OpenAIRequest struct {
-	Model               string    `json:"model"`
-	MaxCompletionTokens int       `json:"max_completion_tokens"`
+	Model               string        `json:"model"`
+	MaxCompletionTokens int           `json:"max_completion_tokens"`
 	Messages            []llm.Message `json:"messages"`
 }
 
 type OllamaRequest struct {
 	Stream   bool               `json:"stream"`
 	Model    string             `json:"model"`
-	Messages []llm.Message          `json:"messages"`
+	Messages []llm.Message      `json:"messages"`
 	Options  map[string]float64 `json:"options,omitempty"`
 }
 
@@ -88,8 +88,8 @@ type GeminiPart struct {
 }
 
 type DeepSeekRequest struct {
-	Model    string    `json:"model"`
-	Stream   string    `json:"stream"`
+	Model    string        `json:"model"`
+	Stream   string        `json:"stream"`
 	Messages []llm.Message `json:"messages"`
 }
 
@@ -143,9 +143,9 @@ type DeepSeekResponse struct {
 }
 
 type MistralRequest struct {
-	Model     string    `json:"model"`
+	Model     string        `json:"model"`
 	Messages  []llm.Message `json:"messages"`
-	MaxTokens int       `json:"max_tokens"`
+	MaxTokens int           `json:"max_tokens"`
 }
 
 type BedrockRequest struct {
@@ -379,7 +379,6 @@ func callClaude(config *llm.Config, input string) error {
 		"x-api-key":         config.ClaudeKey,
 	}
 
-
 	respBody, err := makeRequest("POST", "https://api.anthropic.com/v1/messages", headers, jsonData, config)
 	if err != nil {
 		return err
@@ -437,7 +436,6 @@ func callOpenAI(config *llm.Config, input string) error {
 		"Content-Type":  "application/json",
 		"Authorization": "Bearer " + config.OpenAIKey,
 	}
-
 
 	respBody, err := makeRequest("POST", "https://api.openai.com/v1/chat/completions", headers, jsonData, config)
 	if err != nil {
@@ -501,7 +499,6 @@ func callOllama(config *llm.Config, input string) error {
 	fmt.Fprintf(os.Stderr, "Connecting to Ollama at: %s\n", url)
 	fmt.Fprintf(os.Stderr, "Using model: %s\n", config.OllamaModel)
 
-
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to Ollama API: %v\n", err)
@@ -552,7 +549,6 @@ func callGemini(config *llm.Config, input string) error {
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", config.GeminiKey)
 
-
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		return err
@@ -588,7 +584,6 @@ func callDeepSeek(config *llm.Config, input string) error {
 		"Content-Type":  "application/json",
 	}
 
-
 	respBody, err := makeRequest("POST", "https://api.deepseek.com/chat/completions", headers, jsonData, config)
 	if err != nil {
 		return err
@@ -623,7 +618,6 @@ func callMistral(config *llm.Config, input string) error {
 		"Authorization": "Bearer " + config.MistralKey,
 		"Content-Type":  "application/json",
 	}
-
 
 	respBody, err := makeRequest("POST", "https://api.mistral.ai/v1/chat/completions", headers, jsonData, config)
 	if err != nil {
@@ -670,7 +664,6 @@ func callBedrock(config *llm.Config, input string) error {
 		"X-Amz-Access-Token": config.BedrockKey,
 	}
 
-
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
 		return err
@@ -702,7 +695,6 @@ func callOpenAPI(config *llm.Config, input string) error {
 	}
 
 	url := fmt.Sprintf("http://%s:%s/completion", config.OpenAPIHost, config.OpenAPIPort)
-
 
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {

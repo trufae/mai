@@ -35,7 +35,7 @@ type Config struct {
 	IsStdinMode   bool
 	SkipRcFile    bool
 	Deterministic bool
-	Markdown bool
+	Markdown      bool
 
 	// options provides access to additional boolean config flags.
 	// Options ConfigOptions

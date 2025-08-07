@@ -3,10 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"github.com/trufae/mai/src/repl/llm"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/trufae/mai/src/repl/llm"
 	"os"
 	"os/exec"
 	"regexp"
@@ -249,7 +249,7 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		fmt.Println(query)
 		fmt.Println("==========================")
 	*/
-	messages := []llm.Message{{Role: "user", Content:query}}
+	messages := []llm.Message{{Role: "user", Content: query}}
 	/*
 		fmt.Println("-------------------------8<-------------------------")
 		fmt.Println(query)

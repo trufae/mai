@@ -35,7 +35,7 @@ type Command struct {
 
 type REPL struct {
 	config           *llm.Config
-	configOptions	ConfigOptions
+	configOptions    ConfigOptions
 	currentClient    *llm.LLMClient
 	readline         *ReadLine // Persistent readline instance for input handling
 	currentInput     strings.Builder
@@ -137,7 +137,7 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		completeIdx:     0,                        // Initialize completion index
 		pendingFiles:    []pendingFile{},          // Initialize empty pending files slice
 		commands:        make(map[string]Command), // Initialize command registry
-		configOptions: configOptions,
+		configOptions:   configOptions,
 	}
 
 	// Create chat directory and history file
@@ -1045,9 +1045,9 @@ func (r *REPL) handleChatCommand(args []string) error {
 // sessionData holds messages plus session-specific settings saved to disk.
 type sessionData struct {
 	Messages []llm.Message `json:"messages"`
-	Provider string    `json:"provider"`
-	Model    string    `json:"model"`
-	BaseURL  string    `json:"baseurl"`
+	Provider string        `json:"provider"`
+	Model    string        `json:"model"`
+	BaseURL  string        `json:"baseurl"`
 }
 
 // handleSessionCommand handles the /session command and its subcommands
@@ -3793,7 +3793,7 @@ func (r *REPL) saveConversation(path string) error {
 
 	// Create simplified conversation data struct
 	conversationData := struct {
-		SystemPrompt string    `json:"system_prompt,omitempty"`
+		SystemPrompt string        `json:"system_prompt,omitempty"`
 		Messages     []llm.Message `json:"messages"`
 	}{
 		SystemPrompt: r.systemPrompt,
@@ -3834,17 +3834,17 @@ func (r *REPL) loadConversation(path string) error {
 
 	// Try to parse as the current format first
 	var conversationData struct {
-		SystemPrompt string    `json:"system_prompt"`
+		SystemPrompt string        `json:"system_prompt"`
 		Messages     []llm.Message `json:"messages"`
 	}
 
 	if err := json.Unmarshal(data, &conversationData); err != nil {
 		// Try parsing legacy format that included provider and model
 		var legacyData struct {
-			SystemPrompt string    `json:"system_prompt"`
+			SystemPrompt string        `json:"system_prompt"`
 			Messages     []llm.Message `json:"messages"`
-			Provider     string    `json:"provider"`
-			Model        string    `json:"model"`
+			Provider     string        `json:"provider"`
+			Model        string        `json:"model"`
 		}
 
 		if err := json.Unmarshal(data, &legacyData); err != nil {

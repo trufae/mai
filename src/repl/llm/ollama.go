@@ -1,0 +1,296 @@
+package llm
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+)
+
+// sendOllamaWithImages sends a message with images to Ollama
+func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// Build request JSON, injecting only raw base64 images into the first user message
+	var rawImages []string
+	for _, uri := range images {
+		if idx := strings.Index(uri, ","); idx != -1 && strings.HasPrefix(uri, "data:") {
+			rawImages = append(rawImages, uri[idx+1:])
+		} else {
+			rawImages = append(rawImages, uri)
+		}
+	}
+	var apiMessages []map[string]interface{}
+	for i, m := range messages {
+		msg := map[string]interface{}{
+			"role":    m.Role,
+			"content": m.Content,
+		}
+		if i == len(messages)-1 && len(rawImages) > 0 {
+			msg["images"] = rawImages
+		}
+		apiMessages = append(apiMessages, msg)
+	}
+	// fmt.Println(apiMessages)
+
+	request := map[string]interface{}{
+		"stream":   stream,
+		"model":    c.config.OllamaModel,
+		"messages": apiMessages,
+	}
+	if c.config.Deterministic {
+		request["options"] = map[string]float64{
+			"repeat_last_n":  0,
+			"top_p":          0.0,
+			"top_k":          1.0,
+			"temperature":    0.0,
+			"repeat_penalty": 1.0,
+			"seed":           123,
+		}
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return "", err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	url := fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
+	if c.config.BaseURL != "" {
+		url = strings.TrimRight(c.config.BaseURL, "/") + "/api/chat"
+	}
+
+	if stream {
+		provider := NewOllamaProvider(c.config)
+		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
+	}
+
+	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+	if err != nil {
+		fmt.Println(string(respBody))
+		return "", err
+	}
+
+	var response struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return "", err
+	}
+
+	return response.Message.Content, nil
+}
+
+// OllamaProvider implements the LLM provider interface for Ollama
+type OllamaProvider struct {
+	config *Config
+}
+
+// OllamaModelsResponse is the response structure for Ollama model list endpoint
+type OllamaModelsResponse struct {
+	Models []struct {
+		Name     string `json:"name""`
+		Digest   string `json:"digest""`
+		Size     int64  `json:"size""`
+		Modified int64  `json:"modified""`
+	} `json:"models""`
+}
+
+func NewOllamaProvider(config *Config) *OllamaProvider {
+	return &OllamaProvider{
+		config: config,
+	}
+}
+
+func (p *OllamaProvider) GetName() string {
+	return "Ollama"
+}
+
+func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
+	// Use the configured base URL if available, otherwise construct from host/port
+	url := fmt.Sprintf("http://%s:%s/api/tags", p.config.OllamaHost, p.config.OllamaPort)
+	if p.config.BaseURL != "" {
+		// Adjust the base URL to point to the tags endpoint
+		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/tags"
+	}
+
+	headers := map[string]string{}
+
+	respBody, err := llmMakeRequest(ctx, "GET", url, headers, nil)
+	if err != nil {
+		return nil, err
+	}
+	if string(respBody)[0] != "{"[0] {
+		return nil, fmt.Errorf("failed %v", string(respBody))
+	}
+
+	var ollamaResp OllamaModelsResponse
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
+		return nil, err
+	}
+
+	models := make([]Model, 0, len(ollamaResp.Models))
+	for _, m := range ollamaResp.Models {
+		// Convert size to a human-readable format for the description
+		sizeDesc := ""
+		if m.Size > 0 {
+			size := float64(m.Size)
+			unit := "B"
+			if size >= 1024*1024*1024 {
+				size /= 1024 * 1024 * 1024
+				unit = "GB"
+			} else if size >= 1024*1024 {
+				size /= 1024 * 1024
+				unit = "MB"
+			} else if size >= 1024 {
+				size /= 1024
+				unit = "KB"
+			}
+			sizeDesc = fmt.Sprintf("Size: %.1f %s", size, unit)
+		}
+
+		models = append(models, Model{
+			ID:          m.Name,
+			Name:        m.Name,
+			Provider:    "ollama",
+			Description: sizeDesc,
+		})
+	}
+
+	return models, nil
+}
+
+func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+	request := struct {
+		Stream   bool               `json:"stream""`
+		Model    string             `json:"model""`
+		Messages []Message          `json:"messages""`
+		Options  map[string]float64 `json:"options,omitempty""`
+	}{
+		Stream:   stream,
+		Model:    p.config.OllamaModel,
+		Messages: messages,
+	}
+
+	// Apply deterministic settings if enabled
+	if p.config.Deterministic {
+		request.Options = map[string]float64{
+			"repeat_last_n":  0,
+			"top_p":          0.0,
+			"top_k":          1.0,
+			"temperature":    0.0,
+			"repeat_penalty": 1.0,
+			"seed":           123,
+		}
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return "", err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	// Use the configured base URL if available, otherwise construct from host/port
+	url := fmt.Sprintf("http://%s:%s/api/chat", p.config.OllamaHost, p.config.OllamaPort)
+	if p.config.BaseURL != "" {
+		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/chat"
+	}
+
+	if stream {
+		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
+	}
+
+	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+	if err != nil {
+		return "", err
+	}
+
+	var response struct {
+		Message struct {
+			Content string `json:"content""`
+		} `json:"message""`
+		Error string `json:"error,omitempty""`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return "", err
+	}
+	if response.Error != "" {
+		return "", fmt.Errorf(response.Error)
+	}
+
+	// Return raw content - newline conversion happens in the REPL
+	return response.Message.Content, nil
+}
+
+func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
+	scanner := bufio.NewScanner(reader)
+	var fullResponse strings.Builder
+
+	// Check if markdown is enabled
+	markdownEnabled := false
+	markdownEnabled = p.config.Markdown
+
+	// Reset the stream renderer if markdown is enabled
+	if markdownEnabled {
+		ResetStreamRenderer()
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		var response struct {
+			Message struct {
+				Content string `json:"content""`
+			} `json:"message""`
+			Done bool `json:"done""`
+		}
+
+		if err := json.Unmarshal([]byte(line), &response); err != nil {
+			continue
+		}
+
+		// Format content based on markdown setting
+		content := response.Message.Content
+		if !markdownEnabled {
+			// Standard formatting - just replace newlines for terminal display
+			content = strings.ReplaceAll(content, "\n", "\n\r")
+		} else {
+			// Format the content using our streaming-friendly formatter
+			content = FormatStreamingChunk(content, markdownEnabled)
+		}
+		fmt.Print(content)
+		fullResponse.WriteString(response.Message.Content)
+
+		if response.Done {
+			break
+		}
+	}
+
+	fmt.Println()
+
+	// Flush any remaining content in the stream renderer buffer
+	if markdownEnabled {
+		renderer := GetStreamRenderer()
+		if final := renderer.Flush(); final != "" {
+			fmt.Print(final)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fullResponse.String(), err
+	}
+
+	return fullResponse.String(), nil
+}
