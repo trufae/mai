@@ -1,4 +1,4 @@
-package main
+package llm
 
 import (
 	"bufio"
@@ -252,7 +252,7 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		"model":    c.config.OllamaModel,
 		"messages": apiMessages,
 	}
-	if c.config.options != nil && c.config.options.GetBool("deterministic") {
+	if c.config.Deterministic {
 		request["options"] = map[string]float64{
 			"repeat_last_n":  0,
 			"top_p":          0.0,
@@ -546,7 +546,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Apply deterministic settings if enabled
-	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+	if p.config.Deterministic {
 		request.Options = map[string]float64{
 			"repeat_last_n":  0,
 			"top_p":          0.0,
@@ -605,9 +605,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 
 	// Check if markdown is enabled
 	markdownEnabled := false
-	if p.config.options != nil {
-		markdownEnabled = p.config.options.GetBool("markdown")
-	}
+	markdownEnabled = p.config.Markdown
 
 	// Reset the stream renderer if markdown is enabled
 	if markdownEnabled {
@@ -739,7 +737,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Apply deterministic settings if enabled
-	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+	if p.config.Deterministic {
 		// Skip for o4 and o1 models which don't support these parameters
 		modelName := strings.ToLower(p.config.OpenAIModel)
 		if !strings.HasPrefix(modelName, "o4") && !strings.HasPrefix(modelName, "o1") {
@@ -801,9 +799,7 @@ func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 
 	// Check if markdown is enabled
 	markdownEnabled := false
-	if p.config.options != nil {
-		markdownEnabled = p.config.options.GetBool("markdown")
-	}
+	markdownEnabled = p.config.Markdown
 
 	// Reset the stream renderer if markdown is enabled
 	if markdownEnabled {
@@ -943,7 +939,7 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Apply deterministic settings if enabled
-	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+	if p.config.Deterministic {
 		request["temperature"] = 0
 		request["top_p"] = 0
 		request["top_k"] = 1
@@ -1003,9 +999,7 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 
 	// Check if markdown is enabled
 	markdownEnabled := false
-	if p.config.options != nil {
-		markdownEnabled = p.config.options.GetBool("markdown")
-	}
+	markdownEnabled = p.config.Markdown
 
 	// Reset the stream renderer if markdown is enabled
 	if markdownEnabled {
@@ -1239,7 +1233,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Apply deterministic settings if enabled
-	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+	if p.config.Deterministic {
 		request.GenerationConfig = &struct {
 			Temperature float64 `json:"temperature,omitempty""`
 			TopP        float64 `json:"topP,omitempty""`
@@ -1406,7 +1400,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	// Apply deterministic settings if enabled
-	if p.config.options != nil && p.config.options.GetBool("deterministic") {
+	if p.config.Deterministic {
 		request.N = 1
 		request.TopP = 0.001
 		request.RandomSeed = 1
@@ -1469,9 +1463,7 @@ func (p *MistralProvider) parseStream(reader io.Reader) (string, error) {
 
 	// Check if markdown is enabled
 	markdownEnabled := false
-	if p.config.options != nil {
-		markdownEnabled = p.config.options.GetBool("markdown")
-	}
+	markdownEnabled = p.config.Markdown
 
 	// Reset the stream renderer if markdown is enabled
 	if markdownEnabled {
@@ -1819,6 +1811,8 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 		"Content-Type":       "application/json",
 		"X-Amz-Access-Token": p.config.BedrockKey,
 	}
+	// fmt.Println(p.config.BedrockKey)
+	// fmt.Println(p.config.BedrockRegion)
 
 	// Bedrock doesn't support streaming in our implementation yet
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
@@ -1827,15 +1821,18 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	var response struct {
+		Message string `json:"message""`
 		Output struct {
 			Message struct {
 				Content string `json:"content""`
 			} `json:"message""`
 		} `json:"output""`
 	}
-
 	if err := json.Unmarshal(respBody, &response); err != nil {
 		return "", err
+	}
+	if response.Message != "" {
+		return "", fmt.Errorf("bedrock: %v", response.Message)
 	}
 
 	// Return raw content - newline conversion happens in the REPL

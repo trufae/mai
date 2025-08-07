@@ -115,7 +115,7 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 // listTemplates lists all files in the templatedir
 func (r *REPL) listTemplates() error {
 	// Get the template directory from config
-	templateDir := r.config.options.Get("templatedir")
+	templateDir := r.configOptions.Get("templatedir")
 	if templateDir == "" {
 		// Try common locations
 		commonLocations := []string{
@@ -177,7 +177,7 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 	}
 
 	// First try the templatedir configuration if set
-	if templateDir := r.config.options.Get("templatedir"); templateDir != "" {
+	if templateDir := r.configOptions.Get("templatedir"); templateDir != "" {
 		templatePath := filepath.Join(templateDir, templateName)
 
 		// Try with file as is
@@ -225,7 +225,7 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 // and sets the templatedir config variable if found
 func (r *REPL) autoDetectTemplateDir() {
 	// Skip if templatedir is already set
-	if r.config.options.Get("templatedir") != "" {
+	if r.configOptions.Get("templatedir") != "" {
 		return
 	}
 
@@ -251,7 +251,7 @@ func (r *REPL) autoDetectTemplateDir() {
 		templatesDir := filepath.Join(currentDir, "templates")
 		if _, err := os.Stat(templatesDir); err == nil {
 			// Found a templates directory
-			r.config.options.Set("templatedir", templatesDir)
+			r.configOptions.Set("templatedir", templatesDir)
 			return
 		}
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"github.com/trufae/mai/src/repl/llm"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -248,7 +249,7 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		fmt.Println(query)
 		fmt.Println("==========================")
 	*/
-	messages := []Message{{"user", query}}
+	messages := []llm.Message{{Role: "user", Content:query}}
 	/*
 		fmt.Println("-------------------------8<-------------------------")
 		fmt.Println(query)
@@ -307,7 +308,7 @@ func (t *Tool) ToString() string {
 	return fmt.Sprintf("%s %s", t.Name, args)
 }
 
-func (r *REPL) QueryWithTools(messages []Message, input string) (string, error) {
+func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, error) {
 	// TODO: Do something with the previous messages
 	showPlan := true
 	toolPrompt, err := r.getToolPrompt("tool.md")

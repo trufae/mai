@@ -22,6 +22,8 @@ import (
 	"unicode"
 
 	"golang.org/x/term"
+
+	"github.com/trufae/mai/src/repl/llm"
 )
 
 // Command represents a REPL command with its description and handler
@@ -32,8 +34,9 @@ type Command struct {
 }
 
 type REPL struct {
-	config           *Config
-	currentClient    *LLMClient
+	config           *llm.Config
+	configOptions	ConfigOptions
+	currentClient    *llm.LLMClient
 	readline         *ReadLine // Persistent readline instance for input handling
 	currentInput     strings.Builder
 	cursorPos        int // Current cursor position in the line
@@ -49,7 +52,7 @@ type REPL struct {
 	lastTabInput     string // last input text when Tab was pressed
 	streamingEnabled bool
 	systemPrompt     string
-	messages         []Message
+	messages         []llm.Message
 	includeReplies   bool               // Whether to include assistant replies in the context
 	pendingFiles     []pendingFile      // Files and images to include in the next message
 	reasoningEnabled bool               // Whether reasoning is enabled for the AI model
@@ -69,7 +72,7 @@ type pendingFile struct {
 }
 
 type StreamingClient interface {
-	StreamChat(ctx context.Context, messages []Message) (<-chan string, <-chan error)
+	StreamChat(ctx context.Context, messages []llm.Message) (<-chan string, <-chan error)
 }
 
 // AskYesNo prompts the user with a yes/no question, defaulting to 'y' or 'n'.
@@ -112,7 +115,7 @@ func AskYesNo(question string, defaultVal rune) bool {
 	return c == 'y'
 }
 
-func NewREPL(config *Config) (*REPL, error) {
+func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create a persistent readline instance
@@ -134,6 +137,7 @@ func NewREPL(config *Config) (*REPL, error) {
 		completeIdx:     0,                        // Initialize completion index
 		pendingFiles:    []pendingFile{},          // Initialize empty pending files slice
 		commands:        make(map[string]Command), // Initialize command registry
+		configOptions: configOptions,
 	}
 
 	// Create chat directory and history file
@@ -152,37 +156,37 @@ func NewREPL(config *Config) (*REPL, error) {
 	}
 
 	// Override defaults based on command line flags if needed
-	if _, exists := repl.config.options.GetOptionInfo("stream"); !exists {
-		repl.config.options.RegisterOption("stream", BooleanOption, "Enable streaming mode", streamDefault)
+	if _, exists := repl.configOptions.GetOptionInfo("stream"); !exists {
+		repl.configOptions.RegisterOption("stream", BooleanOption, "Enable streaming mode", streamDefault)
 	}
 
 	// Initialize all settings from options
-	repl.streamingEnabled = repl.config.options.GetBool("stream")
-	repl.includeReplies = repl.config.options.GetBool("include_replies")
-	repl.reasoningEnabled = repl.config.options.GetBool("reasoning")
-	repl.loggingEnabled = repl.config.options.GetBool("logging")
-	repl.markdownEnabled = repl.config.options.GetBool("markdown")
-	repl.useToolsEnabled = repl.config.options.GetBool("usetools")
+	repl.streamingEnabled = repl.configOptions.GetBool("stream")
+	repl.includeReplies = repl.configOptions.GetBool("include_replies")
+	repl.reasoningEnabled = repl.configOptions.GetBool("reasoning")
+	repl.loggingEnabled = repl.configOptions.GetBool("logging")
+	repl.markdownEnabled = repl.configOptions.GetBool("markdown")
+	repl.useToolsEnabled = repl.configOptions.GetBool("usetools")
 
 	// Set prompts in the readline instance
-	if prompt := repl.config.options.Get("prompt"); prompt != "" {
+	if prompt := repl.configOptions.Get("prompt"); prompt != "" {
 		repl.readline.SetPrompt(prompt)
 	}
 
-	if readlinePrompt := repl.config.options.Get("readlineprompt"); readlinePrompt != "" {
+	if readlinePrompt := repl.configOptions.Get("readlineprompt"); readlinePrompt != "" {
 		repl.readline.SetReadlinePrompt(readlinePrompt)
 	}
 
-	// Synchronize provider and model settings with config options
-	if provider := repl.config.options.Get("provider"); provider != "" {
+	// Synchronize provider and model settings with configOptions
+	if provider := repl.configOptions.Get("provider"); provider != "" {
 		repl.config.PROVIDER = provider
 	} else if repl.config.PROVIDER != "" {
 		// Set the provider option if it's not set but PROVIDER is
-		repl.config.options.Set("provider", repl.config.PROVIDER)
+		repl.configOptions.Set("provider", repl.config.PROVIDER)
 	}
 
 	// Synchronize model setting based on current provider
-	if model := repl.config.options.Get("model"); model != "" {
+	if model := repl.configOptions.Get("model"); model != "" {
 		// Set the appropriate model based on provider
 		switch strings.ToLower(repl.config.PROVIDER) {
 		case "ollama":
@@ -204,44 +208,44 @@ func NewREPL(config *Config) (*REPL, error) {
 		// Set the model option based on the current provider's model
 		currentModel := repl.getCurrentModelForProvider()
 		if currentModel != "" {
-			repl.config.options.Set("model", currentModel)
+			repl.configOptions.Set("model", currentModel)
 		}
 	}
 
 	// Load system prompt from promptfile if set, processing include directives
-	if promptFile := repl.config.options.Get("promptfile"); promptFile != "" {
+	if promptFile := repl.configOptions.Get("promptfile"); promptFile != "" {
 		content, err := os.ReadFile(promptFile)
 		if err == nil {
 			promptText := string(content)
 			promptText = repl.processIncludeStatements(promptText, filepath.Dir(promptFile))
 			repl.systemPrompt = promptText
 		}
-	} else if systemPrompt := repl.config.options.Get("systemprompt"); systemPrompt != "" {
+	} else if systemPrompt := repl.configOptions.Get("systemprompt"); systemPrompt != "" {
 		// Or use systemprompt text if set
 		repl.systemPrompt = systemPrompt
 	}
 
 	// Set baseurl from command line flag if provided
 	if repl.config.BaseURL != "" {
-		repl.config.options.Set("baseurl", repl.config.BaseURL)
-	} else if baseURL := repl.config.options.Get("baseurl"); baseURL != "" {
+		repl.configOptions.Set("baseurl", repl.config.BaseURL)
+	} else if baseURL := repl.configOptions.Get("baseurl"); baseURL != "" {
 		// Or use the config option if set
 		repl.config.BaseURL = baseURL
 	}
 
-	// Register listener to sync BaseURL when changed via config options
-	repl.config.options.RegisterOptionListener("baseurl", func(value string) {
+	// Register listener to sync BaseURL when changed via configOptions
+	repl.configOptions.RegisterOptionListener("baseurl", func(value string) {
 		repl.config.BaseURL = value
 	})
 
 	// Register listeners for prompt option changes
-	repl.config.options.RegisterOptionListener("prompt", func(value string) {
+	repl.configOptions.RegisterOptionListener("prompt", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetPrompt(value)
 		}
 	})
 
-	repl.config.options.RegisterOptionListener("readlineprompt", func(value string) {
+	repl.configOptions.RegisterOptionListener("readlineprompt", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetReadlinePrompt(value)
 		}
@@ -249,8 +253,8 @@ func NewREPL(config *Config) (*REPL, error) {
 
 	// Set useragent from command line flag if provided
 	if repl.config.UserAgent != "mai-repl/1.0" {
-		repl.config.options.Set("useragent", repl.config.UserAgent)
-	} else if userAgent := repl.config.options.Get("useragent"); userAgent != "" {
+		repl.configOptions.Set("useragent", repl.config.UserAgent)
+	} else if userAgent := repl.configOptions.Get("useragent"); userAgent != "" {
 		// Or use the config option if set
 		repl.config.UserAgent = userAgent
 	}
@@ -351,7 +355,7 @@ func (r *REPL) Run() error {
 }
 
 func (r *REPL) setupHistory() error {
-	if !r.config.options.GetBool("history") {
+	if !r.configOptions.GetBool("history") {
 		return nil
 	}
 	// Determine the .mai directory for history/chat storage: search project dirs or fallback to home
@@ -425,8 +429,8 @@ func (r *REPL) cleanup() {
 	}
 	// Auto-save the chat session if history is enabled and messages exist,
 	// updating the current session or creating a new one if none selected
-	if r.config.options.GetBool("history") && len(r.messages) > 0 {
-		mode := r.config.options.Get("session_save")
+	if r.configOptions.GetBool("history") && len(r.messages) > 0 {
+		mode := r.configOptions.Get("session_save")
 		if mode != "never" {
 			var name string
 			if r.currentSession != "" {
@@ -449,7 +453,7 @@ func (r *REPL) cleanup() {
 }
 
 func (r *REPL) saveHistory() error {
-	if !r.config.options.GetBool("history") {
+	if !r.configOptions.GetBool("history") {
 		return nil
 	}
 	homeDir, err := os.UserHomeDir()
@@ -481,7 +485,7 @@ func (r *REPL) interruptResponse() {
 		r.ctx, r.cancel = context.WithCancel(context.Background())
 
 		// Also interrupt the LLM client if it's active
-		client, err := NewLLMClient(r.config)
+		client, err := llm.NewLLMClient(r.config)
 		if err == nil && client != nil {
 			client.InterruptResponse()
 			r.mu.Lock()
@@ -495,7 +499,7 @@ func (r *REPL) interruptResponse() {
 
 // loadHistory reads the history file and loads entries into readline's history
 func (r *REPL) loadHistory() error {
-	if !r.config.options.GetBool("history") {
+	if !r.configOptions.GetBool("history") {
 		return nil
 	}
 	homeDir, err := os.UserHomeDir()
@@ -745,7 +749,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 		if needFreshOptions {
 			// Determine prompt directory
-			promptDir := r.config.options.Get("promptdir")
+			promptDir := r.configOptions.Get("promptdir")
 			if promptDir == "" {
 				for _, loc := range []string{"./prompts", "../prompts"} {
 					if _, err := os.Stat(loc); err == nil {
@@ -820,7 +824,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 		if needFreshOptions {
 			// Determine template directory
-			templDir := r.config.options.Get("templatedir")
+			templDir := r.configOptions.Get("templatedir")
 			if templDir == "" {
 				for _, loc := range []string{"./templates", "../templates"} {
 					if _, err := os.Stat(loc); err == nil {
@@ -1011,7 +1015,7 @@ func (r *REPL) handleChatCommand(args []string) error {
 	case "sessions":
 		return r.listSessions()
 	case "clear":
-		r.messages = []Message{}
+		r.messages = []llm.Message{}
 		fmt.Print("Conversation messages cleared\r\n")
 		return nil
 	case "list":
@@ -1040,7 +1044,7 @@ func (r *REPL) handleChatCommand(args []string) error {
 
 // sessionData holds messages plus session-specific settings saved to disk.
 type sessionData struct {
-	Messages []Message `json:"messages"`
+	Messages []llm.Message `json:"messages"`
 	Provider string    `json:"provider"`
 	Model    string    `json:"model"`
 	BaseURL  string    `json:"baseurl"`
@@ -1074,7 +1078,7 @@ func (r *REPL) handleSessionCommand(args []string) error {
 		if err := r.saveSession(name); err != nil {
 			return err
 		}
-		r.messages = []Message{}
+		r.messages = []llm.Message{}
 		r.currentSession = name
 		r.unsavedTopic = ""
 		fmt.Printf("Started new session '%s'\r\n", name)
@@ -1300,7 +1304,7 @@ func (r *REPL) saveSession(sessionName string) error {
 	sess := sessionData{
 		Messages: r.messages,
 		Provider: r.config.PROVIDER,
-		Model:    r.config.options.Get("model"),
+		Model:    r.configOptions.Get("model"),
 		BaseURL:  r.config.BaseURL,
 	}
 	data, err := json.MarshalIndent(sess, "", "  ")
@@ -1312,7 +1316,7 @@ func (r *REPL) saveSession(sessionName string) error {
 	}
 
 	// Generate and save topic if AI topic generation is enabled or a manual topic was set
-	if r.config.options.GetBool("aitopic") {
+	if r.configOptions.GetBool("aitopic") {
 		full, err := r.generateAndSetTopic()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error generating topic: %v\n", err)
@@ -1354,11 +1358,11 @@ func (r *REPL) loadSession(sessionName string) error {
 	r.messages = sess.Messages
 	// Restore provider, model, baseurl
 	r.config.PROVIDER = sess.Provider
-	r.config.options.Set("provider", sess.Provider)
+	r.configOptions.Set("provider", sess.Provider)
 	setModelForProvider(r.config, sess.Model)
-	r.config.options.Set("model", sess.Model)
+	r.configOptions.Set("model", sess.Model)
 	r.config.BaseURL = sess.BaseURL
-	r.config.options.Set("baseurl", sess.BaseURL)
+	r.configOptions.Set("baseurl", sess.BaseURL)
 	fmt.Printf("Session '%s' loaded (provider=%s, model=%s, baseurl=%s)\r\n",
 		sessionName, sess.Provider, sess.Model, sess.BaseURL)
 	return nil
@@ -1458,12 +1462,12 @@ func (r *REPL) generateTopic() (string, error) {
 	lastMessage := r.messages[len(r.messages)-1].Content.(string)
 	prompt := "Summarize the following text in a few words:\n\n" + lastMessage
 
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
-	messages := []Message{
+	messages := []llm.Message{
 		{Role: "user", Content: prompt},
 	}
 
@@ -1606,7 +1610,7 @@ func (r *REPL) substituteInput(input string) (string, error) {
 
 		for _, file := range r.pendingFiles {
 			if strings.Contains(file.filePath, "://") {
-				enhancedInput += fmt.Sprintf("URL Link: `%s`\n", file)
+				enhancedInput += fmt.Sprintf("URL Link: `%s`\n", file.filePath)
 			} else if file.isImage {
 				// For images, we'll collect them separately for providers that support image attachments
 				images = append(images, file.imageB64)
@@ -1645,7 +1649,7 @@ func (r *REPL) sendToAI(input string) error {
 	input = processedInput
 
 	// Create client
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -1654,18 +1658,18 @@ func (r *REPL) sendToAI(input string) error {
 	r.mu.Unlock()
 
 	// Add system prompt if present
-	messages := []Message{}
+	messages := []llm.Message{}
 	// Determine the final system prompt, giving user-set text priority
 	finalSystemPrompt := r.systemPrompt
 	if finalSystemPrompt == "" {
 		// Try systempromptfile option or default .mai/systemprompt.md
-		spFile := r.config.options.Get("systempromptfile")
+		spFile := r.configOptions.Get("systempromptfile")
 		if spFile == "" {
 			if d, err := findMaiDir(); err == nil {
 				candidate := filepath.Join(d, "systemprompt.md")
 				if _, err := os.Stat(candidate); err == nil {
 					spFile = candidate
-					r.config.options.Set("systempromptfile", spFile)
+					r.configOptions.Set("systempromptfile", spFile)
 				}
 			}
 		}
@@ -1680,7 +1684,7 @@ func (r *REPL) sendToAI(input string) error {
 		}
 	}
 	if finalSystemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: finalSystemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: finalSystemPrompt})
 	}
 
 	// Handle conversation history based on logging and reply settings
@@ -1714,7 +1718,7 @@ func (r *REPL) sendToAI(input string) error {
 	// Add user message with enhanced input
 	// Store the original input (with commands) for display in message history,
 	// but use the processed input (with command output) for sending to the AI
-	userMessage := Message{Role: "user", Content: input}
+	userMessage := llm.Message{Role: "user", Content: input}
 
 	// Handle conversation history based on logging settings
 	if r.loggingEnabled {
@@ -1722,7 +1726,7 @@ func (r *REPL) sendToAI(input string) error {
 		r.messages = append(r.messages, userMessage)
 	} else {
 		// When logging is disabled, replace the entire history with just this message
-		r.messages = []Message{userMessage}
+		r.messages = []llm.Message{userMessage}
 	}
 
 	// Set default topic from first user message for unsaved sessions
@@ -1739,12 +1743,12 @@ func (r *REPL) sendToAI(input string) error {
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM
 	if !r.reasoningEnabled {
 		// Create a copy of the messages for the API call with /no_think appended
-		messagesCopy := make([]Message, len(messages))
+		messagesCopy := make([]llm.Message, len(messages))
 		copy(messagesCopy, messages)
 
 		disable_reasoning := "\n# Reasoning\nDo /nothink /no_think\nUse Reasoning: low\n\n"
 		// Append the user message with /no_think to the copy
-		messagesCopy = append(messagesCopy, Message{Role: "user", Content: input + disable_reasoning})
+		messagesCopy = append(messagesCopy, llm.Message{Role: "user", Content: input + disable_reasoning})
 		messages = messagesCopy
 	} else {
 		// Add the original user message
@@ -1753,7 +1757,7 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Reset the markdown processor state before starting a new streaming session
 	if r.streamingEnabled && r.markdownEnabled {
-		ResetStreamRenderer()
+		llm.ResetStreamRenderer()
 	}
 
 	var images []string // base64 encoded images
@@ -1772,7 +1776,7 @@ func (r *REPL) sendToAI(input string) error {
 		if !r.streamingEnabled {
 			if r.markdownEnabled {
 				// Use markdown formatting
-				fmt.Print(RenderMarkdown(response))
+				fmt.Print(llm.RenderMarkdown(response))
 			} else {
 				// Use standard formatting
 				fmt.Print(strings.ReplaceAll(response, "\n", "\r\n"))
@@ -1780,14 +1784,14 @@ func (r *REPL) sendToAI(input string) error {
 		}
 
 		// Create assistant message
-		assistantMessage := Message{Role: "assistant", Content: response}
+		assistantMessage := llm.Message{Role: "assistant", Content: response}
 
 		if r.loggingEnabled {
 			// Save to conversation history when logging is enabled
 			r.messages = append(r.messages, assistantMessage)
 		} else {
 			// When logging is disabled, keep just the current exchange
-			r.messages = []Message{userMessage, assistantMessage}
+			r.messages = []llm.Message{userMessage, assistantMessage}
 		}
 	}
 
@@ -1809,14 +1813,14 @@ func (r *REPL) supportsStreaming() bool {
 // Legacy function kept for compatibility
 func (r *REPL) regularResponse(input string) error {
 	// Create messages
-	messages := []Message{}
+	messages := []llm.Message{}
 	if r.systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
 	}
-	messages = append(messages, Message{Role: "user", Content: input})
+	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Create client and send message
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -1834,17 +1838,17 @@ func (r *REPL) regularResponse(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) streamOllama(input string) error {
 	// Create a new LLM client
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
 	// Prepare messages
-	messages := []Message{}
+	messages := []llm.Message{}
 	if r.systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
 	}
-	messages = append(messages, Message{Role: "user", Content: input})
+	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
@@ -1854,17 +1858,17 @@ func (r *REPL) streamOllama(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) streamOpenAI(input string) error {
 	// Create a new LLM client
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
 	// Prepare messages
-	messages := []Message{}
+	messages := []llm.Message{}
 	if r.systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
 	}
-	messages = append(messages, Message{Role: "user", Content: input})
+	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
@@ -1874,17 +1878,17 @@ func (r *REPL) streamOpenAI(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) streamClaude(input string) error {
 	// Create a new LLM client
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
 	// Prepare messages
-	messages := []Message{}
+	messages := []llm.Message{}
 	if r.systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
 	}
-	messages = append(messages, Message{Role: "user", Content: input})
+	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Send message with streaming
 	_, err = client.SendMessage(messages, true)
@@ -2086,7 +2090,7 @@ func (r *REPL) initCommands() {
 		Name:        "/clear",
 		Description: "Clear conversation messages",
 		Handler: func(r *REPL, args []string) error {
-			r.messages = []Message{}
+			r.messages = []llm.Message{}
 			fmt.Print("Conversation messages cleared\r\n")
 			return nil
 		},
@@ -2105,7 +2109,7 @@ func (r *REPL) initCommands() {
 
 			// Print the content with markdown rendering if enabled
 			if r.markdownEnabled {
-				fmt.Print(RenderMarkdown(content))
+				fmt.Print(llm.RenderMarkdown(content))
 			} else {
 				// Replace single newlines with \r\n for proper terminal display
 				content = strings.ReplaceAll(content, "\n", "\r\n")
@@ -2160,7 +2164,7 @@ func (r *REPL) initCommands() {
 		Description: "Clear system prompt",
 		Handler: func(r *REPL, args []string) error {
 			r.systemPrompt = ""
-			r.config.options.Unset("promptfile")
+			r.configOptions.Unset("promptfile")
 			fmt.Print("System prompt cleared\r\n")
 			return nil
 		},
@@ -2252,7 +2256,7 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 		// Format the content based on markdown setting
 		content := response.Message.Content
 		if r.markdownEnabled {
-			content = FormatStreamingChunk(content, true)
+			content = llm.FormatStreamingChunk(content, true)
 		} else {
 			content = strings.ReplaceAll(content, "\n", "\r\n")
 		}
@@ -2309,7 +2313,7 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 			// Format the content based on markdown setting
 			content := response.Choices[0].Delta.Content
 			if r.markdownEnabled {
-				content = FormatStreamingChunk(content, true)
+				content = llm.FormatStreamingChunk(content, true)
 			} else {
 				content = strings.ReplaceAll(content, "\n", "\r\n")
 			}
@@ -2362,7 +2366,7 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 			// Format the content based on markdown setting
 			content := response.Delta.Text
 			if r.markdownEnabled {
-				content = FormatStreamingChunk(content, true)
+				content = llm.FormatStreamingChunk(content, true)
 			} else {
 				content = strings.ReplaceAll(content, "\n", "\r\n")
 			}
@@ -2414,7 +2418,7 @@ func (r *REPL) handlePromptCommand(input string) error {
 // listPrompts lists all .md files in the promptdir
 func (r *REPL) listPrompts() error {
 	// Get the prompt directory from config
-	promptDir := r.config.options.Get("promptdir")
+	promptDir := r.configOptions.Get("promptdir")
 	if promptDir == "" {
 		// Try common locations
 		commonLocations := []string{
@@ -2871,7 +2875,7 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 // executeLLMQueryWithoutStreaming executes an LLM query without streaming and returns the result
 func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	// Create a new client for this query
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -2890,9 +2894,9 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	}
 
 	// Build the messages array
-	messages := []Message{}
+	messages := []llm.Message{}
 	if r.systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: r.systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
 	}
 
 	// Add conversation history if we should include replies
@@ -2901,7 +2905,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	}
 
 	// Add the user query
-	messages = append(messages, Message{Role: "user", Content: processedQuery})
+	messages = append(messages, llm.Message{Role: "user", Content: processedQuery})
 
 	// Call the LLM with streaming disabled
 	response, err := client.SendMessage(messages, false)
@@ -3022,7 +3026,7 @@ func (r *REPL) loadSystemPrompt(path string) error {
 	r.systemPrompt = string(content)
 
 	// Update the promptfile configuration
-	r.config.options.Set("promptfile", path)
+	r.configOptions.Set("promptfile", path)
 
 	fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
 	return nil
@@ -3096,7 +3100,7 @@ func (r *REPL) displayFullConversationLog() {
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
 		if r.markdownEnabled {
-			fmt.Printf("%s\r\n", RenderMarkdown(msg.Content.(string)))
+			fmt.Printf("%s\r\n", llm.RenderMarkdown(msg.Content.(string)))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
 			content := strings.ReplaceAll(msg.Content.(string), "\n", "\r\n")
@@ -3339,7 +3343,7 @@ func (r *REPL) processIncludeStatements(content, baseDir string) string {
 // and sets the promptdir config variable if found
 func (r *REPL) autoDetectPromptDir() {
 	// Skip if promptdir is already set
-	if r.config.options.Get("promptdir") != "" {
+	if r.configOptions.Get("promptdir") != "" {
 		return
 	}
 
@@ -3367,7 +3371,7 @@ func (r *REPL) autoDetectPromptDir() {
 		promptsDir := filepath.Join(currentDir, "prompts")
 		if _, err := os.Stat(promptsDir); err == nil {
 			// Found a prompts directory
-			r.config.options.Set("promptdir", promptsDir)
+			r.configOptions.Set("promptdir", promptsDir)
 			fmt.Printf("Auto-detected prompts directory: %s\r\n", promptsDir)
 			return
 		}
@@ -3412,31 +3416,31 @@ func (r *REPL) setModel(model string) error {
 	switch strings.ToLower(r.config.PROVIDER) {
 	case "ollama":
 		r.config.OllamaModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("Ollama model set to %s\r\n", model)
 	case "openai":
 		r.config.OpenAIModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("OpenAI model set to %s\r\n", model)
 	case "claude":
 		r.config.ClaudeModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("Claude model set to %s\r\n", model)
 	case "gemini", "google":
 		r.config.GeminiModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("Gemini model set to %s\r\n", model)
 	case "mistral":
 		r.config.MistralModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("Mistral model set to %s\r\n", model)
 	case "deepseek":
 		r.config.DeepSeekModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("DeepSeek model set to %s\r\n", model)
 	case "bedrock", "aws":
 		r.config.BedrockModel = model
-		r.config.options.Set("model", model)
+		r.configOptions.Set("model", model)
 		fmt.Printf("Bedrock model set to %s\r\n", model)
 	default:
 		return fmt.Errorf("unknown provider: %s", r.config.PROVIDER)
@@ -3510,8 +3514,8 @@ func (r *REPL) setProvider(provider string) error {
 
 	// Set the new provider
 	r.config.PROVIDER = provider
-	// Update the provider in the config options
-	r.config.options.Set("provider", provider)
+	// Update the provider in the configOptions
+	r.configOptions.Set("provider", provider)
 
 	fmt.Printf("Provider set to %s\r\n", provider)
 
@@ -3524,7 +3528,7 @@ func (r *REPL) setProvider(provider string) error {
 // listModels fetches and displays available models for the current provider
 func (r *REPL) listModels() error {
 	// Create client
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -3605,7 +3609,7 @@ func (r *REPL) handleOptionCompletion(line *strings.Builder, cmd, partialOption 
 		options = GetAvailableOptions()
 	} else if cmd == "/unset" {
 		// For /unset, show only options that are currently set
-		options = r.config.options.GetKeys()
+		options = r.configOptions.GetKeys()
 	}
 
 	// Filter options by the partial input
@@ -3709,7 +3713,7 @@ func (r *REPL) handleCompactCommand() error {
 	}
 
 	// Create a new message with the compact prompt and conversation history
-	compactMessage := Message{
+	compactMessage := llm.Message{
 		Role:    "user",
 		Content: string(compactPrompt) + "\n\n" + conversationText.String(),
 	}
@@ -3718,12 +3722,12 @@ func (r *REPL) handleCompactCommand() error {
 	originalMessages := r.messages
 
 	// Replace messages with just the compact message
-	r.messages = []Message{compactMessage}
+	r.messages = []llm.Message{compactMessage}
 
 	fmt.Print("Compacting conversation...\r\n")
 
 	// Create client and send message
-	client, err := NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.config)
 	if err != nil {
 		// Restore original messages on error
 		r.messages = originalMessages
@@ -3731,9 +3735,9 @@ func (r *REPL) handleCompactCommand() error {
 	}
 
 	// Prepare messages for the API
-	apiMessages := []Message{}
+	apiMessages := []llm.Message{}
 	if r.systemPrompt != "" {
-		apiMessages = append(apiMessages, Message{Role: "system", Content: r.systemPrompt})
+		apiMessages = append(apiMessages, llm.Message{Role: "system", Content: r.systemPrompt})
 	}
 	apiMessages = append(apiMessages, compactMessage)
 
@@ -3746,11 +3750,11 @@ func (r *REPL) handleCompactCommand() error {
 	}
 
 	// Create the assistant response message
-	assistantMessage := Message{Role: "assistant", Content: response}
+	assistantMessage := llm.Message{Role: "assistant", Content: response}
 
 	// Replace the conversation with just the compact message and response
-	r.messages = []Message{
-		Message{Role: "user", Content: "Please provide a compact response to my questions and needs."},
+	r.messages = []llm.Message{
+		llm.Message{Role: "user", Content: "Please provide a compact response to my questions and needs."},
 		assistantMessage,
 	}
 
@@ -3790,7 +3794,7 @@ func (r *REPL) saveConversation(path string) error {
 	// Create simplified conversation data struct
 	conversationData := struct {
 		SystemPrompt string    `json:"system_prompt,omitempty"`
-		Messages     []Message `json:"messages"`
+		Messages     []llm.Message `json:"messages"`
 	}{
 		SystemPrompt: r.systemPrompt,
 		Messages:     r.messages,
@@ -3831,14 +3835,14 @@ func (r *REPL) loadConversation(path string) error {
 	// Try to parse as the current format first
 	var conversationData struct {
 		SystemPrompt string    `json:"system_prompt"`
-		Messages     []Message `json:"messages"`
+		Messages     []llm.Message `json:"messages"`
 	}
 
 	if err := json.Unmarshal(data, &conversationData); err != nil {
 		// Try parsing legacy format that included provider and model
 		var legacyData struct {
 			SystemPrompt string    `json:"system_prompt"`
-			Messages     []Message `json:"messages"`
+			Messages     []llm.Message `json:"messages"`
 			Provider     string    `json:"provider"`
 			Model        string    `json:"model"`
 		}

@@ -75,6 +75,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.initialized = true
 
 	// Set the global reference to this config
+	// TODO rimraf
 	globalConfig = co
 
 	return co
@@ -190,7 +191,7 @@ func (c *ConfigOptions) GetKeys() []string {
 	return keys
 }
 
-// Global reference to the config options for static functions
+// Global reference to the configOptions for static functions
 var globalConfig *ConfigOptions
 
 // GetAvailableOptions returns a list of all available configuration options
@@ -251,7 +252,7 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	}
 
 	// First try the promptdir configuration if set
-	if promptDir := r.config.options.Get("promptdir"); promptDir != "" {
+	if promptDir := r.configOptions.Get("promptdir"); promptDir != "" {
 		promptPath := filepath.Join(promptDir, promptName)
 		// Try with and without .md extension
 		if _, err := os.Stat(promptPath); err == nil {
@@ -285,7 +286,7 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) error {
-	// Special handling for specific config options
+	// Special handling for specific configOptions
 	if len(args) >= 3 {
 		switch args[1] {
 		case "promptfile":
@@ -296,7 +297,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 			// Set system prompt directly
 			promptText := strings.Join(args[2:], " ")
 			r.systemPrompt = promptText
-			r.config.options.Set("systemprompt", promptText)
+			r.configOptions.Set("systemprompt", promptText)
 			fmt.Printf("System prompt set (%d chars)\r\n", len(promptText))
 			return nil
 		case "model":
@@ -323,7 +324,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 
 	if len(args) < 3 {
 		// Display current value if no value argument is provided
-		value := r.config.options.Get(option)
+		value := r.configOptions.Get(option)
 
 		// Get option type and status
 		optType := GetOptionType(option)
@@ -332,7 +333,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 			status = "not set"
 
 			// Check for default value
-			if info, exists := r.config.options.GetOptionInfo(option); exists && info.Default != "" {
+			if info, exists := r.configOptions.GetOptionInfo(option); exists && info.Default != "" {
 				status = fmt.Sprintf("default: %s", info.Default)
 			}
 		} else {
@@ -346,7 +347,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 	value := args[2]
 
 	// Set the option value with validation
-	if err := r.config.options.Set(option, value); err != nil {
+	if err := r.configOptions.Set(option, value); err != nil {
 		fmt.Printf("Error: %v\r\n", err)
 
 		// Show expected format for the type
@@ -365,30 +366,30 @@ func (r *REPL) handleSetCommand(args []string) error {
 	// Handle special options that require updating REPL state
 	switch option {
 	case "stream":
-		r.streamingEnabled = r.config.options.GetBool("stream")
+		r.streamingEnabled = r.configOptions.GetBool("stream")
 		streamStatus := "enabled"
 		if !r.streamingEnabled {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s\r\n", streamStatus)
 	case "include_replies":
-		r.includeReplies = r.config.options.GetBool("include_replies")
+		r.includeReplies = r.configOptions.GetBool("include_replies")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "reasoning":
-		r.reasoningEnabled = r.config.options.GetBool("reasoning")
+		r.reasoningEnabled = r.configOptions.GetBool("reasoning")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "logging":
-		r.loggingEnabled = r.config.options.GetBool("logging")
+		r.loggingEnabled = r.configOptions.GetBool("logging")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "markdown":
-		r.markdownEnabled = r.config.options.GetBool("markdown")
+		r.markdownEnabled = r.configOptions.GetBool("markdown")
 		markdownStatus := "enabled"
 		if !r.markdownEnabled {
 			markdownStatus = "disabled"
 		}
 		fmt.Printf("Markdown rendering %s\r\n", markdownStatus)
 	case "usetools":
-		r.useToolsEnabled = r.config.options.GetBool("usetools")
+		r.useToolsEnabled = r.configOptions.GetBool("usetools")
 		toolsStatus := "enabled"
 		if !r.useToolsEnabled {
 			toolsStatus = "disabled"
@@ -417,7 +418,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 		fmt.Print("Available options:\r\n")
 		// List all available options and their current values
 		for _, option := range GetAvailableOptions() {
-			value := r.config.options.Get(option)
+			value := r.configOptions.Get(option)
 			// optType := GetOptionType(option)
 
 			var status string
@@ -425,7 +426,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 				status = "not set"
 
 				// Check for default value
-				if info, exists := r.config.options.GetOptionInfo(option); exists && info.Default != "" {
+				if info, exists := r.configOptions.GetOptionInfo(option); exists && info.Default != "" {
 					status = fmt.Sprintf("default: %s", info.Default)
 				}
 			} else {
@@ -439,7 +440,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 	}
 
 	option := args[1]
-	value := r.config.options.Get(option)
+	value := r.configOptions.Get(option)
 	optType := GetOptionType(option)
 
 	// Get detailed status
@@ -448,7 +449,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 		status = "not set"
 
 		// Check for default value
-		if info, exists := r.config.options.GetOptionInfo(option); exists && info.Default != "" {
+		if info, exists := r.configOptions.GetOptionInfo(option); exists && info.Default != "" {
 			status = fmt.Sprintf("default: %s", info.Default)
 		}
 	} else {
@@ -466,8 +467,8 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	if len(args) < 2 {
 		fmt.Print("Usage: /unset <option>\r\n")
 		fmt.Print("Available options:\r\n")
-		for _, key := range r.config.options.GetKeys() {
-			if value := r.config.options.Get(key); value != "" {
+		for _, key := range r.configOptions.GetKeys() {
+			if value := r.configOptions.Get(key); value != "" {
 				optType := GetOptionType(key)
 				fmt.Printf("  %s = %s (type: %s)\r\n", key, value, optType)
 			}
@@ -478,32 +479,32 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	option := args[1]
 
 	// Unset the option
-	r.config.options.Unset(option)
+	r.configOptions.Unset(option)
 	fmt.Printf("Unset %s\r\n", option)
 
 	// Handle special options that require updating REPL state
 	switch option {
 	case "stream":
-		r.streamingEnabled = r.config.options.GetBool("stream")
+		r.streamingEnabled = r.configOptions.GetBool("stream")
 		streamStatus := "enabled"
 		if !r.streamingEnabled {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
 	case "include_replies":
-		r.includeReplies = r.config.options.GetBool("include_replies")
+		r.includeReplies = r.configOptions.GetBool("include_replies")
 		fmt.Printf("Include replies reverted to default\r\n")
 	case "reasoning":
-		r.reasoningEnabled = r.config.options.GetBool("reasoning")
+		r.reasoningEnabled = r.configOptions.GetBool("reasoning")
 		fmt.Printf("AI reasoning reverted to default\r\n")
 	case "logging":
-		r.loggingEnabled = r.config.options.GetBool("logging")
+		r.loggingEnabled = r.configOptions.GetBool("logging")
 		fmt.Printf("Logging reverted to default\r\n")
 	case "markdown":
-		r.markdownEnabled = r.config.options.GetBool("markdown")
+		r.markdownEnabled = r.configOptions.GetBool("markdown")
 		fmt.Printf("Markdown rendering reverted to default\r\n")
 	case "usetools":
-		r.useToolsEnabled = r.config.options.GetBool("usetools")
+		r.useToolsEnabled = r.configOptions.GetBool("usetools")
 		fmt.Printf("Tools processing reverted to default\r\n")
 	case "promptfile", "systemprompt":
 		r.systemPrompt = ""

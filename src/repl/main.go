@@ -14,51 +14,23 @@ import (
 	"time"
 
 	"golang.org/x/term"
+
+	"github.com/trufae/mai/src/repl/llm"
 )
 
-type Config struct {
-	OpenAPIHost   string
-	OpenAPIPort   string
-	OllamaHost    string
-	OllamaPort    string
-	OllamaModel   string
-	GeminiKey     string
-	GeminiModel   string
-	OpenAIKey     string
-	OpenAIModel   string
-	ClaudeKey     string
-	ClaudeModel   string
-	DeepSeekKey   string
-	DeepSeekModel string
-	MistralKey    string
-	MistralModel  string
-	BedrockKey    string
-	BedrockModel  string
-	BedrockRegion string
-	ShowScissors  bool
-	PROVIDER      string
-	NoStream      bool
-	ImagePath     string         // Path to image to send with the message
-	BaseURL       string         // Base URL to connect to LLM API
-	UserAgent     string         // User agent for HTTP requests
-	IsStdinMode   bool           // Whether running in stdin mode
-	SkipRcFile    bool           // Whether to skip loading rc file from .mai/rc
-	options       *ConfigOptions // Configuration options
-}
-
 // runStdinMode handles sending messages to LLM in stdin mode.
-func runStdinMode(config *Config, args []string) {
+func runStdinMode(config *llm.Config, args []string) {
 	input := readInput(args)
 
 	// Create LLM client
-	client, err := NewLLMClient(config)
+	client, err := llm.NewLLMClient(config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Prepare messages from input
-	messages := PrepareMessages(input)
+	messages := llm.PrepareMessages(input)
 
 	// Prepare image if specified
 	var images []string
@@ -87,19 +59,19 @@ func runStdinMode(config *Config, args []string) {
 type ClaudeRequest struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
-	Messages  []Message `json:"messages"`
+	Messages  []llm.Message `json:"messages"`
 }
 
 type OpenAIRequest struct {
 	Model               string    `json:"model"`
 	MaxCompletionTokens int       `json:"max_completion_tokens"`
-	Messages            []Message `json:"messages"`
+	Messages            []llm.Message `json:"messages"`
 }
 
 type OllamaRequest struct {
 	Stream   bool               `json:"stream"`
 	Model    string             `json:"model"`
-	Messages []Message          `json:"messages"`
+	Messages []llm.Message          `json:"messages"`
 	Options  map[string]float64 `json:"options,omitempty"`
 }
 
@@ -118,17 +90,19 @@ type GeminiPart struct {
 type DeepSeekRequest struct {
 	Model    string    `json:"model"`
 	Stream   string    `json:"stream"`
-	Messages []Message `json:"messages"`
+	Messages []llm.Message `json:"messages"`
 }
 
 type OpenAPIRequest struct {
 	Prompt string `json:"prompt"`
 }
 
+/*
 type Message struct {
 	Role    string      `json:"role"`
 	Content interface{} `json:"content"`
 }
+*/
 
 type ClaudeResponse struct {
 	Content []struct {
@@ -170,7 +144,7 @@ type DeepSeekResponse struct {
 
 type MistralRequest struct {
 	Model     string    `json:"model"`
-	Messages  []Message `json:"messages"`
+	Messages  []llm.Message `json:"messages"`
 	MaxTokens int       `json:"max_tokens"`
 }
 
@@ -187,7 +161,7 @@ type BedrockInferenceParams struct {
 }
 
 type BedrockInput struct {
-	Messages []Message `json:"messages"`
+	Messages []llm.Message `json:"messages"`
 }
 
 type MistralResponse struct {
@@ -210,8 +184,8 @@ type OpenAPIResponse struct {
 	Content string `json:"content"`
 }
 
-func loadConfig() *Config {
-	config := &Config{
+func loadConfig() *llm.Config {
+	config := &llm.Config{
 		OpenAPIHost:   getEnvOrDefault("OPENAPI_HOST", "localhost"),
 		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8080"),
 		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
@@ -235,7 +209,8 @@ func loadConfig() *Config {
 		BaseURL:       getEnvOrDefault("MAI_BASEURL", ""),
 		UserAgent:     getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
 		NoStream:      false,
-		options:       NewConfigOptions(), // Initialize configuration options
+		// options:       &llm.Config{}, // NewConfigOptions(), // Initialize configuration options
+		// configOptions:       NewConfigOptions(), // Initialize configuration options
 	}
 
 	// Load API keys from files if environment variables are not set
@@ -320,13 +295,7 @@ func readInput(args []string) string {
 	return input.String()
 }
 
-func printScissors(config *Config) {
-	if config.ShowScissors {
-		fmt.Print("\r\n------------8<------------\r\n")
-	}
-}
-
-func makeRequest(method, url string, headers map[string]string, body []byte, config *Config) ([]byte, error) {
+func makeRequest(method, url string, headers map[string]string, body []byte, config *llm.Config) ([]byte, error) {
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating HTTP request: %v\n", err)
@@ -369,7 +338,7 @@ func makeRequest(method, url string, headers map[string]string, body []byte, con
 	return respBody, nil
 }
 
-func callClaude(config *Config, input string) error {
+func callClaude(config *llm.Config, input string) error {
 	// Parse input to check if it contains a system prompt
 	systemPrompt := ""
 	userPrompt := input
@@ -383,15 +352,15 @@ func callClaude(config *Config, input string) error {
 		}
 	}
 
-	messages := []Message{}
+	messages := []llm.Message{}
 
 	// Add system message if present
 	if systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: systemPrompt})
 	}
 
 	// Add user message
-	messages = append(messages, Message{Role: "user", Content: userPrompt})
+	messages = append(messages, llm.Message{Role: "user", Content: userPrompt})
 
 	request := ClaudeRequest{
 		Model:     config.ClaudeModel,
@@ -410,7 +379,6 @@ func callClaude(config *Config, input string) error {
 		"x-api-key":         config.ClaudeKey,
 	}
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", "https://api.anthropic.com/v1/messages", headers, jsonData, config)
 	if err != nil {
@@ -427,11 +395,10 @@ func callClaude(config *Config, input string) error {
 		fmt.Print(strings.ReplaceAll(response.Content[0].Text, "\n", "\r\n"))
 	}
 
-	printScissors(config)
 	return nil
 }
 
-func callOpenAI(config *Config, input string) error {
+func callOpenAI(config *llm.Config, input string) error {
 	// Parse input to check if it contains a system prompt
 	systemPrompt := ""
 	userPrompt := input
@@ -445,15 +412,15 @@ func callOpenAI(config *Config, input string) error {
 		}
 	}
 
-	messages := []Message{}
+	messages := []llm.Message{}
 
 	// Add system message if present
 	if systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: systemPrompt})
 	}
 
 	// Add user message
-	messages = append(messages, Message{Role: "user", Content: userPrompt})
+	messages = append(messages, llm.Message{Role: "user", Content: userPrompt})
 
 	request := OpenAIRequest{
 		Model:               config.OpenAIModel,
@@ -471,7 +438,6 @@ func callOpenAI(config *Config, input string) error {
 		"Authorization": "Bearer " + config.OpenAIKey,
 	}
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", "https://api.openai.com/v1/chat/completions", headers, jsonData, config)
 	if err != nil {
@@ -488,11 +454,10 @@ func callOpenAI(config *Config, input string) error {
 		fmt.Print(strings.ReplaceAll(response.Choices[0].Message.Content, "\n", "\r\n"))
 	}
 
-	printScissors(config)
 	return nil
 }
 
-func callOllama(config *Config, input string) error {
+func callOllama(config *llm.Config, input string) error {
 	// Parse input to check if it contains a system prompt
 	systemPrompt := ""
 	userPrompt := input
@@ -506,15 +471,15 @@ func callOllama(config *Config, input string) error {
 		}
 	}
 
-	messages := []Message{}
+	messages := []llm.Message{}
 
 	// Add system message if present
 	if systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+		messages = append(messages, llm.Message{Role: "system", Content: systemPrompt})
 	}
 
 	// Add user message
-	messages = append(messages, Message{Role: "user", Content: userPrompt})
+	messages = append(messages, llm.Message{Role: "user", Content: userPrompt})
 
 	request := OllamaRequest{
 		Stream:   false,
@@ -536,7 +501,6 @@ func callOllama(config *Config, input string) error {
 	fmt.Fprintf(os.Stderr, "Connecting to Ollama at: %s\n", url)
 	fmt.Fprintf(os.Stderr, "Using model: %s\n", config.OllamaModel)
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
@@ -567,11 +531,10 @@ func callOllama(config *Config, input string) error {
 	// Replace \n with \r\n in the response
 	fmt.Print(strings.ReplaceAll(response.Message.Content, "\n", "\r\n"))
 
-	printScissors(config)
 	return nil
 }
 
-func callGemini(config *Config, input string) error {
+func callGemini(config *llm.Config, input string) error {
 	request := GeminiRequest{
 		Contents: []GeminiContent{{
 			Parts: []GeminiPart{{Text: input}},
@@ -589,7 +552,6 @@ func callGemini(config *Config, input string) error {
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", config.GeminiKey)
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
@@ -606,15 +568,14 @@ func callGemini(config *Config, input string) error {
 		fmt.Print(strings.ReplaceAll(response.Candidates[0].Content.Parts[0].Text, "\n", "\r\n"))
 	}
 
-	printScissors(config)
 	return nil
 }
 
-func callDeepSeek(config *Config, input string) error {
+func callDeepSeek(config *llm.Config, input string) error {
 	request := DeepSeekRequest{
 		Model:    "deepseek-chat",
 		Stream:   "false",
-		Messages: []Message{{Role: "user", Content: input}},
+		Messages: []llm.Message{{Role: "user", Content: input}},
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -627,7 +588,6 @@ func callDeepSeek(config *Config, input string) error {
 		"Content-Type":  "application/json",
 	}
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", "https://api.deepseek.com/chat/completions", headers, jsonData, config)
 	if err != nil {
@@ -644,15 +604,14 @@ func callDeepSeek(config *Config, input string) error {
 		fmt.Print(strings.ReplaceAll(response.Choices[0].Message.Content, "\n", "\r\n"))
 	}
 
-	printScissors(config)
 	return nil
 }
 
-func callMistral(config *Config, input string) error {
+func callMistral(config *llm.Config, input string) error {
 	request := MistralRequest{
 		Model:     config.MistralModel,
 		MaxTokens: 5128,
-		Messages:  []Message{{Role: "user", Content: input}},
+		Messages:  []llm.Message{{Role: "user", Content: input}},
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -665,7 +624,6 @@ func callMistral(config *Config, input string) error {
 		"Content-Type":  "application/json",
 	}
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", "https://api.mistral.ai/v1/chat/completions", headers, jsonData, config)
 	if err != nil {
@@ -682,11 +640,10 @@ func callMistral(config *Config, input string) error {
 		fmt.Print(strings.ReplaceAll(response.Choices[0].Message.Content, "\n", "\r\n"))
 	}
 
-	printScissors(config)
 	return nil
 }
 
-func callBedrock(config *Config, input string) error {
+func callBedrock(config *llm.Config, input string) error {
 	request := BedrockRequest{
 		ModelId: config.BedrockModel,
 		InferenceParams: BedrockInferenceParams{
@@ -695,7 +652,7 @@ func callBedrock(config *Config, input string) error {
 			TopP:        0.9,
 		},
 		Input: BedrockInput{
-			Messages: []Message{{Role: "user", Content: input}},
+			Messages: []llm.Message{{Role: "user", Content: input}},
 		},
 	}
 
@@ -713,7 +670,6 @@ func callBedrock(config *Config, input string) error {
 		"X-Amz-Access-Token": config.BedrockKey,
 	}
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
@@ -728,11 +684,10 @@ func callBedrock(config *Config, input string) error {
 	// Replace \n with \r\n in the response
 	fmt.Print(strings.ReplaceAll(response.Output.Message.Content, "\n", "\r\n"))
 
-	printScissors(config)
 	return nil
 }
 
-func callOpenAPI(config *Config, input string) error {
+func callOpenAPI(config *llm.Config, input string) error {
 	request := OpenAPIRequest{
 		Prompt: input,
 	}
@@ -748,7 +703,6 @@ func callOpenAPI(config *Config, input string) error {
 
 	url := fmt.Sprintf("http://%s:%s/completion", config.OpenAPIHost, config.OpenAPIPort)
 
-	printScissors(config)
 
 	respBody, err := makeRequest("POST", url, headers, jsonData, config)
 	if err != nil {
@@ -763,7 +717,6 @@ func callOpenAPI(config *Config, input string) error {
 	// Replace \n with \r\n in the response
 	fmt.Print(strings.ReplaceAll(response.Content, "\n", "\r\n"))
 
-	printScissors(config)
 	return nil
 }
 
@@ -825,7 +778,7 @@ func showHelp() {
 }
 
 // setModelForProvider sets the appropriate model field in the config based on the provider
-func setModelForProvider(config *Config, model string) {
+func setModelForProvider(config *llm.Config, model string) {
 	// Get the current provider in lowercase for easier comparison
 	provider := strings.ToLower(config.PROVIDER)
 
@@ -879,24 +832,19 @@ func main() {
 	}
 	replMode := false
 
+	configOptions := NewConfigOptions()
 	// Process command line flags
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-n":
 			// Skip loading rc file and disable REPL history
-			config.options.Set("history", "false")
+			configOptions.Set("history", "false")
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
-			/*
-				case "-s":
-					config.ShowScissors = true
-					args = append(args[:i], args[i+1:]...)
-					i--
-			*/
 		case "-t":
 			// Set usetools to true
-			config.options.Set("usetools", "true")
+			configOptions.Set("usetools", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-1":
@@ -959,9 +907,9 @@ func main() {
 					fmt.Fprintf(os.Stderr, "Error: -c requires format 'key=value'\n")
 					os.Exit(1)
 				}
-				key, value := parts[0], parts[1]
 				// Set the option in config
-				config.options.Set(key, value)
+				key, value := parts[0], parts[1]
+				configOptions.Set(key, value)
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -977,14 +925,14 @@ func main() {
 		// Not stdin mode, will load 'rc' file and start REPL
 		config.IsStdinMode = false
 
-		repl, err := NewREPL(config)
+		repl, err := NewREPL(config, *configOptions)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
 			os.Exit(1)
 		}
 
 		// TODO: use MAI_COLORS ?
-		//	repl.config.options.Set("markdown", "false")
+		repl.configOptions.Set("markdown", "false")
 		if err := repl.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 			os.Exit(1)
