@@ -49,7 +49,7 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		}
 	}
 
-	jsonData, err := json.Marshal(request)
+	jsonData, err := MarshalNoEscape(request)
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +168,6 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	if p.config.Rawdog {
-		stream = false
 		messageline := "" // <start_of_turn>user\nhello world<end_of_turn>\n<start_of_turn>model\n"
 		for _, msg := range messages {
 			messageline += msg.Content.(string)
@@ -184,17 +183,17 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			Prompt: messageline,
 		}
 		// Apply deterministic settings if enabled
-		if p.config.Deterministic {
+		if p.config.Deterministic || true {
 			request.Options = map[string]float64{
 				"repeat_last_n":  0,
 				"top_p":          0.0,
 				"top_k":          1.0,
 				"temperature":    0.0,
 				"repeat_penalty": 1.0,
-				"seed":           123,
+				"seed":           0,
 			}
 		}
-		jsonData, err := json.Marshal(request)
+		jsonData, err := MarshalNoEscape(request)
 		if err != nil {
 			return "", err
 		}
@@ -211,7 +210,9 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		// stream-mode
-		// if stream { return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream) }
+		if stream {
+			return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
+		}
 
 		// non-stream
 		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
@@ -258,7 +259,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 	}
 
-	jsonData, err := json.Marshal(request)
+	jsonData, err := MarshalNoEscape(request)
 	if err != nil {
 		return "", err
 	}
@@ -319,19 +320,37 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			continue
 		}
 
-		var response struct {
-			Message struct {
-				Content string `json:"content""`
-			} `json:"message""`
-			Done bool `json:"done""`
-		}
+		isDone := false
+		content := ""
+		if p.config.Rawdog {
+			var response struct {
+				Response string `json:"response""`
+				Done     bool   `json:"done""`
+			}
 
-		if err := json.Unmarshal([]byte(line), &response); err != nil {
-			continue
-		}
+			if err := json.Unmarshal([]byte(line), &response); err != nil {
+				continue
+			}
 
-		// Format content based on markdown setting
-		content := response.Message.Content
+			// Format content based on markdown setting
+			content = response.Response
+			isDone = response.Done
+		} else {
+			var response struct {
+				Message struct {
+					Content string `json:"content""`
+				} `json:"message""`
+				Done bool `json:"done""`
+			}
+
+			if err := json.Unmarshal([]byte(line), &response); err != nil {
+				continue
+			}
+
+			// Format content based on markdown setting
+			content = response.Message.Content
+			isDone = response.Done
+		}
 		if !markdownEnabled {
 			// Standard formatting - just replace newlines for terminal display
 			content = strings.ReplaceAll(content, "\n", "\n\r")
@@ -340,9 +359,9 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			content = FormatStreamingChunk(content, markdownEnabled)
 		}
 		fmt.Print(content)
-		fullResponse.WriteString(response.Message.Content)
+		fullResponse.WriteString(content) // response.Message.Content)
 
-		if response.Done {
+		if isDone {
 			break
 		}
 	}

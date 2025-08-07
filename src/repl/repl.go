@@ -1741,7 +1741,7 @@ func (r *REPL) sendToAI(input string) error {
 	}
 
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM
-	if !r.reasoningEnabled {
+	if !r.reasoningEnabled && r.configOptions.GetBool("rawdog") {
 		// Create a copy of the messages for the API call with /no_think appended
 		messagesCopy := make([]llm.Message, len(messages))
 		copy(messagesCopy, messages)

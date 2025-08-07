@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -362,4 +363,14 @@ func buildURL(defaultURL, baseURL, host, port, suffix string) string {
 	return fmt.Sprintf("http://%s:%s%s", host, port, suffix)
 }
 
-// ==================== PROVIDER IMPLEMENTATIONS ====================
+func MarshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(v)
+	if err != nil {
+		return nil, err
+	}
+	// Remove trailing newline added by Encoder
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}

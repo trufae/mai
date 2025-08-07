@@ -290,25 +290,27 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 func (r *REPL) handleSetCommand(args []string) error {
 	// Special handling for specific configOptions
 	if len(args) >= 3 {
+		val := strings.Join(args[2:], " ")
 		switch args[1] {
+		case "deterministic":
+			b, _ := strconv.ParseBool(val)
+			r.config.Deterministic = b
+			return nil
 		case "rawdog":
-			fmt.Println("RAWDOG")
-			r.config.Rawdog = true
+			b, _ := strconv.ParseBool(val)
+			r.config.Rawdog = b
 			return nil
 		case "promptfile":
-			filePath := args[2]
-			return r.loadSystemPrompt(filePath)
+			return r.loadSystemPrompt(val)
 		case "systemprompt":
-			promptText := strings.Join(args[2:], " ")
-			r.systemPrompt = promptText
-			r.configOptions.Set("systemprompt", promptText)
-			fmt.Printf("System prompt set (%d chars)\r\n", len(promptText))
+			r.systemPrompt = val
+			r.configOptions.Set("systemprompt", val)
+			fmt.Printf("System prompt set (%d chars)\r\n", len(val))
 			return nil
 		case "model":
-			model := strings.Join(args[2:], " ")
-			return r.setModel(model)
+			return r.setModel(val)
 		case "provider":
-			provider := strings.ToLower(args[2])
+			provider := strings.ToLower(val)
 			return r.setProvider(provider)
 		}
 	}
