@@ -440,7 +440,7 @@ func (r *REPL) cleanup() {
 				name = time.Now().Format("05041502012006")
 			}
 			if mode == "prompt" {
-				if !AskYesNo("Save session %q? (Y/n) ", 'y') {
+				if !AskYesNo("Save session? (Y/n) ", 'y') {
 					return
 				}
 			}
