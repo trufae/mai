@@ -97,7 +97,10 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}, nil
 }
 
-func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	if len(images) > 0 {
+		return "", fmt.Errorf("images not supported by provider: OpenAPI")
+	}
 	// OpenAPI doesn't use message structure, so we need to concat messages
 	content := ""
 	for _, msg := range messages {

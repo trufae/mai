@@ -96,7 +96,10 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	if len(images) > 0 {
+		return "", fmt.Errorf("images not supported by provider: Mistral")
+	}
 	request := struct {
 		Model          string                 `json:"model""`
 		Messages       []Message              `json:"messages""`

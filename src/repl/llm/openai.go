@@ -74,7 +74,22 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return chatModels, nil
 }
 
-func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// If images are provided, prepend a user message with OpenAI vision content blocks
+	if len(images) > 0 {
+		fmt.Println("sending images")
+		var blocks []ContentBlock
+		for _, uri := range images {
+			blocks = append(blocks, ContentBlock{
+				Type: "image_url",
+				ImageURL: &struct {
+					URL string `json:"url"`
+				}{URL: uri},
+			})
+		}
+		imageMessage := Message{Role: "user", Content: blocks}
+		messages = append([]Message{imageMessage}, messages...)
+	}
 	request := map[string]interface{}{
 		"model":    p.config.OpenAIModel,
 		"messages": messages,

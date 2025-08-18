@@ -255,7 +255,7 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		fmt.Println(query)
 		fmt.Println("------------------------->8-------------------------")
 	*/
-	responseText, err := r.currentClient.SendMessage(messages, false)
+	responseText, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
 	}

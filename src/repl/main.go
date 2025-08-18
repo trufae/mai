@@ -48,7 +48,7 @@ func runStdinMode(config *llm.Config, args []string) {
 	}
 
 	// Send to LLM without streaming (for stdin mode)
-	res, err := client.SendMessageWithImages(messages, false, images)
+	res, err := client.SendMessage(messages, false, images)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 	}

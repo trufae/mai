@@ -109,7 +109,10 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	if len(images) > 0 {
+		return "", fmt.Errorf("images not supported by provider: DeepSeek")
+	}
 	request := struct {
 		Model    string    `json:"model""`
 		Stream   string    `json:"stream""`

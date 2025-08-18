@@ -492,7 +492,7 @@ func (r *REPL) cleanup() {
 				name = time.Now().Format("05041502012006")
 			}
 			if mode == "prompt" {
-				if !AskYesNo("Save session? (Y/n) ", 'y') {
+				if !AskYesNo("Save session?", 'y') {
 					return
 				}
 			}
@@ -1523,7 +1523,7 @@ func (r *REPL) generateTopic() (string, error) {
 		{Role: "user", Content: prompt},
 	}
 
-	response, err := client.SendMessage(messages, false)
+	response, err := client.SendMessage(messages, false, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate topic: %v", err)
 	}
@@ -1653,30 +1653,31 @@ func (r *REPL) substituteInput(input string) (string, error) {
 	// Process @mentions in the input
 	enhancedInput := r.processAtMentions(input)
 
-	// Process pending files and incorporate them into the input
-	var images []string // For storing base64 encoded images for Ollama
+	/*
+		// Process pending files and incorporate them into the input
+		var images []string // For storing base64 encoded images for Ollama
+		if len(r.pendingFiles) > 0 {
+			// Add file contents to the input
+			enhancedInput += "\n\n"
 
-	if len(r.pendingFiles) > 0 {
-		// Add file contents to the input
-		enhancedInput += "\n\n"
-
-		for _, file := range r.pendingFiles {
-			if strings.Contains(file.filePath, "://") {
-				enhancedInput += fmt.Sprintf("URL Link: `%s`\n", file.filePath)
-			} else if file.isImage {
-				// For images, we'll collect them separately for providers that support image attachments
-				images = append(images, file.imageB64)
-				enhancedInput += fmt.Sprintf("[Image attached: %s]\n", filepath.Base(file.filePath))
-			} else {
-				// For regular files, add the content
-				enhancedInput += fmt.Sprintf("File content from %s:\n```\n%s\n```\n\n",
-					file.filePath, file.content)
+			for _, file := range r.pendingFiles {
+				if strings.Contains(file.filePath, "://") {
+					enhancedInput += fmt.Sprintf("URL Link: `%s`\n", file.filePath)
+				} else if file.isImage {
+					// For images, we'll collect them separately for providers that support image attachments
+					images = append(images, file.imageB64)
+					enhancedInput += fmt.Sprintf("[Image attached: %s]\n", filepath.Base(file.filePath))
+				} else {
+					// For regular files, add the content
+					enhancedInput += fmt.Sprintf("File content from %s:\n```\n%s\n```\n\n",
+						file.filePath, file.content)
+				}
 			}
-		}
 
-		// Clear pending files after use
-		r.pendingFiles = []pendingFile{}
-	}
+			// Clear pending files after use
+			r.pendingFiles = []pendingFile{}
+		}
+	*/
 	input = enhancedInput
 
 	return input, nil
@@ -1820,7 +1821,7 @@ func (r *REPL) sendToAI(input string) error {
 		}
 	}
 	// Send message with streaming based on REPL settings
-	response, err := client.SendMessageWithImages(messages, r.streamingEnabled, images)
+	response, err := client.SendMessage(messages, r.streamingEnabled, images)
 
 	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
@@ -1881,7 +1882,7 @@ func (r *REPL) regularResponse(input string) error {
 	fmt.Print("\r\nAI: ")
 
 	// Send message without streaming
-	_, err = client.SendMessage(messages, false)
+	_, err = client.SendMessage(messages, false, nil)
 
 	fmt.Print("\r\n")
 	return err
@@ -1903,7 +1904,7 @@ func (r *REPL) streamOllama(input string) error {
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Send message with streaming
-	_, err = client.SendMessage(messages, true)
+	_, err = client.SendMessage(messages, true, nil)
 	return err
 }
 
@@ -1923,7 +1924,7 @@ func (r *REPL) streamOpenAI(input string) error {
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Send message with streaming
-	_, err = client.SendMessage(messages, true)
+	_, err = client.SendMessage(messages, true, nil)
 	return err
 }
 
@@ -1943,7 +1944,7 @@ func (r *REPL) streamClaude(input string) error {
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Send message with streaming
-	_, err = client.SendMessage(messages, true)
+	_, err = client.SendMessage(messages, true, nil)
 	return err
 }
 
@@ -2960,7 +2961,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	messages = append(messages, llm.Message{Role: "user", Content: processedQuery})
 
 	// Call the LLM with streaming disabled
-	response, err := client.SendMessage(messages, false)
+	response, err := client.SendMessage(messages, false, nil)
 	if err != nil {
 		return "", fmt.Errorf("LLM query failed: %v", err)
 	}
@@ -3122,6 +3123,7 @@ func (r *REPL) displayConversationLog() {
 		fileCount := 0
 
 		for _, file := range r.pendingFiles {
+			fmt.Println(file)
 			if file.isImage {
 				imageCount++
 				fmt.Printf(" - Image: %s\r\n", file.filePath)
@@ -3794,7 +3796,7 @@ func (r *REPL) handleCompactCommand() error {
 	apiMessages = append(apiMessages, compactMessage)
 
 	// Send the message to the AI (non-streaming mode for this operation)
-	response, err := client.SendMessage(apiMessages, false)
+	response, err := client.SendMessage(apiMessages, false, nil)
 	if err != nil {
 		// Restore original messages on error
 		r.messages = originalMessages

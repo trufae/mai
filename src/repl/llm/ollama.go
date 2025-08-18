@@ -9,96 +9,7 @@ import (
 	"strings"
 )
 
-// sendOllamaWithImages sends a message with images to Ollama
-func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	// Build request JSON, injecting only raw base64 images into the first user message
-	var rawImages []string
-	for _, uri := range images {
-		if idx := strings.Index(uri, ","); idx != -1 && strings.HasPrefix(uri, "data:") {
-			rawImages = append(rawImages, uri[idx+1:])
-		} else {
-			rawImages = append(rawImages, uri)
-		}
-	}
-	var apiMessages []map[string]interface{}
-	for i, m := range messages {
-		msg := map[string]interface{}{
-			"role":    m.Role,
-			"content": m.Content,
-		}
-		if i == len(messages)-1 && len(rawImages) > 0 {
-			msg["images"] = rawImages
-		}
-		apiMessages = append(apiMessages, msg)
-	}
-	// fmt.Println(apiMessages)
-
-	request := map[string]interface{}{
-		"stream":   stream,
-		"model":    c.config.OllamaModel,
-		"messages": apiMessages,
-	}
-	if c.config.Schema != nil {
-		request["format"] = c.config.Schema
-	}
-	if c.config.Deterministic {
-		request["options"] = map[string]float64{
-			"repeat_last_n":  0,
-			"top_p":          0.0,
-			"top_k":          1.0,
-			"temperature":    0.0,
-			"repeat_penalty": 1.0,
-			"seed":           123,
-		}
-	}
-
-	jsonData, err := MarshalNoEscape(request)
-	if err != nil {
-		return "", err
-	}
-
-	headers := map[string]string{
-		"Content-Type": "application/json",
-	}
-
-	var url string
-	// If a structured output schema is requested, use the /api/generate endpoint per doc/format.md
-	if c.config.Schema != nil {
-		url = fmt.Sprintf("http://%s:%s/api/generate", c.config.OllamaHost, c.config.OllamaPort)
-		if c.config.BaseURL != "" {
-			url = strings.TrimRight(c.config.BaseURL, "/") + "/api/generate"
-		}
-	} else {
-		// Default to /api/chat
-		url = fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
-		if c.config.BaseURL != "" {
-			url = strings.TrimRight(c.config.BaseURL, "/") + "/api/chat"
-		}
-	}
-
-	if stream {
-		provider := NewOllamaProvider(c.config)
-		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, provider.parseStream)
-	}
-
-	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
-	if err != nil {
-		fmt.Println(string(respBody))
-		return "", err
-	}
-
-	var response struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	}
-
-	if err := json.Unmarshal(respBody, &response); err != nil {
-		return "", err
-	}
-
-	return response.Message.Content, nil
-}
+// image sending handled inside Provider.SendMessage
 
 // OllamaProvider implements the LLM provider interface for Ollama
 type OllamaProvider struct {
@@ -179,7 +90,96 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	// If images are attached, construct request injecting images into the last user message
+	if len(images) > 0 {
+		// Build request JSON, injecting only raw base64 images into the first/last user message
+		var rawImages []string
+		for _, uri := range images {
+			if idx := strings.Index(uri, ","); idx != -1 && strings.HasPrefix(uri, "data:") {
+				rawImages = append(rawImages, uri[idx+1:])
+			} else {
+				rawImages = append(rawImages, uri)
+			}
+		}
+
+		var apiMessages []map[string]interface{}
+		for i, m := range messages {
+			msg := map[string]interface{}{
+				"role":    m.Role,
+				"content": m.Content,
+			}
+			// attach to the last message
+			if i == len(messages)-1 && len(rawImages) > 0 {
+				msg["images"] = rawImages
+			}
+			apiMessages = append(apiMessages, msg)
+		}
+
+		request := map[string]interface{}{
+			"stream":   stream,
+			"model":    p.config.OllamaModel,
+			"messages": apiMessages,
+		}
+		if p.config.Schema != nil {
+			request["format"] = p.config.Schema
+		}
+		if p.config.Deterministic {
+			request["options"] = map[string]float64{
+				"repeat_last_n":  0,
+				"top_p":          0.0,
+				"top_k":          1.0,
+				"temperature":    0.0,
+				"repeat_penalty": 1.0,
+				"seed":           123,
+			}
+		}
+
+		jsonData, err := MarshalNoEscape(request)
+		if err != nil {
+			return "", err
+		}
+
+		headers := map[string]string{
+			"Content-Type": "application/json",
+		}
+
+		var url string
+		// If a structured output schema is requested, use the /api/generate endpoint per doc/format.md
+		if p.config.Schema != nil {
+			url = fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
+			if p.config.BaseURL != "" {
+				url = strings.TrimRight(p.config.BaseURL, "/") + "/api/generate"
+			}
+		} else {
+			// Default to /api/chat
+			url = fmt.Sprintf("http://%s:%s/api/chat", p.config.OllamaHost, p.config.OllamaPort)
+			if p.config.BaseURL != "" {
+				url = strings.TrimRight(p.config.BaseURL, "/") + "/api/chat"
+			}
+		}
+
+		if stream {
+			return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
+		}
+
+		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+		if err != nil {
+			return "", err
+		}
+
+		var response struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		}
+
+		if err := json.Unmarshal(respBody, &response); err != nil {
+			return "", err
+		}
+
+		return response.Message.Content, nil
+	}
 	if p.config.Rawdog {
 		messageline := "" // <start_of_turn>user\nhello world<end_of_turn>\n<start_of_turn>model\n"
 		for _, msg := range messages {

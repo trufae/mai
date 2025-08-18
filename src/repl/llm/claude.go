@@ -80,7 +80,10 @@ func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	if len(images) > 0 {
+		return "", fmt.Errorf("images not supported by provider: Claude")
+	}
 	request := map[string]interface{}{
 		"model":      p.config.ClaudeModel,
 		"max_tokens": 5128,

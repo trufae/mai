@@ -93,7 +93,10 @@ func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}, nil
 }
 
-func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
+func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	if len(images) > 0 {
+		return "", fmt.Errorf("images not supported by provider: Bedrock")
+	}
 	request := struct {
 		ModelId         string `json:"modelId""`
 		InferenceParams struct {

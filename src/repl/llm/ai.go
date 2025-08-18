@@ -4,6 +4,8 @@ package llm
 type Message struct {
 	Role    string      `json:"role"`
 	Content interface{} `json:"content"`
+	// Optional images attached to this message (base64 or URLs depending on provider)
+	Images []string `json:"images,omitempty"`
 }
 
 // Config holds configuration values for LLM providers.
