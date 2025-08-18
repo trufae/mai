@@ -37,4 +37,8 @@ type Config struct {
 	Deterministic bool
 	Markdown      bool
 	Rawdog        bool
+
+	// Optional structured output schema support
+	// When set, providers should constrain output to this JSON schema.
+	Schema map[string]interface{}
 }

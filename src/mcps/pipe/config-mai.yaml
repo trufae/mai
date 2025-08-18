@@ -1,6 +1,6 @@
 # config.yaml
 tools:
-  word_count:
+  details:
     description: "Assessment Details"
     arguments:
       content:

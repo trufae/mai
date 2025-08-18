@@ -38,6 +38,9 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		"model":    c.config.OllamaModel,
 		"messages": apiMessages,
 	}
+	if c.config.Schema != nil {
+		request["format"] = c.config.Schema
+	}
 	if c.config.Deterministic {
 		request["options"] = map[string]float64{
 			"repeat_last_n":  0,
@@ -58,9 +61,19 @@ func (c *LLMClient) sendOllamaWithImages(ctx context.Context, messages []Message
 		"Content-Type": "application/json",
 	}
 
-	url := fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
-	if c.config.BaseURL != "" {
-		url = strings.TrimRight(c.config.BaseURL, "/") + "/api/chat"
+	var url string
+	// If a structured output schema is requested, use the /api/generate endpoint per doc/format.md
+	if c.config.Schema != nil {
+		url = fmt.Sprintf("http://%s:%s/api/generate", c.config.OllamaHost, c.config.OllamaPort)
+		if c.config.BaseURL != "" {
+			url = strings.TrimRight(c.config.BaseURL, "/") + "/api/generate"
+		}
+	} else {
+		// Default to /api/chat
+		url = fmt.Sprintf("http://%s:%s/api/chat", c.config.OllamaHost, c.config.OllamaPort)
+		if c.config.BaseURL != "" {
+			url = strings.TrimRight(c.config.BaseURL, "/") + "/api/chat"
+		}
 	}
 
 	if stream {
@@ -176,11 +189,15 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			Model   string             `json:"model""`
 			Prompt  string             `json:"prompt""`
 			Stream  bool               `json:"stream""`
+			Format  interface{}        `json:"format,omitempty""`
 			Options map[string]float64 `json:"options,omitempty""`
 		}{
 			Stream: stream,
 			Model:  p.config.OllamaModel,
 			Prompt: messageline,
+		}
+		if p.config.Schema != nil {
+			request.Format = p.config.Schema
 		}
 		// Apply deterministic settings if enabled
 		if p.config.Deterministic || true {
@@ -240,11 +257,18 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		Stream   bool               `json:"stream""`
 		Model    string             `json:"model""`
 		Messages []Message          `json:"messages""`
+		Prompt   string             `json:"prompt,omitempty""`
+		Format   interface{}        `json:"format,omitempty""`
 		Options  map[string]float64 `json:"options,omitempty""`
 	}{
 		Stream:   stream,
 		Model:    p.config.OllamaModel,
 		Messages: messages,
+		// Prompt: "Summarize: Alice (29) likes cycling and reading",
+	}
+	if p.config.Schema != nil {
+		request.Format = p.config.Schema
+		request.Prompt = messages[0].Content.(string)
 	}
 
 	// Apply deterministic settings if enabled
@@ -273,12 +297,18 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	if p.config.BaseURL != "" {
 		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/chat"
 	}
+	// If a structured output schema is requested, use the /api/generate endpoint per doc/format.md
+	if p.config.Schema != nil {
+		url = fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
+		if p.config.BaseURL != "" {
+			url = strings.TrimRight(p.config.BaseURL, "/") + "/api/generate"
+		}
+	}
 
 	if stream {
 		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
 	}
 
-	// fmt.Println(string(jsonData))
 	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
 	if err != nil {
 		return "", err
@@ -288,7 +318,8 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		Message struct {
 			Content string `json:"content""`
 		} `json:"message""`
-		Error string `json:"error,omitempty""`
+		Response string `json:"response,omitempty""`
+		Error    string `json:"error,omitempty""`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -296,6 +327,9 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 	if response.Error != "" {
 		return "", fmt.Errorf(response.Error)
+	}
+	if p.config.Schema != nil {
+		return response.Response, nil
 	}
 
 	// Return raw content - newline conversion happens in the REPL
@@ -335,20 +369,25 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 			// Format content based on markdown setting
 			content = response.Response
 			isDone = response.Done
+			fmt.Println(content)
 		} else {
 			var response struct {
 				Message struct {
 					Content string `json:"content""`
 				} `json:"message""`
-				Done bool `json:"done""`
+				Response string `json:"response,omitempty""`
+				Done     bool   `json:"done""`
 			}
 
 			if err := json.Unmarshal([]byte(line), &response); err != nil {
 				continue
 			}
-
-			// Format content based on markdown setting
-			content = response.Message.Content
+			if response.Response != "" {
+				content = response.Response
+			} else {
+				// Format content based on markdown setting
+				content = response.Message.Content
+			}
 			isDone = response.Done
 		}
 		if !markdownEnabled {

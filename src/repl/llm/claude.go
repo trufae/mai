@@ -87,7 +87,22 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 		"messages":   messages,
 	}
 
-	if stream {
+	// If a schema is provided, use tools with forced tool_choice to enforce shape
+	if p.config.Schema != nil {
+		// Streaming tool_use events require different parsing; force non-stream for now
+		stream = false
+		request["tools"] = []map[string]interface{}{
+			{
+				"name":         "output_schema_tool",
+				"description":  "Return the response following the given JSON schema.",
+				"input_schema": p.config.Schema,
+			},
+		}
+		request["tool_choice"] = map[string]interface{}{
+			"type": "tool",
+			"name": "output_schema_tool",
+		}
+	} else if stream {
 		request["stream"] = true
 	}
 
@@ -127,22 +142,41 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	if err != nil {
 		return "", err
 	}
+	// If schema was used, extract the tool_use input as the structured output
+	if p.config.Schema != nil {
+		var response struct {
+			Content []struct {
+				Type  string                 `json:"type"`
+				Text  string                 `json:"text,omitempty"`
+				Name  string                 `json:"name,omitempty"`
+				Input map[string]interface{} `json:"input,omitempty"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(respBody, &response); err != nil {
+			return "", err
+		}
+		for _, c := range response.Content {
+			if c.Type == "tool_use" && c.Name == "output_schema_tool" {
+				// Return the input payload as JSON string
+				b, _ := json.Marshal(c.Input)
+				return string(b), nil
+			}
+		}
+		return "", fmt.Errorf("no tool_use content in response")
+	}
 
+	// Default text extraction path
 	var response struct {
 		Content []struct {
 			Text string `json:"text""`
 		} `json:"content""`
 	}
-
 	if err := json.Unmarshal(respBody, &response); err != nil {
 		return "", err
 	}
-
 	if len(response.Content) > 0 {
-		// Return raw content - newline conversion happens in the REPL
 		return response.Content[0].Text, nil
 	}
-
 	return "", fmt.Errorf("no content in response")
 }
 

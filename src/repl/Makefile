@@ -4,7 +4,7 @@ all:
 	go build -o mai-repl .
 
 indent fmt:
-	go fmt
+	go fmt . && cd llm && go fmt .
 
 install:
 	mkdir -p $(DESTDIR)/$(PREFIX)/bin

@@ -80,6 +80,17 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		"messages": messages,
 	}
 
+	// Add response_format with JSON schema if provided
+	if p.config.Schema != nil {
+		request["response_format"] = map[string]interface{}{
+			"type": "json_schema",
+			"json_schema": map[string]interface{}{
+				"name":   "output_schema",
+				"schema": p.config.Schema,
+			},
+		}
+	}
+
 	if stream {
 		request["stream"] = true
 	}

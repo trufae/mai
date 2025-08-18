@@ -98,19 +98,28 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool) (string, error) {
 	request := struct {
-		Model       string    `json:"model""`
-		Messages    []Message `json:"messages""`
-		MaxTokens   int       `json:"max_tokens""`
-		Stream      bool      `json:"stream,omitempty""`
-		N           int       `json:"n,omitempty""`
-		TopP        float64   `json:"top_p,omitempty""`
-		RandomSeed  int       `json:"random_seed,omitempty""`
-		Temperature float64   `json:"temperature,omitempty""`
+		Model          string                 `json:"model""`
+		Messages       []Message              `json:"messages""`
+		MaxTokens      int                    `json:"max_tokens""`
+		Stream         bool                   `json:"stream,omitempty""`
+		N              int                    `json:"n,omitempty""`
+		TopP           float64                `json:"top_p,omitempty""`
+		RandomSeed     int                    `json:"random_seed,omitempty""`
+		Temperature    float64                `json:"temperature,omitempty""`
+		ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
 	}{
 		Model:     p.config.MistralModel,
 		Messages:  messages,
 		MaxTokens: 5128,
 		Stream:    stream,
+	}
+
+	// If a structured output schema is requested, enable JSON object response_format
+	// Mistral expects: { "response_format": { "type": "json_object" } }
+	if p.config.Schema != nil {
+		request.ResponseFormat = map[string]interface{}{
+			"type": "json_object",
+		}
 	}
 
 	// Apply deterministic settings if enabled

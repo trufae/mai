@@ -61,6 +61,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
 	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
 	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
+	co.RegisterOption("schema", StringOption, "Inline JSON schema to constrain model output", "")
+	co.RegisterOption("schemafile", StringOption, "Path to JSON schema file for formatted output", "")
 	co.RegisterOption("provider", StringOption, "AI provider to use", "")
 	co.RegisterOption("rawdog", BooleanOption, "Send messages in raw", "false")
 	co.RegisterOption("readlineprompt", StringOption, "Prompt string for heredoc/continuation lines", "...")
@@ -519,6 +521,9 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 		fmt.Print("Model setting reverted to default\r\n")
 	case "provider":
 		fmt.Print("Provider setting reverted to default\r\n")
+	case "schema", "schemafile":
+		r.config.Schema = nil
+		fmt.Print("Schema cleared\r\n")
 	default:
 		fmt.Printf("Unset %s\r\n", option)
 	}

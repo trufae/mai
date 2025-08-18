@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-// Use Message type from ai.go
-
 // LLMProvider is a generic interface for all LLM providers
 type LLMProvider interface {
 	// SendMessage sends a message to the LLM and returns the response
@@ -26,18 +24,6 @@ type LLMProvider interface {
 	// ListModels returns a list of available models for this provider
 	ListModels(ctx context.Context) ([]Model, error)
 }
-
-/*
-// sendOpenAIWithImages injects image data URIs into user messages for OpenAI vision-enabled models
-func (c *LLMClient) sendOpenAIWithImages(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	// Prepend each image as a markdown image message before the rest
-	for _, uri := range images {
-		messages = append([]Message{{Role: "user", Content: fmt.Sprintf("![image](%s)", uri)}}, messages...)
-	}
-	// Delegate to the regular SendMessage path
-	return c.provider.SendMessage(ctx, messages, stream)
-}
-*/
 
 type ContentBlock struct {
 	Type     string `json:"type"`

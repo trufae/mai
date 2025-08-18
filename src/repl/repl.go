@@ -225,6 +225,58 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		repl.systemPrompt = systemPrompt
 	}
 
+	// Load schema from schemafile or inline schema option
+	if schemaFile := repl.configOptions.Get("schemafile"); schemaFile != "" {
+		if content, err := os.ReadFile(schemaFile); err == nil {
+			var schema map[string]interface{}
+			if err := json.Unmarshal(content, &schema); err == nil {
+				repl.config.Schema = schema
+			} else {
+				fmt.Fprintf(os.Stderr, "Invalid JSON in schemafile %s: %v\n", schemaFile, err)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Failed to read schemafile %s: %v\n", schemaFile, err)
+		}
+	} else if inline := repl.configOptions.Get("schema"); inline != "" {
+		var schema map[string]interface{}
+		if err := json.Unmarshal([]byte(inline), &schema); err == nil {
+			repl.config.Schema = schema
+		} else {
+			fmt.Fprintf(os.Stderr, "Invalid JSON for schema: %v\n", err)
+		}
+	}
+
+	// Keep schema in sync when options change at runtime
+	repl.configOptions.RegisterOptionListener("schemafile", func(value string) {
+		if value == "" {
+			// If schemafile unset, do not clear schema automatically; rely on 'schema' if present
+			return
+		}
+		if content, err := os.ReadFile(value); err == nil {
+			var schema map[string]interface{}
+			if err := json.Unmarshal(content, &schema); err == nil {
+				repl.config.Schema = schema
+			} else {
+				fmt.Fprintf(os.Stderr, "Invalid JSON in schemafile %s: %v\n", value, err)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Failed to read schemafile %s: %v\n", value, err)
+		}
+	})
+	repl.configOptions.RegisterOptionListener("schema", func(value string) {
+		if value == "" {
+			// Clearing inline schema does not unset existing parsed schema; user can /unset schemafile to clear
+			repl.config.Schema = nil
+			return
+		}
+		var schema map[string]interface{}
+		if err := json.Unmarshal([]byte(value), &schema); err == nil {
+			repl.config.Schema = schema
+		} else {
+			fmt.Fprintf(os.Stderr, "Invalid JSON for schema: %v\n", err)
+		}
+	})
+
 	// Set baseurl from command line flag if provided
 	if repl.config.BaseURL != "" {
 		repl.configOptions.Set("baseurl", repl.config.BaseURL)
