@@ -53,7 +53,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("debug", BooleanOption, "Show internal processing logs", "false")
 	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
 	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
-	co.RegisterOption("include_replies", BooleanOption, "Include assistant replies in context", "true")
+
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
 	co.RegisterOption("markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
@@ -75,6 +75,13 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
 	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
 	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
+
+	// Conversation formatting options (used when building a single prompt from history)
+	co.RegisterOption("conversation_include_llm", BooleanOption, "Include assistant/LLM messages when building a single prompt", "false")
+	co.RegisterOption("conversation_include_system", BooleanOption, "Include system messages when building a single prompt", "true")
+	co.RegisterOption("conversation_format", StringOption, "Conversation formatting: tokens, labeled, or plain", "plain")
+	co.RegisterOption("conversation_use_last_user", BooleanOption, "Only include the last user message when building a single prompt", "false")
+
 	co.initialized = true
 
 	// Set the global reference to this config
@@ -314,6 +321,32 @@ func (r *REPL) handleSetCommand(args []string) error {
 		case "provider":
 			provider := strings.ToLower(val)
 			return r.setProvider(provider)
+		case "conversation_include_llm":
+			b, _ := strconv.ParseBool(val)
+			r.config.ConversationIncludeLLM = b
+			// Also set the option so it's persisted
+			r.configOptions.Set("conversation_include_llm", val)
+			return nil
+		case "conversation_include_system":
+			b, _ := strconv.ParseBool(val)
+			r.config.ConversationIncludeSystem = b
+			r.configOptions.Set("conversation_include_system", val)
+			return nil
+		case "conversation_format":
+			// Accept plain, labeled, tokens
+			valLower := strings.ToLower(val)
+			if valLower != "plain" && valLower != "labeled" && valLower != "tokens" {
+				// still set, but warn
+				fmt.Printf("Warning: unknown conversation_format '%s'\n", val)
+			}
+			r.config.ConversationFormat = valLower
+			r.configOptions.Set("conversation_format", valLower)
+			return nil
+		case "conversation_use_last_user":
+			b, _ := strconv.ParseBool(val)
+			r.config.ConversationUseLastUser = b
+			r.configOptions.Set("conversation_use_last_user", val)
+			return nil
 		}
 	}
 	if len(args) < 2 {
@@ -378,8 +411,8 @@ func (r *REPL) handleSetCommand(args []string) error {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s\r\n", streamStatus)
-	case "include_replies":
-		r.includeReplies = r.configOptions.GetBool("include_replies")
+	case "conversation_include_llm":
+		r.includeReplies = r.configOptions.GetBool("conversation_include_llm")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "reasoning":
 		r.reasoningEnabled = r.configOptions.GetBool("reasoning")
@@ -499,8 +532,8 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
-	case "include_replies":
-		r.includeReplies = r.configOptions.GetBool("include_replies")
+	case "conversation_include_llm":
+		r.includeReplies = r.configOptions.GetBool("conversation_include_llm")
 		fmt.Printf("Include replies reverted to default\r\n")
 	case "reasoning":
 		r.reasoningEnabled = r.configOptions.GetBool("reasoning")

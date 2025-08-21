@@ -268,7 +268,11 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 	if p.config.Schema != nil {
 		request.Format = p.config.Schema
-		request.Prompt = messages[0].Content.(string)
+		// If conversation formatting options are not set, preserve the
+		// historical behavior of using the first message as the prompt.
+		// Build a conversation string according to configuration
+		request.Prompt = BuildConversationString(messages, p.config.ConversationIncludeLLM, p.config.ConversationIncludeSystem, p.config.ConversationFormat, p.config.ConversationUseLastUser)
+		fmt.Println(request.Prompt)
 	}
 
 	// Apply deterministic settings if enabled

@@ -162,11 +162,32 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 
 	// Initialize all settings from options
 	repl.streamingEnabled = repl.configOptions.GetBool("stream")
-	repl.includeReplies = repl.configOptions.GetBool("include_replies")
+	repl.includeReplies = repl.configOptions.GetBool("conversation_include_llm")
 	repl.reasoningEnabled = repl.configOptions.GetBool("reasoning")
 	repl.loggingEnabled = repl.configOptions.GetBool("logging")
 	repl.markdownEnabled = repl.configOptions.GetBool("markdown")
 	repl.useToolsEnabled = repl.configOptions.GetBool("usetools")
+
+	// Initialize conversation formatting options into the provider config
+	repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
+	repl.config.ConversationIncludeSystem = repl.configOptions.GetBool("conversation_include_system")
+	repl.config.ConversationFormat = repl.configOptions.Get("conversation_format")
+	repl.config.ConversationUseLastUser = repl.configOptions.GetBool("conversation_use_last_user")
+
+	// Keep conversation options in sync when changed via configOptions
+	repl.configOptions.RegisterOptionListener("conversation_include_llm", func(value string) {
+		repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
+		repl.includeReplies = repl.configOptions.GetBool("conversation_include_llm")
+	})
+	repl.configOptions.RegisterOptionListener("conversation_include_system", func(value string) {
+		repl.config.ConversationIncludeSystem = repl.configOptions.GetBool("conversation_include_system")
+	})
+	repl.configOptions.RegisterOptionListener("conversation_format", func(value string) {
+		repl.config.ConversationFormat = value
+	})
+	repl.configOptions.RegisterOptionListener("conversation_use_last_user", func(value string) {
+		repl.config.ConversationUseLastUser = repl.configOptions.GetBool("conversation_use_last_user")
+	})
 
 	// Set prompts in the readline instance
 	if prompt := repl.configOptions.Get("prompt"); prompt != "" {

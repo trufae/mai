@@ -43,4 +43,14 @@ type Config struct {
 	// Optional structured output schema support
 	// When set, providers should constrain output to this JSON schema.
 	Schema map[string]interface{}
+
+	// Conversation formatting options for providers that need a single prompt
+	// when using structured output schemas. These allow constructing a single
+	// prompt from the conversation history instead of taking a single message.
+	// If left at their zero values, existing behavior is preserved.
+	ConversationIncludeLLM    bool   // include assistant/LLM messages when building the prompt
+	ConversationIncludeSystem bool   // include system messages when building the prompt
+	ConversationFormat        string // "tokens", "labeled", or "plain"
+	ConversationUseLastUser   bool   // if true, only include the last user message (and system messages if enabled)
+
 }
