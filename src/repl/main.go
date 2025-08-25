@@ -273,25 +273,18 @@ func setModelForProvider(config *llm.Config, model string) {
 	switch provider {
 	case "ollama":
 		config.OllamaModel = model
-		fmt.Fprintf(os.Stderr, "Setting Ollama model to %s\n", model)
 	case "openai":
 		config.OpenAIModel = model
-		fmt.Fprintf(os.Stderr, "Setting OpenAI model to %s\n", model)
 	case "claude":
 		config.ClaudeModel = model
-		fmt.Fprintf(os.Stderr, "Setting Claude model to %s\n", model)
 	case "gemini", "google":
 		config.GeminiModel = model
-		fmt.Fprintf(os.Stderr, "Setting Gemini model to %s\n", model)
 	case "mistral":
 		config.MistralModel = model
-		fmt.Fprintf(os.Stderr, "Setting Mistral model to %s\n", model)
 	case "deepseek":
 		config.DeepSeekModel = model
-		fmt.Fprintf(os.Stderr, "Setting DeepSeek model to %s\n", model)
 	case "bedrock", "aws":
 		config.BedrockModel = model
-		fmt.Fprintf(os.Stderr, "Setting Bedrock model to %s\n", model)
 	default:
 		fmt.Fprintf(os.Stderr, "Warning: Unknown provider '%s', cannot set model\n", provider)
 	}
