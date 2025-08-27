@@ -404,7 +404,7 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	fmt.Print(fmt.Sprintf("mai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
+	// fmt.Print(fmt.Sprintf("mai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
 
 	// Load and process 'rc' file from project or home .mai directory if not in stdin mode and not skipped
 	if !r.config.IsStdinMode && !r.config.SkipRcFile {
@@ -3447,7 +3447,6 @@ func (r *REPL) autoDetectPromptDir() {
 		if _, err := os.Stat(promptsDir); err == nil {
 			// Found a prompts directory
 			r.configOptions.Set("promptdir", promptsDir)
-			fmt.Printf("Auto-detected prompts directory: %s\r\n", promptsDir)
 			return
 		}
 
