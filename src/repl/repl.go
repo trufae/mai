@@ -59,6 +59,7 @@ type REPL struct {
 	loggingEnabled   bool               // Whether to save conversation history
 	markdownEnabled  bool               // Whether to render markdown with colors
 	useToolsEnabled  bool               // Whether to process input using tools.go functions
+	useNewToolsEnabled  bool               // Whether to process input using tools.go functions
 	commands         map[string]Command // Registry of available commands
 	currentSession   string             // Name of the active chat session
 	unsavedTopic     string             // Topic for unsaved session before saving to disk
@@ -167,6 +168,7 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 	repl.loggingEnabled = repl.configOptions.GetBool("logging")
 	repl.markdownEnabled = repl.configOptions.GetBool("markdown")
 	repl.useToolsEnabled = repl.configOptions.GetBool("usetools")
+	repl.useNewToolsEnabled = repl.configOptions.GetBool("newtools")
 
 	// Initialize conversation formatting options into the provider config
 	repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
@@ -1779,8 +1781,14 @@ func (r *REPL) sendToAI(input string) error {
 		// When logging is disabled, we don't append any previous messages
 	}
 
-	if r.useToolsEnabled {
-		// new json mode
+	if r.configOptions.GetBool("newtools") {
+		tool, err := r.QueryWithNewTools(messages, input)
+		if err != nil {
+			return fmt.Errorf("tool execution failed: %v", err)
+		}
+		input = tool
+		fmt.Println("(tools) loop finished.")
+	} else if r.configOptions.GetBool("usetools") {
 		tool, err := r.QueryWithTools(messages, input)
 		if err != nil {
 			return fmt.Errorf("tool execution failed: %v", err)

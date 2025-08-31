@@ -151,6 +151,7 @@ func buildMessageWithTools(toolPrompt string, userInput string, ctx string, tool
 		toolPrompt, userInput, ctx, toolList)
 }
 
+// TODO: some field names dont match the json schema which is confusing
 type PlanResponse struct {
 	Plan         []string               `json:"plan"`
 	PlanIndex    int                    `json:"current_plan_index"`

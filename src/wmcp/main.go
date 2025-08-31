@@ -657,7 +657,8 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 		for _, tool := range server.Tools {
 			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
-			output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
+			// output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
 			if tool.InputSchema != nil {
 				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
