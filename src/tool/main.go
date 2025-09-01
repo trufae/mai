@@ -128,8 +128,8 @@ func main() {
 		nargs := len(flag.Args())
 		if nargs < 2 {
 			fmt.Println("Error: 'call' requires server and tool name")
-			fmt.Println("Usage: mcpcli call <server> <tool> [param1=value1] [param2=value2] ...")
-			fmt.Println("Usage: mcpcli call <server>/<tool> [param1=value1] [param2=value2] ...")
+			fmt.Println("Usage: mai-tool call <server> <tool> [param1=value1] [param2=value2] ...")
+			fmt.Println("Usage: mai-tool call <server>/<tool> [param1=value1] [param2=value2] ...")
 			os.Exit(1)
 		}
 		var serverName string
@@ -148,7 +148,7 @@ func main() {
 			/*
 				if nargs < 3 {
 					fmt.Println("Error: 'call' requires server and tool name")
-					fmt.Println("Usage: mcpcli call <server> <tool> [param1=value1] [param2=value2] ...")
+					fmt.Println("Usage: mai-tool call <server> <tool> [param1=value1] [param2=value2] ...")
 					os.Exit(1)
 				}
 				serverName = flag.Args()[1]
@@ -193,7 +193,7 @@ func parseFlags() Config {
 }
 
 func printUsage() {
-	fmt.Println("Usage: mcpcli [options] <command>")
+	fmt.Println("Usage: mai-tool [options] <command>")
 	fmt.Println("\nOptions:")
 	fmt.Println("  --host <host>  Host where mcpd is running (default: localhost)")
 	fmt.Println("  -p <port>     Port where mcpd is running (default: 8080)")
@@ -207,11 +207,11 @@ func printUsage() {
 	fmt.Println("  servers                        List all available servers")
 	fmt.Println("  call <server> <tool> [params]  Call a specific tool")
 	fmt.Println("\nExamples:")
-	fmt.Println("  mcpcli list")
-	fmt.Println("  mcpcli -j list")
-	fmt.Println("  mcpcli call server1 mytool param1=value1 param2=value2")
-	fmt.Println("  mcpcli call server1/mytool param1=value1 param2=value2")
-	fmt.Println("  mcpcli call server1 mytool \"text=value with spaces\"")
+	fmt.Println("  mai-tool list")
+	fmt.Println("  mai-tool -j list")
+	fmt.Println("  mai-tool call server1 mytool param1=value1 param2=value2")
+	fmt.Println("  mai-tool call server1/mytool param1=value1 param2=value2")
+	fmt.Println("  mai-tool call server1 mytool \"text=value with spaces\"")
 }
 
 func parseParams(args []string) map[string]string {

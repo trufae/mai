@@ -1,11 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"strings"
 	"encoding/json"
+	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
+	"strings"
 )
+
 /*
 
 ## Response Format
@@ -33,26 +34,24 @@ Respond in JSON following the schema defined below:
 */
 
 const toolsPrompt = `
-# Multi-Step Planning and Tool Execution
+# System Prompt
 
-This is a multi-step planning and execution prompt designed to **efficiently** solve user queries using available tools. Your goal is to **create a simple plan before start executing any tools** and then go one by one executing every step in the process to reach the user goal.
+You are a multi-step planning and execution agent designed to **efficiently** solve user requests using the provided tools catalog.
 
-## Reasoning
+Your goal is to solve the problem proposed by writing down a plan which may change on every execution step if needed in order to reach the user goal.
 
-Do /nothink /no_think
-Use Reasoning: low
-
-## Overview
+## Rules
 
 1. First, **analyze user's query** to understand the goals proposed.
-2. **Plan everything first**. Don’t start until you’ve carefully thought through all the steps.
+2. **Plan everything first**. Don’t start until you’ve carefully thought the first steps.
 3. **Remember what you’ve done**. Avoid repeating the same steps. **Do not** overthink.
 4. **Use the right tools**, automate and call the required tools instead of telling the user which actions take.
 5. **Track progress clearly**. Each step should move the plan forward.
+6. /nothink /no_think Reasoning: low
 
 ## Planning
 
-Before executing any tools:
+Start by carefully crafting a plan by collecting all the necessary information
 
 1. Analyze the user's query and understand the goal completely.
 2. Break the problem into **a finite set of sequential steps** needed to reach the goal.
@@ -66,9 +65,7 @@ Before executing any tools:
 
 ## Execution
 
-When executing the plan:
-
-1. **Follow your plan step-by-step**, executing one action at a time.
+1. Follow your plan **step-by-step**, running only one action at a time.
 2. Maintain context: remember results from previous steps, including:
    - tool outputs
    - decisions made
@@ -77,28 +74,70 @@ When executing the plan:
 4. Update your plan only if **new, unforeseen information** is discovered.
 5. Continue until the complete goal is achieved.
 
-### Tool Usage
+### Tool Selection
 
-- Replace "tool_params" with the actual parameter names and values needed
-- Only request to call a tool if it's necessary to fulfill the user's request
-- Ensure all required parameters are correctly identified
-- Do not use optional parameters unless necessary
-- If multiple tools are needed, specify which one to use right now and which will come next
+1. Only call tools if necessary to fulfill the user's request
+2. Fill "tool_params" with the right parameters and its values
+3. Ensure all required parameters are correctly identified
+4. Avoid using optional parameters unless necessary
+5. When multiple tools are needed, redesign the plan to call then one after the other.
 
 ### Action Types
 
-- Use "Action: Error" when the tool required to solve the step fails
-- Use "Action: Done" all the steps are done, we can quit the loop
-- Use "Action: Solve" only when the goal is completely solved
-- Use "Action: Think" when reasoning is needed to plan new tool calls in another iteration
-- Use "Action: Iterate" to continue executing tools to progress toward the solution
-
 Based on these instructions, analyze the provided query and available tools to determine the appropriate course of action.
 
-Below you will find the user prompt and the list of tools
+- Use "Action: Done" all the steps are done, we can quit the loop
+- Use "Action: Solve" only when the goal is completely solved
+- Use "Action: Iterate" to continue executing tools to progress toward the solution
+- Use "Action: Think" when reasoning is needed to plan new tool calls in another iteration
+- Use "Action: Error" when the tool required to solve the step fails
 
-----
+### Output Example
+
+Provide an array of plans, specify the current plan index, the reasoning behind the current step, the action associated, what must be followup in the next step and if needed, the tool name and its parameters. Do not decorate the resulting JSON, not even using markdown code blocks, use plain json.
+
+{
+  "plan": [
+    "Open the binary file '/tmp/crackme0x05' using radare2.",
+    "Analyze the binary using radare2's analysis capabilities.",
+    "List strings from data sections to find potential password candidates.",
+    "If no clear password candidates are found in strings, examine functions for password checks using decompilation and cross-references.",
+    "Test the identified password candidates."
+  ],
+  "current_plan_index": 0,
+  "progress": "Summary of what has been done so far or is in progress.",
+  "reasoning": "Why this specific tool was chosen for the current step.",
+  "next_step": "What should happen next.",
+  "action": "Done | Solve | Think | Iterate | Error",
+  "tool_required": true,
+  "tool": "openFile",
+  "tool_params": {
+    "filePath": "/tmp/crackme0x05",
+  }
+}
 `
+
+/*
+Below you will find the user prompt and the catalog of tools
+```json
+{
+  "plan": [
+    "Sequential, human-readable list of context-aware steps."
+  ],
+  "current_plan_index": 0,
+  "progress": "Summary of what has been done so far or is in progress.",
+  "reasoning": "Why this specific tool was chosen for the current step.",
+  "next_step": "What should happen next.",
+  "action": "Done | Solve | Think | Iterate | Error",
+  "tool_required": true,
+  "tool": "tool_name",
+  "tool_params": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+
+*/
 
 const toolsSchema = `
 {
@@ -164,18 +203,30 @@ const toolsSchema = `
   "additionalProperties": false
 }
 `
+
 func debug(m any) {
+	/*
 		fmt.Println("==========================")
 		fmt.Println(m)
 		fmt.Println("==========================")
+	*/
+}
+
+func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string) string {
+	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<rules>%s</rules><context-history>%s</context-history>\n<tools-catalog>\n%s\n</tools-catalog>",
+		userInput, toolPrompt, ctx, toolList)
 }
 
 func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, error) {
-	query := buildMessageWithTools(toolPrompt, input, ctx, toolList)
+	query := buildToolsMessage(toolPrompt, input, ctx, toolList)
 	messages := []llm.Message{{Role: "user", Content: query}}
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)
+	}
+	if strings.HasPrefix(responseJson, "```") {
+		res, _ := extractJSONBlock(responseJson)
+		responseJson = res
 	}
 	var response PlanResponse
 	debug(responseJson)
@@ -186,6 +237,20 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		}
 	}
 	return response, nil
+}
+func showPlan(step *PlanResponse) {
+	planString := "## Plan\n\n\r"
+	i := 0
+	for _, s := range step.Plan {
+		if i == step.PlanIndex {
+			fmt.Print("\033[36m >> ")
+		} else {
+			fmt.Print("\033[32m -- ")
+		}
+		fmt.Printf("%s\r\n", s)
+		planString += fmt.Sprintf("%d. %s\n", i, s)
+		i++
+	}
 }
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 	origSchema := r.config.Schema
@@ -214,7 +279,7 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		step, err := r.newToolStep(toolsPrompt, input, context, toolList)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
-			if strings.Contains(err.Error(), "cancel") {
+			if strings.Contains(err.Error(), "failed") {
 				break
 			}
 			input += fmt.Sprintf("\n[query error] %s. Try again with a new plan\n", err.Error())
@@ -225,7 +290,6 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		if step.Action == "Done" || step.Action == "Solve" {
 			break
 		}
-		// ,"current_plan_index":0,"tool_required":true,"tool":"r2pm/openFile","tool_params":{"filePath":"/tmp/crackme0x05"},
 		if step.ToolRequired {
 			tool := &Tool{
 				Name: step.SelectedTool,
@@ -234,25 +298,19 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			debug(tool)
 			result, err := callTool(tool)
 			if err == nil {
-				toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**ToolName**: %s\n**Contents**:\n\n```\n%s\n```\n\n", stepCount, step.NextStep, tool.Name, result)
-				toolResponse += fmt.Sprintf("reason: %s\n", step.Reasoning)
-			context += "\n\n## Tools Executed\n\n" + toolResponse
+				context += fmt.Sprintf("\n\n## Step %d Tool Output\n\n**Reasoning**: %s\n**ToolName**: %s\n**Output**:\n\n```\n%s\n```\n\n", stepCount, step.Reasoning, tool.Name, result)
 			} else {
 				fmt.Println(err)
 				break
 			}
 		}
-		fmt.Println(step.Action)
-		reasoning := step.Reasoning
+		fmt.Println("Action: " + step.Action)
+		showPlan(&step)
 		if reasoning != "" {
 			context += "\n\n## Context\n\n" + reasoning
-			reasoning += "\n\n## Reasoning\n\n" + reasoning
 		}
 	}
-	if reasoning != "" {
-		reasoning = "<reasoning>\n" + reasoning + "</reasoning>\n"
-	}
-	
-	fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
+
+	// fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
 	return input + context, nil
 }

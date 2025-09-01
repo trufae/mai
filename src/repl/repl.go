@@ -34,35 +34,35 @@ type Command struct {
 }
 
 type REPL struct {
-	config           *llm.Config
-	configOptions    ConfigOptions
-	currentClient    *llm.LLMClient
-	readline         *ReadLine // Persistent readline instance for input handling
-	currentInput     strings.Builder
-	cursorPos        int // Current cursor position in the line
-	ctx              context.Context
-	cancel           context.CancelFunc
-	mu               sync.Mutex
-	isStreaming      bool
-	oldState         *term.State
-	completeState    int
-	completeOptions  []string
-	completePrefix   string
-	completeIdx      int    // Current index in completion options
-	lastTabInput     string // last input text when Tab was pressed
-	streamingEnabled bool
-	systemPrompt     string
-	messages         []llm.Message
-	includeReplies   bool               // Whether to include assistant replies in the context
-	pendingFiles     []pendingFile      // Files and images to include in the next message
-	reasoningEnabled bool               // Whether reasoning is enabled for the AI model
-	loggingEnabled   bool               // Whether to save conversation history
-	markdownEnabled  bool               // Whether to render markdown with colors
-	useToolsEnabled  bool               // Whether to process input using tools.go functions
-	useNewToolsEnabled  bool               // Whether to process input using tools.go functions
-	commands         map[string]Command // Registry of available commands
-	currentSession   string             // Name of the active chat session
-	unsavedTopic     string             // Topic for unsaved session before saving to disk
+	config             *llm.Config
+	configOptions      ConfigOptions
+	currentClient      *llm.LLMClient
+	readline           *ReadLine // Persistent readline instance for input handling
+	currentInput       strings.Builder
+	cursorPos          int // Current cursor position in the line
+	ctx                context.Context
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
+	isStreaming        bool
+	oldState           *term.State
+	completeState      int
+	completeOptions    []string
+	completePrefix     string
+	completeIdx        int    // Current index in completion options
+	lastTabInput       string // last input text when Tab was pressed
+	streamingEnabled   bool
+	systemPrompt       string
+	messages           []llm.Message
+	includeReplies     bool               // Whether to include assistant replies in the context
+	pendingFiles       []pendingFile      // Files and images to include in the next message
+	reasoningEnabled   bool               // Whether reasoning is enabled for the AI model
+	loggingEnabled     bool               // Whether to save conversation history
+	markdownEnabled    bool               // Whether to render markdown with colors
+	useToolsEnabled    bool               // Whether to process input using tools.go functions
+	useNewToolsEnabled bool               // Whether to process input using tools.go functions
+	commands           map[string]Command // Registry of available commands
+	currentSession     string             // Name of the active chat session
+	unsavedTopic       string             // Topic for unsaved session before saving to disk
 }
 
 type pendingFile struct {

@@ -657,17 +657,17 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 		for _, tool := range server.Tools {
 			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
-			// output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
-			output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
+			output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
+			// output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
 			if tool.InputSchema != nil {
 				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
 
 				// Print CLI-style arguments list
-				output.WriteString("Arguments:\n")
 				// Use the prepared Parameters array if available
 				if len(tool.Parameters) > 0 {
+					output.WriteString("Arguments:\n")
 					for _, param := range tool.Parameters {
 						// Format: name=<value> : description (type) [required]
 						reqText := ""
@@ -677,21 +677,11 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 						output.WriteString(fmt.Sprintf("- %s=<value> : %s (%s)%s\n",
 							param.Name, param.Description, param.Type, reqText))
 					}
-				} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
-					// Fallback to the old way if Parameters is empty
-					for key, val := range properties {
-						propInfo, _ := val.(map[string]interface{})
-						desc := ""
-						if propInfo != nil {
-							if d, ok := propInfo["description"].(string); ok {
-								desc = " : " + d
-							}
-						}
-						output.WriteString(fmt.Sprintf("- %s=<value>%s\n", key, desc))
-					}
+				} else {
+			//		output.WriteString("Arguments: None\n")
 				}
-				output.WriteString("\n")
 			}
+			/*
 			// Construct usage example with parameters if available
 			if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(properties) > 0 {
 				// Build URL with query parameters
@@ -700,12 +690,13 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 					params = append(params, fmt.Sprintf("%s=value", key))
 				}
 				paramString := strings.Join(params, " ")
-				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s %s`\n\n", serverName, tool.Name, paramString))
+				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s/%s %s`\n\n", serverName, tool.Name, paramString))
 				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
 			} else {
 				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s`\n\n", serverName, tool.Name))
 				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
 			}
+			*/
 			output.WriteString("----\n")
 		}
 		server.mutex.RUnlock()
@@ -789,7 +780,7 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/markdown")
 
 	var output strings.Builder
-	output.WriteString("# MCP Tools\n\n")
+	output.WriteString("# Tools Catalog\n\n")
 
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
