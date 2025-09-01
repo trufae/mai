@@ -115,7 +115,7 @@ func callTool(tool *Tool) (string, error) {
 	result := out.String()
 	// Provide some feedback if the result is empty
 	if strings.TrimSpace(result) == "" {
-		return "", fmt.Errorf("tool %s returned empty result", tool.Name)
+		return "", nil // fmt.Errorf("tool %s returned empty result", tool.Name)
 	}
 
 	return result, nil
@@ -161,7 +161,8 @@ type PlanResponse struct {
 	ToolRequired bool                   `json:"tool_required"`
 	Reasoning    string                 `json:"reasoning"`
 	SelectedTool string                 `json:"tool,omitempty"`
-	ToolArgs     map[string]interface{} `json:"tool_params,omitempty"`
+	// ToolArgs     map[string]interface{} `json:"tool_params,omitempty"`
+	ToolArgs     interface{} `json:"tool_params,omitempty"`
 }
 
 func mapToArray(m map[string]interface{}) []string {
@@ -384,7 +385,7 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 		toolName := strings.ReplaceAll(step.SelectedTool, ".", "/")
 		tool := &Tool{
 			Name: toolName,
-			Args: mapToArray(step.ToolArgs),
+			Args: mapToArray(step.ToolArgs.(map[string]interface{})),
 		}
 		fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
 		result, err := callTool(tool)

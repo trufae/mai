@@ -144,7 +144,6 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 	if stream {
 		headers["Accept"] = "text/event-stream"
-		fmt.Println("VIVEELLSLTREAM")
 	}
 
 	// If the key looks like an OAuth2 access token, send it as a Bearer token.
@@ -161,7 +160,6 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	if p.config.GeminiModel != "" {
 		model = p.config.GeminiModel
 	}
-	// fmt.Println(model)
 	var action = "generateContent"
 	if stream {
 		action = "streamGenerateContent"
@@ -181,6 +179,9 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	if err != nil {
 		return "", err
 	}
+		if strings.HasPrefix(string(respBody), "data: ") {
+			respBody = respBody[5:]
+		}
 
 	var response struct {
 		Candidates []struct {
@@ -289,8 +290,7 @@ func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		// Format the content using our streaming-friendly formatter
-		out := FormatStreamingChunk(chunk, markdownEnabled)
-		fmt.Print(out)
+		fmt.Print(FormatStreamingChunk(chunk, markdownEnabled))
 		fullResponse.WriteString(chunk)
 	}
 

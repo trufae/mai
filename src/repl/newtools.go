@@ -7,32 +7,6 @@ import (
 	"strings"
 )
 
-/*
-
-## Response Format
-
-Respond in JSON following the schema defined below:
-
-```json
-{
-  "plan": [
-    "Sequential, human-readable list of context-aware steps."
-  ],
-  "current_plan_index": 0,
-  "progress": "Summary of what has been done so far or is in progress.",
-  "reasoning": "Why this specific tool was chosen for the current step.",
-  "next_step": "What should happen next.",
-  "action": "Done | Solve | Think | Iterate | Error",
-  "tool_required": true,
-  "tool": "tool_name",
-  "tool_params": {
-    "param1": "value1",
-    "param2": "value2"
-  }
-}
-```
-*/
-
 const toolsPrompt = `
 # System Prompt
 
@@ -116,28 +90,6 @@ Provide an array of plans, specify the current plan index, the reasoning behind 
   }
 }
 `
-
-/*
-Below you will find the user prompt and the catalog of tools
-```json
-{
-  "plan": [
-    "Sequential, human-readable list of context-aware steps."
-  ],
-  "current_plan_index": 0,
-  "progress": "Summary of what has been done so far or is in progress.",
-  "reasoning": "Why this specific tool was chosen for the current step.",
-  "next_step": "What should happen next.",
-  "action": "Done | Solve | Think | Iterate | Error",
-  "tool_required": true,
-  "tool": "tool_name",
-  "tool_params": {
-    "param1": "value1",
-    "param2": "value2"
-  }
-}
-
-*/
 
 const toolsSchema = `
 {
@@ -250,13 +202,7 @@ const geminiToolsSchema = `
         "type": "object",
         "properties": {
           "key":   { "type": "string" },
-          "value": {
-            "oneOf": [
-              { "type": "string" },
-              { "type": "number" },
-              { "type": "boolean" }
-            ]
-          }
+          "value": { "type": "string" }
         },
         "required": ["key", "value"]
       }
@@ -323,25 +269,62 @@ func showPlan(step *PlanResponse) {
 		i++
 	}
 }
+
+/*
+func map2array(m map[string]interface{}) []string{
+	result := make([]string, 0, len(m))
+	for k, v := range m {
+		result = append(result, fmt.Sprintf("%s=%s", k, v))
+	}
+	return result
+}
+*/
+
+func map2array(m interface{}) []string {
+	result := []string{}
+
+	switch val := m.(type) {
+	case map[string]interface{}:
+		// Case 1: plain map
+		result = make([]string, 0, len(val))
+		for k, v := range val {
+			result = append(result, fmt.Sprintf("%s=%v", k, v))
+		}
+
+	case []interface{}:
+		// Case 2: array of {key, value} maps
+		for _, item := range val {
+			if kv, ok := item.(map[string]interface{}); ok {
+				k, _ := kv["key"].(string)
+				v := kv["value"]
+				result = append(result, fmt.Sprintf("%s=%v", k, v))
+			}
+		}
+	}
+	return result
+}
+
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 	origSchema := r.config.Schema
 	defer func() {
 		r.config.Schema = origSchema
 	}()
+	schemaString := func(s string) string {
+		if s == "gemini" {
+			return geminiToolsSchema
+		}
+		return toolsSchema
+	}(r.configOptions.Get("provider"))
 	var schema map[string]interface{}
-	fmt.Println("New tools")
-	if err := json.Unmarshal([]byte(toolsSchema), &schema); err == nil {
-		r.config.Schema = schema
-	} else {
-		return "", fmt.Errorf("cannot unmarshal the schema")
+	if err := json.Unmarshal([]byte(schemaString), &schema); err != nil {
+		return "", fmt.Errorf("i cannot unmarshal the schema")
 	}
+	r.config.Schema = schema
 	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
 	}
-	fmt.Println(toolList)
-	fmt.Println("Result")
 	var reasoning = ""
 	var context = ""
 	var stepCount = 0
@@ -357,14 +340,14 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			continue
 
 		}
-		fmt.Println(step)
+		fmt.Println("\x1b[0m" + step.Reasoning)
 		if step.Action == "Done" || step.Action == "Solve" {
 			break
 		}
 		if step.ToolRequired {
 			tool := &Tool{
 				Name: step.SelectedTool,
-				Args: mapToArray(step.ToolArgs),
+				Args: map2array(step.ToolArgs),
 			}
 			debug(tool)
 			result, err := callTool(tool)
