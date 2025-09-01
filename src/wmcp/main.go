@@ -678,24 +678,24 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 							param.Name, param.Description, param.Type, reqText))
 					}
 				} else {
-			//		output.WriteString("Arguments: None\n")
+					//		output.WriteString("Arguments: None\n")
 				}
 			}
 			/*
-			// Construct usage example with parameters if available
-			if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(properties) > 0 {
-				// Build URL with query parameters
-				var params []string
-				for key, _ := range properties {
-					params = append(params, fmt.Sprintf("%s=value", key))
+				// Construct usage example with parameters if available
+				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(properties) > 0 {
+					// Build URL with query parameters
+					var params []string
+					for key, _ := range properties {
+						params = append(params, fmt.Sprintf("%s=value", key))
+					}
+					paramString := strings.Join(params, " ")
+					output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s/%s %s`\n\n", serverName, tool.Name, paramString))
+					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
+				} else {
+					output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s`\n\n", serverName, tool.Name))
+					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
 				}
-				paramString := strings.Join(params, " ")
-				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s/%s %s`\n\n", serverName, tool.Name, paramString))
-				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
-			} else {
-				output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s`\n\n", serverName, tool.Name))
-				// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
-			}
 			*/
 			output.WriteString("----\n")
 		}
