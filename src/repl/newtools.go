@@ -204,12 +204,83 @@ const toolsSchema = `
 }
 `
 
+const geminiToolsSchema = `
+{
+  "type": "object",
+  "properties": {
+    "plan": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "A list of context-aware steps in sequential, human-readable format."
+    },
+    "current_plan_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The index of the current step in the plan."
+    },
+    "progress": {
+      "type": "string",
+      "description": "A summary of what has been done so far or is in progress."
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Explanation of why a specific tool was chosen for the current step."
+    },
+    "next_step": {
+      "type": "string",
+      "description": "Description of what should happen next."
+    },
+    "action": {
+      "type": "string",
+      "enum": ["Done", "Solve", "Think", "Iterate", "Error"],
+      "description": "The current action status."
+    },
+    "tool_required": {
+      "type": "boolean",
+      "description": "Indicates if a tool is required for the current step."
+    },
+    "tool": {
+      "type": "string",
+      "description": "The name of the tool required."
+    },
+    "tool_params": {
+      "type": "array",
+      "description": "Parameters required by the tool as key/value pairs.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key":   { "type": "string" },
+          "value": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          }
+        },
+        "required": ["key", "value"]
+      }
+    }
+  },
+  "required": [
+    "plan",
+    "current_plan_index",
+    "progress",
+    "reasoning",
+    "next_step",
+    "action",
+    "tool_required",
+    "tool",
+    "tool_params"
+  ]
+}
+`
+
 func debug(m any) {
-	/*
-		fmt.Println("==========================")
-		fmt.Println(m)
-		fmt.Println("==========================")
-	*/
+	return
+	fmt.Println("==========================")
+	fmt.Println(m)
+	fmt.Println("==========================")
 }
 
 func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string) string {

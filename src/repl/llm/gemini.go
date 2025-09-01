@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,18 +24,23 @@ func (p *GeminiProvider) GetName() string {
 	return "Gemini"
 }
 
+func defaultString(s, def string) string {
+	if s != "" {
+		return strings.TrimRight(s, "/")
+	}
+	return def
+}
+
 func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
-	// Use the configured base URL if available, otherwise use the default API URL
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", p.config.GeminiKey)
-	if p.config.BaseURL != "" {
-		// Adjust the base URL to point to the models endpoint
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models?key=" + p.config.GeminiKey
+	if p.config.GeminiKey == "" {
+		return nil, fmt.Errorf("Missing key for gemini")
 	}
 
+	baseURL := defaultString(p.config.BaseURL, "https://generativelanguage.googleapis.com/v1beta")
+	apiURL := baseURL + "/models?key=" + p.config.GeminiKey
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	// If the key looks like an OAuth2 access token, send it as a Bearer token.
 	if p.config.GeminiKey != "" && strings.HasPrefix(p.config.GeminiKey, "ya29.") {
 		headers["Authorization"] = "Bearer " + p.config.GeminiKey
 	} else if p.config.GeminiKey != "" {
@@ -42,33 +48,9 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 		headers["x-goog-api-key"] = p.config.GeminiKey
 	}
 
-	// First try the API endpoint
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
-
-	// If API call fails or we don't have a key, fall back to hardcoded models
-	if err != nil || p.config.GeminiKey == "" {
-		// Gemini doesn't have a consistently available models listing endpoint
-		// Return hardcoded list of common Gemini models
-		return []Model{
-			{
-				ID:          "gemini-1.5-pro",
-				Name:        "Gemini 1.5 Pro",
-				Description: "Advanced large multimodal model with broader capabilities",
-				Provider:    "gemini",
-			},
-			{
-				ID:          "gemini-1.5-flash",
-				Name:        "Gemini 1.5 Flash",
-				Description: "Faster, more efficient multimodal model",
-				Provider:    "gemini",
-			},
-			{
-				ID:          "gemini-1.0-pro",
-				Name:        "Gemini 1.0 Pro",
-				Description: "Original Gemini professional model",
-				Provider:    "gemini",
-			},
-		}, nil
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse response if we got one
@@ -83,27 +65,7 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	var geminiResp GeminiModelsResponse
 	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
-		// If JSON parsing fails, fall back to hardcoded models
-		return []Model{
-			{
-				ID:          "gemini-1.5-pro",
-				Name:        "Gemini 1.5 Pro",
-				Description: "Advanced large multimodal model with broader capabilities",
-				Provider:    "gemini",
-			},
-			{
-				ID:          "gemini-1.5-flash",
-				Name:        "Gemini 1.5 Flash",
-				Description: "Faster, more efficient multimodal model",
-				Provider:    "gemini",
-			},
-			{
-				ID:          "gemini-1.0-pro",
-				Name:        "Gemini 1.0 Pro",
-				Description: "Original Gemini professional model",
-				Provider:    "gemini",
-			},
-		}, nil
+		return nil, err
 	}
 
 	models := make([]Model, 0, len(geminiResp.Models))
@@ -125,30 +87,6 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 		})
 	}
 
-	if len(models) == 0 {
-		// If no models were found, fall back to hardcoded models
-		return []Model{
-			{
-				ID:          "gemini-1.5-pro",
-				Name:        "Gemini 1.5 Pro",
-				Description: "Advanced large multimodal model with broader capabilities",
-				Provider:    "gemini",
-			},
-			{
-				ID:          "gemini-1.5-flash",
-				Name:        "Gemini 1.5 Flash",
-				Description: "Faster, more efficient multimodal model",
-				Provider:    "gemini",
-			},
-			{
-				ID:          "gemini-1.0-pro",
-				Name:        "Gemini 1.0 Pro",
-				Description: "Original Gemini professional model",
-				Provider:    "gemini",
-			},
-		}, nil
-	}
-
 	return models, nil
 }
 
@@ -156,7 +94,6 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Gemini")
 	}
-	// Gemini currently doesn't use message structure like OpenAI, so we need to concat messages
 	content := ""
 	for _, msg := range messages {
 		if msg.Role == "system" {
@@ -166,9 +103,6 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 	}
 
-	// Build a flexible request that includes multiple common shapes so wrapped/variant APIs
-	// can accept one of them. We include "contents" (used by some wrappers), an "input"
-	// shortcut, and an OpenAI-style messages list.
 	request := map[string]interface{}{}
 
 	// contents style
@@ -180,14 +114,6 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		},
 	}
 
-	/*
-		// input style
-		request["input"] = map[string]interface{}{"text": content}
-
-		// messages style
-		request["messages"] = []map[string]interface{}{{"content": map[string]interface{}{"text": content}}}
-	*/
-
 	// Apply deterministic settings if enabled
 	if p.config.Deterministic {
 		request["generationConfig"] = map[string]interface{}{
@@ -196,31 +122,16 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 			"topK":        1,
 		}
 	}
-
 	// If a structured output schema is requested, attach several compatible
 	// fields so the Gemini API (or variants) can pick up the schema. We add
 	// both camelCase and snake_case variants and include both the OpenAI-style
 	// json_schema wrapper and direct schema fields for broader compatibility.
 	if p.config.Schema != nil {
-		/*
-			request["responseFormat"] = map[string]interface{}{
-				"type": "JSON_SCHEMA",
-				"jsonSchema": map[string]interface{}{
-					"name":   "output_schema",
-					"schema": p.config.Schema,
-				},
-			}
-		*/
-		request["response_format"] = map[string]interface{}{
-			"type": "json_schema",
-			"json_schema": map[string]interface{}{
-				"name":   "output_schema",
-				"schema": p.config.Schema,
-			},
+		stream = false
+		request["generationConfig"] = map[string]interface{}{
+			"responseMimeType": "application/json",
+			"responseSchema":   p.config.Schema,
 		}
-		// Some clients / wrappers expect a direct responseSchema key
-		// request["responseSchema"] = p.config.Schema
-		request["response_schema"] = p.config.Schema
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -230,6 +141,10 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	headers := map[string]string{
 		"Content-Type": "application/json",
+	}
+	if stream {
+		headers["Accept"] = "text/event-stream"
+		fmt.Println("VIVEELLSLTREAM")
 	}
 
 	// If the key looks like an OAuth2 access token, send it as a Bearer token.
@@ -246,20 +161,27 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	if p.config.GeminiModel != "" {
 		model = p.config.GeminiModel
 	}
-	fmt.Println(model)
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, p.config.GeminiKey)
-	if p.config.BaseURL != "" {
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/v1beta/models/%s:generateContent?key=%s", model, p.config.GeminiKey)
+	// fmt.Println(model)
+	var action = "generateContent"
+	if stream {
+		action = "streamGenerateContent"
+	}
+	baseURL := defaultString(p.config.BaseURL, "https://generativelanguage.googleapis.com/v1beta")
+	apiURL := fmt.Sprintf("%s/models/%s:%s?alt=sse&key=%s", baseURL, model, action, p.config.GeminiKey)
+
+	// If streaming requested, use the streaming helper which will call our parser
+	if stream {
+		return llmMakeStreamingRequest(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader) (string, error) {
+			return p.parseStream(r)
+		})
 	}
 
-	fmt.Println(string(jsonData))
-	// Gemini doesn't support streaming in our implementation yet
+	// non-streaming fallback
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
 
-	fmt.Println(string(respBody))
 	var response struct {
 		Candidates []struct {
 			Content struct {
@@ -268,10 +190,16 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 				} `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
 		return "", err
+	}
+	if response.Error.Message != "" {
+		return "", fmt.Errorf(response.Error.Message)
 	}
 
 	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
@@ -284,6 +212,101 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 }
 
 func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
-	// Gemini streaming isn't implemented yet
-	return "", fmt.Errorf("streaming not implemented for Gemini")
+	scanner := bufio.NewScanner(reader)
+	var fullResponse strings.Builder
+
+	// Check if markdown is enabled
+	markdownEnabled := false
+	markdownEnabled = p.config.Markdown
+
+	// Reset the stream renderer if markdown is enabled
+	if markdownEnabled {
+		ResetStreamRenderer()
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "data: ") {
+			line = strings.TrimPrefix(line, "data: ")
+			if line == "[DONE]" {
+				break
+			}
+		}
+
+		// Try to parse JSON payload
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			// not JSON, skip
+			continue
+		}
+
+		// If the event contains an error object, return it as an error immediately.
+		if errObj, ok := obj["error"].(map[string]interface{}); ok {
+			if msg, ok := errObj["message"].(string); ok && msg != "" {
+				// Return any collected response along with the error message
+				return fullResponse.String(), fmt.Errorf(msg)
+			}
+		}
+
+		// Attempt to extract text from known Gemini shape
+		var chunk string
+		if cands, ok := obj["candidates"].([]interface{}); ok && len(cands) > 0 {
+			if cand0, ok := cands[0].(map[string]interface{}); ok {
+				if content, ok := cand0["content"].(map[string]interface{}); ok {
+					// parts array
+					if parts, ok := content["parts"].([]interface{}); ok && len(parts) > 0 {
+						if p0, ok := parts[0].(map[string]interface{}); ok {
+							if txt, ok := p0["text"].(string); ok {
+								chunk = txt
+							}
+						}
+					}
+					// some variants may include a top-level text field under content
+					if chunk == "" {
+						if txt, ok := content["text"].(string); ok {
+							chunk = txt
+						}
+					}
+				}
+			}
+		}
+
+		// Fallbacks: direct fields some wrappers use
+		if chunk == "" {
+			if txt, ok := obj["text"].(string); ok {
+				chunk = txt
+			} else if resp, ok := obj["response"].(string); ok {
+				chunk = resp
+			}
+		}
+
+		if chunk == "" {
+			// Nothing extracted from this event
+			continue
+		}
+
+		// Format the content using our streaming-friendly formatter
+		out := FormatStreamingChunk(chunk, markdownEnabled)
+		fmt.Print(out)
+		fullResponse.WriteString(chunk)
+	}
+
+	fmt.Println()
+
+	// Flush any remaining content in the stream renderer buffer
+	if markdownEnabled {
+		renderer := GetStreamRenderer()
+		if final := renderer.Flush(); final != "" {
+			fmt.Print(final)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fullResponse.String(), err
+	}
+
+	return fullResponse.String(), nil
 }
