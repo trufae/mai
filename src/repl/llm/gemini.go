@@ -34,6 +34,13 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
+	// If the key looks like an OAuth2 access token, send it as a Bearer token.
+	if p.config.GeminiKey != "" && strings.HasPrefix(p.config.GeminiKey, "ya29.") {
+		headers["Authorization"] = "Bearer " + p.config.GeminiKey
+	} else if p.config.GeminiKey != "" {
+		// Some installs may prefer the x-goog-api-key header
+		headers["x-goog-api-key"] = p.config.GeminiKey
+	}
 
 	// First try the API endpoint
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -67,11 +74,11 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Parse response if we got one
 	type GeminiModelsResponse struct {
 		Models []struct {
-			Name        string   `json:"name""`
-			DisplayName string   `json:"displayName""`
-			Description string   `json:"description""`
-			Versions    []string `json:"supportedGenerationMethods,omitempty""`
-		} `json:"models""`
+			Name        string   `json:"name"`
+			DisplayName string   `json:"displayName"`
+			Description string   `json:"description"`
+			Versions    []string `json:"supportedGenerationMethods,omitempty"`
+		} `json:"models"`
 	}
 
 	var geminiResp GeminiModelsResponse
@@ -159,46 +166,61 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 	}
 
-	request := struct {
-		Contents []struct {
-			Parts []struct {
-				Text string `json:"text""`
-			} `json:"parts""`
-		} `json:"contents""`
-		GenerationConfig *struct {
-			Temperature float64 `json:"temperature,omitempty""`
-			TopP        float64 `json:"topP,omitempty""`
-			TopK        int     `json:"topK,omitempty""`
-		} `json:"generationConfig,omitempty""`
-	}{
-		Contents: []struct {
-			Parts []struct {
-				Text string `json:"text""`
-			} `json:"parts""`
-		}{
-			{
-				Parts: []struct {
-					Text string `json:"text""`
-				}{
-					{
-						Text: content,
-					},
-				},
+	// Build a flexible request that includes multiple common shapes so wrapped/variant APIs
+	// can accept one of them. We include "contents" (used by some wrappers), an "input"
+	// shortcut, and an OpenAI-style messages list.
+	request := map[string]interface{}{}
+
+	// contents style
+	request["contents"] = []map[string]interface{}{
+		{
+			"parts": []map[string]interface{}{
+				{"text": content},
 			},
 		},
 	}
 
+	/*
+		// input style
+		request["input"] = map[string]interface{}{"text": content}
+
+		// messages style
+		request["messages"] = []map[string]interface{}{{"content": map[string]interface{}{"text": content}}}
+	*/
+
 	// Apply deterministic settings if enabled
 	if p.config.Deterministic {
-		request.GenerationConfig = &struct {
-			Temperature float64 `json:"temperature,omitempty""`
-			TopP        float64 `json:"topP,omitempty""`
-			TopK        int     `json:"topK,omitempty""`
-		}{
-			Temperature: 0.0,
-			TopP:        1.0,
-			TopK:        1,
+		request["generationConfig"] = map[string]interface{}{
+			"temperature": 0.0,
+			"topP":        1.0,
+			"topK":        1,
 		}
+	}
+
+	// If a structured output schema is requested, attach several compatible
+	// fields so the Gemini API (or variants) can pick up the schema. We add
+	// both camelCase and snake_case variants and include both the OpenAI-style
+	// json_schema wrapper and direct schema fields for broader compatibility.
+	if p.config.Schema != nil {
+		/*
+			request["responseFormat"] = map[string]interface{}{
+				"type": "JSON_SCHEMA",
+				"jsonSchema": map[string]interface{}{
+					"name":   "output_schema",
+					"schema": p.config.Schema,
+				},
+			}
+		*/
+		request["response_format"] = map[string]interface{}{
+			"type": "json_schema",
+			"json_schema": map[string]interface{}{
+				"name":   "output_schema",
+				"schema": p.config.Schema,
+			},
+		}
+		// Some clients / wrappers expect a direct responseSchema key
+		// request["responseSchema"] = p.config.Schema
+		request["response_schema"] = p.config.Schema
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -210,28 +232,42 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Content-Type": "application/json",
 	}
 
-	// Use the configured base URL if available, otherwise use the default API URL
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s",
-		p.config.GeminiKey)
-	if p.config.BaseURL != "" {
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/v1beta/models/%s:generateContent?key=%s",
-			p.config.GeminiModel, p.config.GeminiKey)
+	// If the key looks like an OAuth2 access token, send it as a Bearer token.
+	if p.config.GeminiKey != "" && strings.HasPrefix(p.config.GeminiKey, "ya29.") {
+		headers["Authorization"] = "Bearer " + p.config.GeminiKey
+	} else if p.config.GeminiKey != "" {
+		// Send via x-goog-api-key header as well, some deployments prefer this
+		headers["x-goog-api-key"] = p.config.GeminiKey
 	}
 
+	// Use the configured base URL if available, otherwise use the default API URL
+	defaultModel := "gemini-2.5-flash"
+	model := defaultModel
+	if p.config.GeminiModel != "" {
+		model = p.config.GeminiModel
+	}
+	fmt.Println(model)
+	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, p.config.GeminiKey)
+	if p.config.BaseURL != "" {
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/v1beta/models/%s:generateContent?key=%s", model, p.config.GeminiKey)
+	}
+
+	fmt.Println(string(jsonData))
 	// Gemini doesn't support streaming in our implementation yet
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
 
+	fmt.Println(string(respBody))
 	var response struct {
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
-					Text string `json:"text""`
-				} `json:"parts""`
-			} `json:"content""`
-		} `json:"candidates""`
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -240,7 +276,8 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
 		// Return raw content - newline conversion happens in the REPL
-		return response.Candidates[0].Content.Parts[0].Text, nil
+		txt := response.Candidates[0].Content.Parts[0].Text
+		return txt, nil
 	}
 
 	return "", fmt.Errorf("no content in response")

@@ -62,7 +62,7 @@ func loadConfig() *llm.Config {
 		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
 		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
 		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "gemma3:1b"),
-		GeminiModel:   getEnvOrDefault("GEMINI_MODEL", "gemini-1.5-flash"),
+		GeminiModel:   getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash"),
 		OpenAIModel:   getEnvOrDefault("OPENAI_MODEL", "gpt-4o"),
 		ClaudeModel:   getEnvOrDefault("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
 		DeepSeekModel: getEnvOrDefault("DEEPSEEK_MODEL", "deepseek-chat"),

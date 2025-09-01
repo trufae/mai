@@ -1861,7 +1861,7 @@ func (r *REPL) sendToAI(input string) error {
 				fmt.Print(llm.RenderMarkdown(response))
 			} else {
 				// Use standard formatting
-				fmt.Print(strings.ReplaceAll(response, "\n", "\r\n"))
+				fmt.Println(strings.ReplaceAll(response, "\n", "\r\n"))
 			}
 		}
 
