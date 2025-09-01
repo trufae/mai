@@ -10,83 +10,47 @@ import (
 const toolsPrompt = `
 # System Prompt
 
-You are a multi-step planning and execution agent designed to **efficiently** solve user requests using the provided tools catalog.
+This a multi-step planning and execution agent designed to **efficiently** solve user requests using the provided tools.
 
-Your goal is to solve the problem proposed by writing down a plan which may change on every execution step if needed in order to reach the user goal.
+## Instructions
 
-## Rules
+- Create a plan to solve the user **request**.
+  1. Analyze the user's query to understand the real goal.
+  2. Split the problem into a sequence of steps.
+  3. Choose the **most efficient path**, avoid unnecessary or redundant actions.
+- Improve the plan steps on every iteration if necessary.
+  1. Follow the plan **step-by-step**, run only one action at a time.
+  2. Track progress accurately, including paths to avoid, tools executed and decisions taken
+  3. Update your plan only if **new, unforeseen information** is discovered.
+  4. Continue until the complete goal is achieved.
+- Before reaching the Solve state, use tools instead of instructing the user with manual actions.
+  1. Track progress, each step should move the plan forward.
+  2. Analyze the result of each tool to determine extra steps to perform.
+  3. Collect information needed to provide the most precise response possible.
 
-1. First, **analyze user's query** to understand the goals proposed.
-2. **Plan everything first**. Don’t start until you’ve carefully thought the first steps.
-3. **Remember what you’ve done**. Avoid repeating the same steps. **Do not** overthink.
-4. **Use the right tools**, automate and call the required tools instead of telling the user which actions take.
-5. **Track progress clearly**. Each step should move the plan forward.
-6. /nothink /no_think Reasoning: low
+### Output Rules
 
-## Planning
+Based on these instructions, determine the action for the current step inside the plan.
 
-Start by carefully crafting a plan by collecting all the necessary information
-
-1. Analyze the user's query and understand the goal completely.
-2. Break the problem into **a finite set of sequential steps** needed to reach the goal.
-3. Choose the **most efficient path**, avoiding unnecessary or redundant actions.
-4. Make sure each step is clear, distinct, and **only performed once**.
-
-> 🔁 **Avoid loops:** If you find yourself proposing the same step again, stop and re-evaluate.  
-> ❌ **No validation:** Once a tool is executed, do not re-check it unless new input justifies it
-
-**IMPORTANT** Create a new plan if we find out new information that is relevant to solve the user request.
-
-## Execution
-
-1. Follow your plan **step-by-step**, running only one action at a time.
-2. Maintain context: remember results from previous steps, including:
-   - tool outputs
-   - decisions made
-   - paths avoided
-3. Track progress accurately.
-4. Update your plan only if **new, unforeseen information** is discovered.
-5. Continue until the complete goal is achieved.
-
-### Tool Selection
-
-1. Only call tools if necessary to fulfill the user's request
-2. Fill "tool_params" with the right parameters and its values
-3. Ensure all required parameters are correctly identified
-4. Avoid using optional parameters unless necessary
-5. When multiple tools are needed, redesign the plan to call then one after the other.
-
-### Action Types
-
-Based on these instructions, analyze the provided query and available tools to determine the appropriate course of action.
-
-- Use "Action: Done" all the steps are done, we can quit the loop
-- Use "Action: Solve" only when the goal is completely solved
-- Use "Action: Iterate" to continue executing tools to progress toward the solution
-- Use "Action: Think" when reasoning is needed to plan new tool calls in another iteration
-- Use "Action: Error" when the tool required to solve the step fails
-
-### Output Example
+- Use "action": "Done" all the steps are done, we can quit the loop
+- Use "action": "Iterate" to continue executing tools to progress toward the solution
+- Use "action": "Error" when the tool required to solve the step fails
 
 Provide an array of plans, specify the current plan index, the reasoning behind the current step, the action associated, what must be followup in the next step and if needed, the tool name and its parameters. Do not decorate the resulting JSON, not even using markdown code blocks, use plain json.
 
 {
   "plan": [
-    "Open the binary file '/tmp/crackme0x05' using radare2.",
-    "Analyze the binary using radare2's analysis capabilities.",
-    "List strings from data sections to find potential password candidates.",
-    "If no clear password candidates are found in strings, examine functions for password checks using decompilation and cross-references.",
-    "Test the identified password candidates."
+    "..."
   ],
   "current_plan_index": 0,
   "progress": "Summary of what has been done so far or is in progress.",
-  "reasoning": "Why this specific tool was chosen for the current step.",
-  "next_step": "What should happen next.",
-  "action": "Done | Solve | Think | Iterate | Error",
+  "reasoning": "Why are we performing this step, which other actions must be taken later.",
+  "next_step": "Follow up of what should happen next.",
+  "action": "Done | Iterate | Error",
   "tool_required": true,
-  "tool": "openFile",
+  "tool": "ToolName",
   "tool_params": {
-    "filePath": "/tmp/crackme0x05",
+    "parameterName": "parameterValue"
   }
 }
 `
@@ -122,7 +86,7 @@ const toolsSchema = `
     },
     "action": {
       "type": "string",
-      "enum": ["Done", "Solve", "Think", "Iterate", "Error"],
+      "enum": ["Done", "Iterate", "Error"],
       "description": "The current action status."
     },
     "tool_required": {
@@ -184,7 +148,7 @@ const geminiToolsSchema = `
     },
     "action": {
       "type": "string",
-      "enum": ["Done", "Solve", "Think", "Iterate", "Error"],
+      "enum": ["Done", "Iterate", "Error"],
       "description": "The current action status."
     },
     "tool_required": {
@@ -201,7 +165,7 @@ const geminiToolsSchema = `
       "items": {
         "type": "object",
         "properties": {
-          "key":   { "type": "string" },
+          "key": { "type": "string" },
           "value": { "type": "string" }
         },
         "required": ["key", "value"]
@@ -229,13 +193,13 @@ func debug(m any) {
 	fmt.Println("==========================")
 }
 
-func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string) string {
-	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<rules>%s</rules><context-history>%s</context-history>\n<tools-catalog>\n%s\n</tools-catalog>",
-		userInput, toolPrompt, ctx, toolList)
+func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string, chatHistory string) string {
+	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<rules>%s</rules><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><history>%s</history>",
+		userInput, toolPrompt, ctx, toolList, chatHistory)
 }
 
-func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, error) {
-	query := buildToolsMessage(toolPrompt, input, ctx, toolList)
+func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string, chatHistory string) (PlanResponse, error) {
+	query := buildToolsMessage(toolPrompt, input, ctx, toolList, chatHistory)
 	messages := []llm.Message{{Role: "user", Content: query}}
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
@@ -246,6 +210,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		responseJson = res
 	}
 	var response PlanResponse
+	fmt.Println(responseJson)
 	debug(responseJson)
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
@@ -269,16 +234,6 @@ func showPlan(step *PlanResponse) {
 		i++
 	}
 }
-
-/*
-func map2array(m map[string]interface{}) []string{
-	result := make([]string, 0, len(m))
-	for k, v := range m {
-		result = append(result, fmt.Sprintf("%s=%s", k, v))
-	}
-	return result
-}
-*/
 
 func map2array(m interface{}) []string {
 	result := []string{}
@@ -304,6 +259,27 @@ func map2array(m interface{}) []string {
 	return result
 }
 
+func buildChatHistory(input string, messages []llm.Message) string {
+	var b strings.Builder
+	for _, m := range messages {
+		role := strings.ToLower(m.Role)
+		if role == "assistant" || role == "model" || role == "ai" {
+			var content string
+			switch c := m.Content.(type) {
+			case string:
+				content = c
+			default:
+				content = fmt.Sprintf("%v", c)
+			}
+			if !strings.HasSuffix(content, "\n") {
+				content += "\n"
+			}
+			b.WriteString(content)
+		}
+	}
+	return "<user>" + input + "</user>\n<assistant>" + b.String() + "</assistant>"
+}
+
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 	origSchema := r.config.Schema
 	defer func() {
@@ -315,9 +291,12 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		}
 		return toolsSchema
 	}(r.configOptions.Get("provider"))
+
+	chatHistory := buildChatHistory(input, messages)
+
 	var schema map[string]interface{}
 	if err := json.Unmarshal([]byte(schemaString), &schema); err != nil {
-		return "", fmt.Errorf("i cannot unmarshal the schema")
+		return "", fmt.Errorf("I cannot unmarshal the schema")
 	}
 	r.config.Schema = schema
 	toolList, err := GetAvailableTools(Markdown)
@@ -325,12 +304,12 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
 	}
-	var reasoning = ""
 	var context = ""
+	var progress = ""
 	var stepCount = 0
 	for {
 		stepCount++
-		step, err := r.newToolStep(toolsPrompt, input, context, toolList)
+		step, err := r.newToolStep(toolsPrompt, input, context, toolList, chatHistory)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
 			if strings.Contains(err.Error(), "failed") {
@@ -340,31 +319,31 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			continue
 
 		}
-		fmt.Println("\x1b[0m" + step.Reasoning)
-		if step.Action == "Done" || step.Action == "Solve" {
+		showPlan(&step)
+		progress = step.Progress
+		fmt.Println("Action: " + step.Action)
+		fmt.Println("\x1b[0m[PROGRESS]" + step.Progress)
+		fmt.Println("\x1b[0m[REASON]" + step.Reasoning)
+		if (step.Action == "Done" || step.Action == "") || !step.ToolRequired {
+			//	context += "Progres: " + step.Progress
+			context += "Reasoning: " + step.Reasoning
 			break
 		}
-		if step.ToolRequired {
-			tool := &Tool{
-				Name: step.SelectedTool,
-				Args: map2array(step.ToolArgs),
-			}
-			debug(tool)
-			result, err := callTool(tool)
-			if err == nil {
-				context += fmt.Sprintf("\n\n## Step %d Tool Output\n\n**Reasoning**: %s\n**ToolName**: %s\n**Output**:\n\n```\n%s\n```\n\n", stepCount, step.Reasoning, tool.Name, result)
-			} else {
-				fmt.Println(err)
-				break
-			}
+		tool := &Tool{
+			Name: step.SelectedTool,
+			Args: map2array(step.ToolArgs),
 		}
-		fmt.Println("Action: " + step.Action)
-		showPlan(&step)
-		if reasoning != "" {
-			context += "\n\n## Context\n\n" + reasoning
+		debug(tool)
+		result, err := callTool(tool)
+		if err == nil {
+			context += fmt.Sprintf("\n\n## Step %d Tool Output\n\n**Progress**: %s\n**Reasoning**: %s\n**ToolName**: %s\n**Output**:\n\n```\n%s\n```\n\n", stepCount, step.Progress, step.Reasoning, tool.Name, result)
+			// context += "## Action Done\n" + step.NextStep
+		} else {
+			fmt.Println(err)
+			break
 		}
 	}
 
-	// fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
-	return input + context, nil
+	return input + context + progress, nil
+	// return input + context + "## Resolution Rule\n\nBe concise in your response, be clear and do not ellaborate", nil
 }

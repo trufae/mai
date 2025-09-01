@@ -219,7 +219,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			"Content-Type": "application/json",
 		}
 
-		fmt.Println("(send)" + string(jsonData))
+		// fmt.Println("(send)" + string(jsonData))
 		// Use the configured base URL if available, otherwise construct from host/port
 		url := fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
 		if p.config.BaseURL != "" {
@@ -236,7 +236,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		if err != nil {
 			return "", err
 		}
-		fmt.Println("(recv)" + string(respBody))
+		// fmt.Println("(recv)" + string(respBody))
 
 		// fmt.Println(string(respBody))
 		var response struct {
@@ -272,7 +272,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		// historical behavior of using the first message as the prompt.
 		// Build a conversation string according to configuration
 		request.Prompt = BuildConversationString(messages, p.config.ConversationIncludeLLM, p.config.ConversationIncludeSystem, p.config.ConversationFormat, p.config.ConversationUseLastUser)
-		fmt.Println(request.Prompt)
+		// fmt.Println(request.Prompt)
 	}
 
 	// Apply deterministic settings if enabled

@@ -48,6 +48,7 @@ func GetAvailableTools(f Format) (string, error) {
 	case Markdown:
 		cmd = exec.Command("mai-tool", "list")
 	}
+	// cmd = exec.Command("mai-tool", "-j", "list")
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
@@ -153,16 +154,16 @@ func buildMessageWithTools(toolPrompt string, userInput string, ctx string, tool
 
 // TODO: some field names dont match the json schema which is confusing
 type PlanResponse struct {
-	Plan         []string               `json:"plan"`
-	PlanIndex    int                    `json:"current_plan_index"`
-	Progress     string                 `json:"progress"`
-	NextStep     string                 `json:"next_step"`
-	Action       string                 `json:"action"`
-	ToolRequired bool                   `json:"tool_required"`
-	Reasoning    string                 `json:"reasoning"`
-	SelectedTool string                 `json:"tool,omitempty"`
+	Plan         []string `json:"plan"`
+	PlanIndex    int      `json:"current_plan_index"`
+	Progress     string   `json:"progress"`
+	NextStep     string   `json:"next_step"`
+	Action       string   `json:"action"`
+	ToolRequired bool     `json:"tool_required"`
+	Reasoning    string   `json:"reasoning"`
+	SelectedTool string   `json:"tool,omitempty"`
 	// ToolArgs     map[string]interface{} `json:"tool_params,omitempty"`
-	ToolArgs     interface{} `json:"tool_params,omitempty"`
+	ToolArgs interface{} `json:"tool_params,omitempty"`
 }
 
 func mapToArray(m map[string]interface{}) []string {
