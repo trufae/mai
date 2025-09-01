@@ -83,14 +83,6 @@ func callTool(tool *Tool) (string, error) {
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
-	// Combine the tool name and arguments for the mai-tool command
-	// tool.Name may be in the format "server/tool"
-	/*
-		cmd := exec.Command("mai-tool", cmdArgs...)
-
-		cmd.Stdout = &out
-		cmd.Stderr = &stderr
-	*/
 	timeout := 60
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
 
@@ -102,8 +94,6 @@ func callTool(tool *Tool) (string, error) {
 	cmd := exec.CommandContext(timeoutCtx, "mai-tool", cmdArgs...)
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
-	// fmt.Println("MAITOOLRUN " + toolName)
-	// fmt.Println("MAITOOLARG " + strings.Join(cmdArgs, " '"))
 
 	err := cmd.Run()
 	if err != nil {
@@ -299,8 +289,8 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 			}
 		}
 		// response.NextStep += "<think>" + explainText + "</think>"
-		fmt.Println(response)
-		fmt.Println(response.NextStep)
+	//	fmt.Println(response)
+	//	fmt.Println(response.NextStep)
 		return response, explainText, err2
 	}
 	return response, explainText, nil

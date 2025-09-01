@@ -1782,19 +1782,23 @@ func (r *REPL) sendToAI(input string) error {
 	}
 
 	if r.configOptions.GetBool("newtools") {
+		StartTimer()
 		tool, err := r.QueryWithNewTools(messages, input)
 		if err != nil {
 			return fmt.Errorf("tool execution failed: %v", err)
 		}
 		input = tool
 		fmt.Println("(tools) loop finished.")
+		StopTimer()
 	} else if r.configOptions.GetBool("usetools") {
+		StartTimer()
 		tool, err := r.QueryWithTools(messages, input)
 		if err != nil {
 			return fmt.Errorf("tool execution failed: %v", err)
 		}
 		input = tool
 		fmt.Println("(tools) loop finished.")
+		StopTimer()
 	}
 
 	// Add user message with enhanced input
@@ -3947,4 +3951,19 @@ func (r *REPL) loadConversation(path string) error {
 		fmt.Print("System prompt loaded\r\n")
 	}
 	return nil
+}
+
+/// utils
+
+var startTime time.Time
+
+func StartTimer() {
+        startTime = time.Now()
+}
+
+func StopTimer() {
+        elapsed := time.Since(startTime)
+        minutes := int(elapsed.Minutes())    // Get the elapsed minutes
+        seconds := int(elapsed.Seconds()) % 60 // Get the remaining seconds
+        fmt.Printf("⏳ Elapsed time: %d minutes and %d seconds\n", minutes, seconds)
 }

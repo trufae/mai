@@ -647,9 +647,9 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
 	var output strings.Builder
-	output.WriteString("# MCP Tools\n\n")
+	output.WriteString("# Tools Catalog\n\n")
 
-	for serverName, server := range s.servers {
+	for _/*serverName */, server := range s.servers {
 		// output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		server.mutex.RLock()
 		// output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
@@ -657,8 +657,8 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 		for _, tool := range server.Tools {
 			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
-			output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
-			// output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
+			// output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
 			if tool.InputSchema != nil {
 				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")

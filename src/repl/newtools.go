@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
 	"strings"
+	"golang.org/x/term"
+	//
+	"os"
 )
 
+  // 3. Update your plan only if **new, unforeseen information** is discovered.
+  // 1. Track progress, each step should move the plan forward.
 const toolsPrompt = `
 # System Prompt
 
@@ -15,19 +20,20 @@ This a multi-step planning and execution agent designed to **efficiently** solve
 ## Instructions
 
 - Create a plan to solve the user **request**.
-  1. Analyze the user's query to understand the real goal.
-  2. Split the problem into a sequence of steps.
-  3. Choose the **most efficient path**, avoid unnecessary or redundant actions.
-- Improve the plan steps on every iteration if necessary.
-  1. Follow the plan **step-by-step**, run only one action at a time.
-  2. Track progress accurately, including paths to avoid, tools executed and decisions taken
-  3. Update your plan only if **new, unforeseen information** is discovered.
-  4. Continue until the complete goal is achieved.
-- Before reaching the Solve state, use tools instead of instructing the user with manual actions.
-  1. Track progress, each step should move the plan forward.
-  2. Analyze the result of each tool to determine extra steps to perform.
-  3. Collect information needed to provide the most precise response possible.
+  1. Analyze the query to understand the real goal.
+  2. Break down the problem into a sequence of steps.
+  3. Choose the **most efficient path**.
+  4. Avoid unnecessary or redundant actions.
+- Follow the plan **step-by-step**, run only one action at a time.
+  1. Update the plan outline on every iteration with tool results.
+  2. Track progress accurately, what to avoid, tools executed and decisions taken.
+  3. Continue until the complete goal is achieved.
+- Before reaching the "Solve" state
+  1. Use tools instead of educating the user with manual actions.
+  2. Analyze tool results to determine extra steps to perform.
+  3. Do not leave information gaps in the plan, add the plan steps necessary.
 
+  ` planTemplate + `V
 ### Output Rules
 
 Based on these instructions, determine the action for the current step inside the plan.
@@ -210,7 +216,6 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		responseJson = res
 	}
 	var response PlanResponse
-	fmt.Println(responseJson)
 	debug(responseJson)
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
@@ -279,7 +284,24 @@ func buildChatHistory(input string, messages []llm.Message) string {
 	}
 	return "<user>" + input + "</user>\n<assistant>" + b.String() + "</assistant>"
 }
+func FillLineWithTriangles() string {
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || width <= 0 {
+		width = 80 // fallback if we can't get size
+	}
 
+	// Each "◤◢" takes 2 runes (width = 2)
+	pattern := "◤◢"
+	result := ""
+
+	for len(result) < width {
+		result += pattern
+	}
+
+	// Trim if it overshoots
+	// res := []rune(result)
+	return result // string(result)[:width]
+}
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 	origSchema := r.config.Schema
 	defer func() {
@@ -321,29 +343,34 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		}
 		showPlan(&step)
 		progress = step.Progress
-		fmt.Println("Action: " + step.Action)
-		fmt.Println("\x1b[0m[PROGRESS]" + step.Progress)
-		fmt.Println("\x1b[0m[REASON]" + step.Reasoning)
+		tool := &Tool{
+			Name: step.SelectedTool,
+			Args: map2array(step.ToolArgs),
+		}
+		fmt.Println("\x1b[0m 🚀| " + step.Action + " | 🛠️ " + tool.ToString())
+		fmt.Println("\x1b[0m ✅| " + step.Progress)
+		fmt.Println("\x1b[0m 🤔| " + step.Reasoning)
 		if (step.Action == "Done" || step.Action == "") || !step.ToolRequired {
 			//	context += "Progres: " + step.Progress
 			context += "Reasoning: " + step.Reasoning
 			break
 		}
-		tool := &Tool{
-			Name: step.SelectedTool,
-			Args: map2array(step.ToolArgs),
-		}
 		debug(tool)
 		result, err := callTool(tool)
-		if err == nil {
-			context += fmt.Sprintf("\n\n## Step %d Tool Output\n\n**Progress**: %s\n**Reasoning**: %s\n**ToolName**: %s\n**Output**:\n\n```\n%s\n```\n\n", stepCount, step.Progress, step.Reasoning, tool.Name, result)
-			// context += "## Action Done\n" + step.NextStep
-		} else {
+		if err != nil {
 			fmt.Println(err)
-			break
+			// break
+		} else {
+			msg := fmt.Sprintf("\n\n## Step %d Tool '%s' Output\n\n**Reasoning**: %s\n**Output**:\n\n```\n%s\n```\n\n", stepCount, tool.Name, step.Reasoning, result)
+			fmt.Println("-----------")
+			fmt.Println(msg)
+			fmt.Println("-----------")
+			context += msg
+			// context += "## Action Done\n" + step.NextStep
 		}
 	}
+	fmt.Println("\x1b[33m" + FillLineWithTriangles() + "\x1b[0m")
 
-	return input + context + progress, nil
-	// return input + context + "## Resolution Rule\n\nBe concise in your response, be clear and do not ellaborate", nil
+	// return input + context + progress, nil
+	return input + context + progress + "\n## Resolution Instructions\n\nBe concise in your response", nil
 }
