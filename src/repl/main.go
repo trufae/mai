@@ -311,7 +311,6 @@ func main() {
 	if defaultModel := os.Getenv("MAI_MODEL"); defaultModel != "" {
 		setModelForProvider(config, defaultModel)
 	}
-	replMode := false
 
 	configOptions := NewConfigOptions()
 	// Process command line flags
@@ -350,8 +349,6 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -p requires a provider argument\n")
 				os.Exit(1)
 			}
-		case "-r":
-			replMode = true
 		case "-b":
 			if i+1 < len(args) {
 				config.BaseURL = args[i+1]
@@ -402,7 +399,7 @@ func main() {
 
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
-	if replMode || stdinIsTerminal {
+	if stdinIsTerminal {
 		// Not stdin mode, will load 'rc' file and start REPL
 		config.IsStdinMode = false
 
