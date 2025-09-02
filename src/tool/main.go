@@ -124,6 +124,34 @@ func main() {
 	switch command {
 	case "list":
 		listTools(config)
+	case "prompts":
+		// Subcommands: list, get
+		if len(flag.Args()) < 2 || flag.Args()[1] == "list" {
+			listPrompts(config)
+			break
+		}
+		if flag.Args()[1] == "get" || flag.Args()[1] == "show" {
+			if len(flag.Args()) < 3 {
+				fmt.Println("Error: 'prompts get' requires a prompt name (optionally server/prompt)")
+				fmt.Println("Usage: mai-tool prompts get <server>/<prompt>|<prompt> [param=value] ...")
+				os.Exit(1)
+			}
+			arg := flag.Args()[2]
+			var serverName string
+			var promptName string
+			if strings.Contains(arg, "/") {
+				parts := strings.SplitN(arg, "/", 2)
+				serverName = parts[0]
+				promptName = parts[1]
+			} else {
+				promptName = arg
+			}
+			params := parseParams(flag.Args()[3:])
+			getPrompt(config, serverName, promptName, params)
+			break
+		}
+		fmt.Printf("Unknown 'prompts' subcommand: %s\n", flag.Args()[1])
+		os.Exit(1)
 	case "call":
 		nargs := len(flag.Args())
 		if nargs < 2 {
@@ -206,12 +234,16 @@ func printUsage() {
 	fmt.Println("  list                           List all available tools")
 	fmt.Println("  servers                        List all available servers")
 	fmt.Println("  call <server> <tool> [params]  Call a specific tool")
+	fmt.Println("  prompts [list]                 List all available prompts")
+	fmt.Println("  prompts get <server>/<name>    Render a prompt (accepts params)")
 	fmt.Println("\nExamples:")
 	fmt.Println("  mai-tool list")
 	fmt.Println("  mai-tool -j list")
 	fmt.Println("  mai-tool call server1 mytool param1=value1 param2=value2")
 	fmt.Println("  mai-tool call server1/mytool param1=value1 param2=value2")
 	fmt.Println("  mai-tool call server1 mytool \"text=value with spaces\"")
+	fmt.Println("  mai-tool prompts list")
+	fmt.Println("  mai-tool prompts get server1/welcome topic=onboarding")
 }
 
 func parseParams(args []string) map[string]string {
@@ -233,6 +265,130 @@ func buildApiUrl(config Config, path string) string {
 		fmt.Fprintf(os.Stderr, "DEBUG: Request URL: %s\n", url)
 	}
 	return url
+}
+
+func listPrompts(config Config) {
+	var endpoint string
+	if config.JsonOutput {
+		endpoint = "/prompts/json"
+	} else {
+		endpoint = "/prompts"
+	}
+	url := buildApiUrl(config, endpoint)
+
+	client := &http.Client{}
+	if config.Debug {
+		client.Transport = createDebugTransport(config)
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Printf("Error connecting to mcpd: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Server returned error: %s\n", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Println(string(body))
+		os.Exit(1)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if config.JsonOutput {
+		var jsonData interface{}
+		if err := json.Unmarshal(body, &jsonData); err == nil {
+			out, _ := json.MarshalIndent(jsonData, "", "  ")
+			fmt.Println(string(out))
+		} else {
+			fmt.Println(string(body))
+		}
+	} else {
+		output := string(body)
+		if config.MarkdownCode {
+			output = "```\n" + output + "\n```"
+		}
+		fmt.Println(output)
+	}
+}
+
+func getPrompt(config Config, serverName, promptName string, params map[string]string) {
+	var endpoint string
+	if serverName == "" {
+		endpoint = fmt.Sprintf("/prompts/%s", promptName)
+	} else {
+		endpoint = fmt.Sprintf("/prompts/%s/%s", serverName, promptName)
+	}
+	url := buildApiUrl(config, endpoint)
+
+	client := &http.Client{}
+	if config.Debug {
+		client.Transport = createDebugTransport(config)
+	}
+
+	var resp *http.Response
+	var err error
+	if len(params) > 0 {
+		bodyBytes, err := json.Marshal(params)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding JSON parameters: %v\n", err)
+			os.Exit(1)
+		}
+		req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating request: %v\n", err)
+			os.Exit(1)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err = client.Do(req)
+	} else {
+		resp, err = client.Get(url)
+	}
+	if err != nil {
+		fmt.Printf("Error calling prompt: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Prompt get failed: %s\n", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Println(string(body))
+		os.Exit(1)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if config.JsonOutput {
+		var jsonData interface{}
+		if err := json.Unmarshal(body, &jsonData); err == nil {
+			out, _ := json.MarshalIndent(jsonData, "", "  ")
+			fmt.Println(string(out))
+		} else {
+			out, _ := json.MarshalIndent(map[string]string{"text": string(body)}, "", "  ")
+			fmt.Println(string(out))
+		}
+		return
+	}
+
+	output := string(body)
+	if len(output) > 0 && (output[0] == '{' || output[0] == '[') {
+		output = jsonToMarkdown(output)
+	}
+	if config.MarkdownCode {
+		output = "```\n" + output + "\n```"
+	}
+	fmt.Println(output)
 }
 
 // createDebugTransport returns an http.RoundTripper that logs requests and responses

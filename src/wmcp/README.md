@@ -18,6 +18,18 @@ GET /tools/json
 ```
 Returns a JSON-formatted list of all available tools from all servers.
 
+### List All Prompts
+```bash
+GET /prompts
+```
+Returns a markdown-formatted list of all available prompts from all servers.
+
+### List All Prompts (JSON)
+```bash
+GET /prompts/json
+```
+Returns a JSON-formatted list of all available prompts from all servers.
+
 ### Service Status
 ```bash
 GET /status
@@ -33,6 +45,15 @@ POST /call/{tool}
 ```
 Calls a specific tool on a specific server, or uses auto-discovery when only the tool is specified.
 
+### Get a Prompt
+```bash
+GET /prompts/{server}/{prompt}?arg=value
+GET /prompts/{prompt}?arg=value
+POST /prompts/{server}/{prompt}
+POST /prompts/{prompt}
+```
+Retrieves a prompt’s rendered messages from a specific server, or uses auto-discovery when only the prompt name is specified. Arguments can be passed via query string or JSON body.
+
 ## Examples
 
 ### 1. Discover Available Tools
@@ -43,6 +64,12 @@ curl http://localhost:8080/tools
 
 # Check service status
 curl http://localhost:8080/status
+
+# List all prompts
+curl http://localhost:8080/prompts
+
+# Get a specific prompt
+curl "http://localhost:8080/prompts/server1/welcome?topic=onboarding"
 ```
 
 ### 2. Radare2 MCP Examples (r2mcp)

@@ -19,7 +19,7 @@ import (
 )
 
 // CodeService handles all code-related operations
-type CodeService struct{
+type CodeService struct {
 	// Track file modification times to detect changes
 	fileModTimes map[string]time.Time
 	// Cache for language identification
@@ -31,8 +31,8 @@ type CodeService struct{
 // NewCodeService creates a new CodeService instance
 func NewCodeService() *CodeService {
 	return &CodeService{
-		fileModTimes: make(map[string]time.Time),
-		langCache: make(map[string]string),
+		fileModTimes:     make(map[string]time.Time),
+		langCache:        make(map[string]string),
 		buildSystemCache: make(map[string]string),
 	}
 }
@@ -1208,52 +1208,52 @@ func (s *CodeService) languageFromExtension(ext string) string {
 	// Map of file extensions to languages
 	extMap := map[string]string{
 		// C/C++
-		"c":    "C",
-		"h":    "C",
-		"cpp":  "C++",
-		"cc":   "C++",
-		"cxx":  "C++",
-		"hpp":  "C++",
-		"hxx":  "C++",
+		"c":   "C",
+		"h":   "C",
+		"cpp": "C++",
+		"cc":  "C++",
+		"cxx": "C++",
+		"hpp": "C++",
+		"hxx": "C++",
 
 		// Go
-		"go":   "Go",
+		"go": "Go",
 
 		// Python
-		"py":   "Python",
-		"pyw":  "Python",
-		"ipynb":  "Python (Jupyter)",
+		"py":    "Python",
+		"pyw":   "Python",
+		"ipynb": "Python (Jupyter)",
 
 		// JavaScript/TypeScript
-		"js":   "JavaScript",
-		"jsx":  "JavaScript (React)",
-		"ts":   "TypeScript",
-		"tsx":  "TypeScript (React)",
+		"js":  "JavaScript",
+		"jsx": "JavaScript (React)",
+		"ts":  "TypeScript",
+		"tsx": "TypeScript (React)",
 
 		// Ruby
-		"rb":   "Ruby",
+		"rb": "Ruby",
 
 		// Java
 		"java": "Java",
 
 		// C#
-		"cs":   "C#",
+		"cs": "C#",
 
 		// PHP
-		"php":  "PHP",
+		"php": "PHP",
 
 		// Swift
 		"swift": "Swift",
 
 		// Rust
-		"rs":   "Rust",
+		"rs": "Rust",
 
 		// Scala
 		"scala": "Scala",
 
 		// Kotlin
-		"kt":   "Kotlin",
-		"kts":  "Kotlin",
+		"kt":  "Kotlin",
+		"kts": "Kotlin",
 
 		// HTML/CSS
 		"html": "HTML",
@@ -1270,7 +1270,7 @@ func (s *CodeService) languageFromExtension(ext string) string {
 		"fish": "Fish",
 
 		// PowerShell
-		"ps1":  "PowerShell",
+		"ps1": "PowerShell",
 
 		// Other
 		"r":    "R",
@@ -1438,7 +1438,7 @@ func (s *CodeService) handleIdentifyBuildSystem(args map[string]any) (any, error
 	if buildSystem, exists := s.buildSystemCache[directory]; exists {
 		return map[string]any{
 			"build_system": buildSystem,
-			"from_cache":  true,
+			"from_cache":   true,
 		}, nil
 	}
 
@@ -1473,28 +1473,28 @@ func (s *CodeService) handleIdentifyBuildSystem(args map[string]any) (any, error
 func (s *CodeService) detectBuildSystem(dirPath string) (string, []string, error) {
 	// Define build system identifiers (files that indicate a build system)
 	buildSystemFiles := map[string][]string{
-		"Make":         {"Makefile", "makefile", "GNUmakefile"},
-		"CMake":        {"CMakeLists.txt"},
-		"Meson":        {"meson.build"},
-		"Bazel":        {"WORKSPACE", "BUILD", "BUILD.bazel"},
-		"Gradle":       {"build.gradle", "build.gradle.kts"},
-		"Maven":        {"pom.xml"},
-		"npm":          {"package.json"},
-		"Yarn":         {"yarn.lock"},
-		"Cargo":        {"Cargo.toml"},
-		"Go Modules":   {"go.mod"},
-		"pip":          {"requirements.txt", "setup.py"},
-		"Poetry":       {"pyproject.toml"},
-		"SBT":          {"build.sbt"},
-		"Ant":          {"build.xml"},
-		"Buck":         {"BUCK"},
+		"Make":          {"Makefile", "makefile", "GNUmakefile"},
+		"CMake":         {"CMakeLists.txt"},
+		"Meson":         {"meson.build"},
+		"Bazel":         {"WORKSPACE", "BUILD", "BUILD.bazel"},
+		"Gradle":        {"build.gradle", "build.gradle.kts"},
+		"Maven":         {"pom.xml"},
+		"npm":           {"package.json"},
+		"Yarn":          {"yarn.lock"},
+		"Cargo":         {"Cargo.toml"},
+		"Go Modules":    {"go.mod"},
+		"pip":           {"requirements.txt", "setup.py"},
+		"Poetry":        {"pyproject.toml"},
+		"SBT":           {"build.sbt"},
+		"Ant":           {"build.xml"},
+		"Buck":          {"BUCK"},
 		"Visual Studio": {"*.sln", "*.vcxproj"},
-		"Xcode":        {"*.xcodeproj", "*.xcworkspace"},
-		"qmake":        {"*.pro"},
-		"Autotools":    {"configure.ac", "configure.in", "autogen.sh"},
-		"Rake":         {"Rakefile"},
-		"SCons":        {"SConstruct", "Sconstruct", "sconstruct", "SConscript"},
-		"waf":          {"wscript"},
+		"Xcode":         {"*.xcodeproj", "*.xcworkspace"},
+		"qmake":         {"*.pro"},
+		"Autotools":     {"configure.ac", "configure.in", "autogen.sh"},
+		"Rake":          {"Rakefile"},
+		"SCons":         {"SConstruct", "Sconstruct", "sconstruct", "SConscript"},
+		"waf":           {"wscript"},
 	}
 
 	// Store found build files
@@ -1600,16 +1600,16 @@ func (s *CodeService) getBuildCommands(buildSystem string) map[string]string {
 			"test":      "ninja -C builddir test",
 		},
 		"Bazel": {
-			"build":   "bazel build //...",
-			"clean":   "bazel clean",
-			"test":    "bazel test //...",
-			"run":     "bazel run <target>",
+			"build": "bazel build //...",
+			"clean": "bazel clean",
+			"test":  "bazel test //...",
+			"run":   "bazel run <target>",
 		},
 		"Gradle": {
-			"build":   "./gradlew build",
-			"clean":   "./gradlew clean",
-			"test":    "./gradlew test",
-			"run":     "./gradlew run",
+			"build": "./gradlew build",
+			"clean": "./gradlew clean",
+			"test":  "./gradlew test",
+			"run":   "./gradlew run",
 		},
 		"Maven": {
 			"build":   "mvn compile",
@@ -1619,18 +1619,18 @@ func (s *CodeService) getBuildCommands(buildSystem string) map[string]string {
 			"install": "mvn install",
 		},
 		"npm": {
-			"build":     "npm run build",
-			"test":      "npm test",
-			"start":     "npm start",
-			"install":   "npm install",
-			"dev":       "npm run dev",
+			"build":   "npm run build",
+			"test":    "npm test",
+			"start":   "npm start",
+			"install": "npm install",
+			"dev":     "npm run dev",
 		},
 		"Yarn": {
-			"build":     "yarn build",
-			"test":      "yarn test",
-			"start":     "yarn start",
-			"install":   "yarn install",
-			"dev":       "yarn dev",
+			"build":   "yarn build",
+			"test":    "yarn test",
+			"start":   "yarn start",
+			"install": "yarn install",
+			"dev":     "yarn dev",
 		},
 		"Cargo": {
 			"build":   "cargo build",
@@ -1777,7 +1777,7 @@ func (s *CodeService) listFunctionsInDirectory(dirPath string, recursive bool) (
 			// Skip files that can't be processed
 			continue
 		}
-		
+
 		for _, function := range functions {
 			// Add relative file path
 			relPath, _ := filepath.Rel(dirPath, file)
@@ -1835,16 +1835,16 @@ func (s *CodeService) extractFunctions(content, language, filePath string) ([]ma
 
 	// Function extraction patterns for different languages
 	patterns := map[string]string{
-		"Go": `func\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(\([^)]*\))?\s*\{`,
-		"Python": `def\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*:`,
+		"Go":         `func\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(\([^)]*\))?\s*\{`,
+		"Python":     `def\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*:`,
 		"JavaScript": `(?:function\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)|const\s+([A-Za-z0-9_]+)\s*=\s*\(([^)]*)\)\s*=>|([A-Za-z0-9_]+)\s*:\s*function\s*\(([^)]*)\))`,
 		"TypeScript": `(?:function\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)|const\s+([A-Za-z0-9_]+)\s*=\s*\(([^)]*)\)\s*=>|([A-Za-z0-9_]+)\s*:\s*function\s*\(([^)]*)\))`,
-		"Java": `(?:[public|private|protected]\s+)?(?:static\s+)?(?:[a-zA-Z0-9_<>\[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(?:throws\s+[A-Za-z0-9_, ]+)?\s*\{`,
-		"C": `(?:[a-zA-Z0-9_]+)\s+([A-Za-z0-9_]+)\s*\(([^;]*)\)\s*\{`,
-		"C++": `(?:[a-zA-Z0-9_:]+)\s+([A-Za-z0-9_]+)\s*\(([^;]*)\)(?:\s*const)?\s*\{`,
-		"Ruby": `def\s+([A-Za-z0-9_?.!]+)(?:\(([^)]*)\))?\s*`,
-		"Rust": `fn\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)(?:\s*->\s*[^{]+)?\s*\{`,
-		"PHP": `function\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*\{`,
+		"Java":       `(?:[public|private|protected]\s+)?(?:static\s+)?(?:[a-zA-Z0-9_<>\[\]]+)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(?:throws\s+[A-Za-z0-9_, ]+)?\s*\{`,
+		"C":          `(?:[a-zA-Z0-9_]+)\s+([A-Za-z0-9_]+)\s*\(([^;]*)\)\s*\{`,
+		"C++":        `(?:[a-zA-Z0-9_:]+)\s+([A-Za-z0-9_]+)\s*\(([^;]*)\)(?:\s*const)?\s*\{`,
+		"Ruby":       `def\s+([A-Za-z0-9_?.!]+)(?:\(([^)]*)\))?\s*`,
+		"Rust":       `fn\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)(?:\s*->\s*[^{]+)?\s*\{`,
+		"PHP":        `function\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*\{`,
 	}
 
 	// Get the pattern for the language
@@ -1852,15 +1852,15 @@ func (s *CodeService) extractFunctions(content, language, filePath string) ([]ma
 	if !found {
 		// If language is not directly supported, try to use a similar language's pattern
 		switch language {
-			case "C#":
-				pattern = patterns["Java"] // C# has similar syntax to Java
-			case "Kotlin":
-				pattern = patterns["Java"] // Kotlin has somewhat similar syntax to Java
-			case "Swift":
-				pattern = `func\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(?:->\s*[^{]+)?\s*\{`
-			default:
-				// Use a very generic pattern as fallback
-				pattern = `(?:function|def|func)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)`
+		case "C#":
+			pattern = patterns["Java"] // C# has similar syntax to Java
+		case "Kotlin":
+			pattern = patterns["Java"] // Kotlin has somewhat similar syntax to Java
+		case "Swift":
+			pattern = `func\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(?:->\s*[^{]+)?\s*\{`
+		default:
+			// Use a very generic pattern as fallback
+			pattern = `(?:function|def|func)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)`
 		}
 	}
 
@@ -1884,7 +1884,7 @@ func (s *CodeService) extractFunctions(content, language, filePath string) ([]ma
 
 		// Find the line number of the function
 		lineNumber := s.findLineNumber(content, match[0])
-		
+
 		// Extract parameters
 		var params string
 		if len(match) >= 3 {
@@ -1910,7 +1910,7 @@ func (s *CodeService) extractFunctions(content, language, filePath string) ([]ma
 func (s *CodeService) findLineNumber(content, text string) int {
 	lines := strings.Split(content, "\n")
 	lineNumber := 0
-	
+
 	for i, line := range lines {
 		if strings.Contains(line, text[:min(len(text), 40)]) { // Use a substring to avoid very long matches
 			lineNumber = i + 1 // 1-based line numbering
@@ -2074,15 +2074,15 @@ func (s *CodeService) extractBodyByLanguage(lines []string, startLineIndex int, 
 	// For C-like languages (C, C++, Java, JavaScript, Go, etc.)
 	case "C", "C++", "Java", "JavaScript", "TypeScript", "Go", "C#", "PHP", "Rust":
 		return s.extractBodyBraces(lines, startLineIndex)
-	
+
 	// For Python and similar indentation-based languages
 	case "Python":
 		return s.extractBodyIndentation(lines, startLineIndex)
-	
+
 	// For Ruby which uses various end markers
 	case "Ruby":
 		return s.extractBodyRubyStyle(lines, startLineIndex)
-	
+
 	// Default to braces for unknown languages
 	default:
 		return s.extractBodyBraces(lines, startLineIndex)
@@ -2111,7 +2111,7 @@ func (s *CodeService) extractBodyBraces(lines []string, startLineIndex int) (str
 
 	for i := openingLine; i < len(lines); i++ {
 		line := lines[i]
-		
+
 		// Count opening braces
 		for _, char := range line {
 			if char == '{' {
@@ -2125,7 +2125,7 @@ func (s *CodeService) extractBodyBraces(lines []string, startLineIndex int) (str
 				}
 			}
 		}
-		
+
 		if braceCount == 0 && i > openingLine {
 			endLine = i
 			break
@@ -2144,7 +2144,7 @@ func (s *CodeService) extractBodyIndentation(lines []string, startLineIndex int)
 
 	// Get base indentation of the function definition line
 	functionIndent := s.getIndentLevel(lines[startLineIndex])
-	
+
 	// The body starts on the next line
 	startBodyLine := startLineIndex + 1
 	if startBodyLine >= len(lines) {
@@ -2159,14 +2159,14 @@ func (s *CodeService) extractBodyIndentation(lines []string, startLineIndex int)
 			endLine = i
 			continue
 		}
-		
+
 		// If indentation is less than or equal to the base, we've exited the function
 		currentIndent := s.getIndentLevel(lines[i])
 		if currentIndent <= functionIndent {
 			endLine = i - 1 // The previous line was the last line of the function
 			break
 		}
-		
+
 		endLine = i
 	}
 
@@ -2182,7 +2182,7 @@ func (s *CodeService) extractBodyRubyStyle(lines []string, startLineIndex int) (
 
 	// Start from the function definition line
 	startLine := startLineIndex
-	
+
 	// Look for the 'end' keyword at the appropriate indentation level
 	_ = s.getIndentLevel(lines[startLineIndex])
 	endLine := startLine
@@ -2192,16 +2192,16 @@ func (s *CodeService) extractBodyRubyStyle(lines []string, startLineIndex int) (
 
 	for i := startLine + 1; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
-		
+
 		// Count block starters
-		if strings.HasPrefix(line, "def ") || strings.HasPrefix(line, "class ") || 
-		   strings.HasPrefix(line, "module ") || strings.HasPrefix(line, "if ") || 
-		   strings.HasPrefix(line, "unless ") || strings.HasPrefix(line, "case ") || 
-		   strings.HasPrefix(line, "while ") || strings.HasPrefix(line, "for ") || 
-		   strings.HasPrefix(line, "begin") || strings.HasPrefix(line, "do ") {
+		if strings.HasPrefix(line, "def ") || strings.HasPrefix(line, "class ") ||
+			strings.HasPrefix(line, "module ") || strings.HasPrefix(line, "if ") ||
+			strings.HasPrefix(line, "unless ") || strings.HasPrefix(line, "case ") ||
+			strings.HasPrefix(line, "while ") || strings.HasPrefix(line, "for ") ||
+			strings.HasPrefix(line, "begin") || strings.HasPrefix(line, "do ") {
 			blockDepth++
 		}
-		
+
 		// Check for end
 		if strings.HasPrefix(line, "end") {
 			blockDepth--
@@ -2210,7 +2210,7 @@ func (s *CodeService) extractBodyRubyStyle(lines []string, startLineIndex int) (
 				break
 			}
 		}
-		
+
 		endLine = i
 	}
 
@@ -2329,7 +2329,7 @@ func (s *CodeService) queryStructuresInDirectory(dirPath, structureName string, 
 			// Skip files that can't be processed
 			continue
 		}
-		
+
 		for _, structure := range structures {
 			// Add relative file path
 			relPath, _ := filepath.Rel(dirPath, file)
@@ -2381,16 +2381,16 @@ func (s *CodeService) extractStructures(content, language, filePath string) ([]m
 
 	// Structure extraction patterns for different languages
 	patterns := map[string]string{
-		"Go": `type\s+([A-Za-z0-9_]+)\s+struct\s*\{`,
-		"Python": `class\s+([A-Za-z0-9_]+)(?:\(([^)]*)\))?\s*:`,
+		"Go":         `type\s+([A-Za-z0-9_]+)\s+struct\s*\{`,
+		"Python":     `class\s+([A-Za-z0-9_]+)(?:\(([^)]*)\))?\s*:`,
 		"JavaScript": `class\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_]+))?\s*\{`,
 		"TypeScript": `(?:interface|class|enum)\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_]+))?\s*\{`,
-		"Java": `(?:class|interface|enum)\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_]+))?(?:\s+implements\s+([A-Za-z0-9_, ]+))?\s*\{`,
-		"C": `(?:struct|union|enum)\s+([A-Za-z0-9_]+)\s*\{`,
-		"C++": `(?:class|struct|union|enum)\s+([A-Za-z0-9_]+)(?:\s*:\s*(?:public|private|protected)\s+([A-Za-z0-9_]+))?\s*\{`,
-		"Ruby": `(?:class|module)\s+([A-Za-z0-9_:]+)(?:\s+<\s+([A-Za-z0-9_:]+))?`,
-		"Rust": `(?:struct|enum|trait|impl)\s+([A-Za-z0-9_]+)(?:\s+for\s+([A-Za-z0-9_]+))?\s*\{`,
-		"PHP": `(?:class|interface|trait)\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_]+))?(?:\s+implements\s+([A-Za-z0-9_, ]+))?\s*\{`,
+		"Java":       `(?:class|interface|enum)\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_]+))?(?:\s+implements\s+([A-Za-z0-9_, ]+))?\s*\{`,
+		"C":          `(?:struct|union|enum)\s+([A-Za-z0-9_]+)\s*\{`,
+		"C++":        `(?:class|struct|union|enum)\s+([A-Za-z0-9_]+)(?:\s*:\s*(?:public|private|protected)\s+([A-Za-z0-9_]+))?\s*\{`,
+		"Ruby":       `(?:class|module)\s+([A-Za-z0-9_:]+)(?:\s+<\s+([A-Za-z0-9_:]+))?`,
+		"Rust":       `(?:struct|enum|trait|impl)\s+([A-Za-z0-9_]+)(?:\s+for\s+([A-Za-z0-9_]+))?\s*\{`,
+		"PHP":        `(?:class|interface|trait)\s+([A-Za-z0-9_]+)(?:\s+extends\s+([A-Za-z0-9_]+))?(?:\s+implements\s+([A-Za-z0-9_, ]+))?\s*\{`,
 	}
 
 	// Get the pattern for the language
@@ -2398,15 +2398,15 @@ func (s *CodeService) extractStructures(content, language, filePath string) ([]m
 	if !found {
 		// If language is not directly supported, try to use a similar language's pattern
 		switch language {
-			case "C#":
-				pattern = patterns["Java"] // C# has similar syntax to Java
-			case "Kotlin":
-				pattern = `(?:class|interface|object|data class)\s+([A-Za-z0-9_]+)(?:\s*:\s*([A-Za-z0-9_]+))?\s*(?:\(|\{)`
-			case "Swift":
-				pattern = `(?:class|struct|enum|protocol|extension)\s+([A-Za-z0-9_]+)(?:\s*:\s*([A-Za-z0-9_, ]+))?\s*\{`
-			default:
-				// Use a very generic pattern as fallback
-				pattern = `(?:class|struct|interface|enum)\s+([A-Za-z0-9_]+)`
+		case "C#":
+			pattern = patterns["Java"] // C# has similar syntax to Java
+		case "Kotlin":
+			pattern = `(?:class|interface|object|data class)\s+([A-Za-z0-9_]+)(?:\s*:\s*([A-Za-z0-9_]+))?\s*(?:\(|\{)`
+		case "Swift":
+			pattern = `(?:class|struct|enum|protocol|extension)\s+([A-Za-z0-9_]+)(?:\s*:\s*([A-Za-z0-9_, ]+))?\s*\{`
+		default:
+			// Use a very generic pattern as fallback
+			pattern = `(?:class|struct|interface|enum)\s+([A-Za-z0-9_]+)`
 		}
 	}
 
@@ -2428,7 +2428,7 @@ func (s *CodeService) extractStructures(content, language, filePath string) ([]m
 
 		// Find the line number of the structure
 		lineNumber := s.findLineNumber(content, match[0])
-		
+
 		// Create structure info
 		structureInfo := map[string]any{
 			"name":     match[1],
@@ -2453,67 +2453,67 @@ func (s *CodeService) extractStructures(content, language, filePath string) ([]m
 func (s *CodeService) getStructureType(language, declaration string) string {
 	// Check for specific structure types based on language
 	switch language {
-		case "Go":
-			if strings.Contains(declaration, "interface") {
-				return "interface"
-			}
-			return "struct"
-		
-		case "Python":
+	case "Go":
+		if strings.Contains(declaration, "interface") {
+			return "interface"
+		}
+		return "struct"
+
+	case "Python":
+		return "class"
+
+	case "JavaScript", "TypeScript":
+		if strings.Contains(declaration, "interface") {
+			return "interface"
+		} else if strings.Contains(declaration, "enum") {
+			return "enum"
+		}
+		return "class"
+
+	case "Java", "C#":
+		if strings.Contains(declaration, "interface") {
+			return "interface"
+		} else if strings.Contains(declaration, "enum") {
+			return "enum"
+		}
+		return "class"
+
+	case "C", "C++":
+		if strings.Contains(declaration, "class") {
 			return "class"
-		
-		case "JavaScript", "TypeScript":
-			if strings.Contains(declaration, "interface") {
-				return "interface"
-			} else if strings.Contains(declaration, "enum") {
-				return "enum"
-			}
-			return "class"
-		
-		case "Java", "C#":
-			if strings.Contains(declaration, "interface") {
-				return "interface"
-			} else if strings.Contains(declaration, "enum") {
-				return "enum"
-			}
-			return "class"
-		
-		case "C", "C++":
-			if strings.Contains(declaration, "class") {
-				return "class"
-			} else if strings.Contains(declaration, "union") {
-				return "union"
-			} else if strings.Contains(declaration, "enum") {
-				return "enum"
-			}
-			return "struct"
-		
-		case "Ruby":
-			if strings.Contains(declaration, "module") {
-				return "module"
-			}
-			return "class"
-		
-		case "Rust":
-			if strings.Contains(declaration, "enum") {
-				return "enum"
-			} else if strings.Contains(declaration, "trait") {
-				return "trait"
-			} else if strings.Contains(declaration, "impl") {
-				return "impl"
-			}
-			return "struct"
-		
-		case "PHP":
-			if strings.Contains(declaration, "interface") {
-				return "interface"
-			} else if strings.Contains(declaration, "trait") {
-				return "trait"
-			}
-			return "class"
-		
-		default:
-			return "structure"
+		} else if strings.Contains(declaration, "union") {
+			return "union"
+		} else if strings.Contains(declaration, "enum") {
+			return "enum"
+		}
+		return "struct"
+
+	case "Ruby":
+		if strings.Contains(declaration, "module") {
+			return "module"
+		}
+		return "class"
+
+	case "Rust":
+		if strings.Contains(declaration, "enum") {
+			return "enum"
+		} else if strings.Contains(declaration, "trait") {
+			return "trait"
+		} else if strings.Contains(declaration, "impl") {
+			return "impl"
+		}
+		return "struct"
+
+	case "PHP":
+		if strings.Contains(declaration, "interface") {
+			return "interface"
+		} else if strings.Contains(declaration, "trait") {
+			return "trait"
+		}
+		return "class"
+
+	default:
+		return "structure"
 	}
 }
 
@@ -2624,7 +2624,7 @@ func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 
 	// Apply the patch - replace the specified lines with the new content
 	newLines := strings.Split(newContent, "\n")
-	
+
 	// Convert from 1-based to 0-based indexing
 	startIdx := startLineInt - 1
 	endIdx := endLineInt - 1
@@ -2634,7 +2634,7 @@ func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 	if endIdx+1 < len(lines) {
 		resultLines = append(resultLines, lines[endIdx+1:]...)
 	}
-	
+
 	// Join lines back into a single string
 	resultContent := strings.Join(resultLines, "\n")
 
@@ -2650,11 +2650,11 @@ func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 	}
 
 	return map[string]any{
-		"success":          true,
-		"file_path":        filePath,
-		"lines_replaced":   endLineInt - startLineInt + 1,
-		"new_lines_count":  len(newLines),
-		"backup_file":      backupFilePath,
+		"success":         true,
+		"file_path":       filePath,
+		"lines_replaced":  endLineInt - startLineInt + 1,
+		"new_lines_count": len(newLines),
+		"backup_file":     backupFilePath,
 	}, nil
 }
 
@@ -2796,42 +2796,42 @@ func (s *CodeService) compileSingleFile(filePath, options string) (map[string]an
 	// Determine compilation command based on language
 	var compileCmd string
 	switch lang {
-		case "C":
-			// Determine output file name
-			baseName := filepath.Base(filePath)
-			outputName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
-			compileCmd = fmt.Sprintf("gcc -o %s %s %s", outputName, filePath, options)
-		
-		case "C++":
-			// Determine output file name
-			baseName := filepath.Base(filePath)
-			outputName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
-			compileCmd = fmt.Sprintf("g++ -o %s %s %s", outputName, filePath, options)
-		
-		case "Go":
-			compileCmd = fmt.Sprintf("go build %s %s", options, filePath)
-		
-		case "Rust":
-			compileCmd = fmt.Sprintf("rustc %s %s", filePath, options)
-		
-		case "Java":
-			compileCmd = fmt.Sprintf("javac %s %s", filePath, options)
-		
-		case "TypeScript":
-			compileCmd = fmt.Sprintf("tsc %s %s", filePath, options)
-		
-		case "Python", "JavaScript", "Ruby":
-			// These are interpreted languages, no compilation needed
-			return map[string]any{
-				"language":    lang,
-				"file_path":   filePath,
-				"success":     true,
-				"output":      "No compilation needed for interpreted language",
-				"interpreted": true,
-			}, nil
-		
-		default:
-			return nil, fmt.Errorf("unsupported language for direct compilation: %s", lang)
+	case "C":
+		// Determine output file name
+		baseName := filepath.Base(filePath)
+		outputName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		compileCmd = fmt.Sprintf("gcc -o %s %s %s", outputName, filePath, options)
+
+	case "C++":
+		// Determine output file name
+		baseName := filepath.Base(filePath)
+		outputName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		compileCmd = fmt.Sprintf("g++ -o %s %s %s", outputName, filePath, options)
+
+	case "Go":
+		compileCmd = fmt.Sprintf("go build %s %s", options, filePath)
+
+	case "Rust":
+		compileCmd = fmt.Sprintf("rustc %s %s", filePath, options)
+
+	case "Java":
+		compileCmd = fmt.Sprintf("javac %s %s", filePath, options)
+
+	case "TypeScript":
+		compileCmd = fmt.Sprintf("tsc %s %s", filePath, options)
+
+	case "Python", "JavaScript", "Ruby":
+		// These are interpreted languages, no compilation needed
+		return map[string]any{
+			"language":    lang,
+			"file_path":   filePath,
+			"success":     true,
+			"output":      "No compilation needed for interpreted language",
+			"interpreted": true,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported language for direct compilation: %s", lang)
 	}
 
 	// Execute the compilation command
@@ -2841,11 +2841,11 @@ func (s *CodeService) compileSingleFile(filePath, options string) (map[string]an
 	// Check if compilation succeeded
 	success := err == nil
 	result := map[string]any{
-		"language":       lang,
-		"file_path":      filePath,
+		"language":        lang,
+		"file_path":       filePath,
 		"compile_command": compileCmd,
-		"success":        success,
-		"output":         string(cmdOutput),
+		"success":         success,
+		"output":          string(cmdOutput),
 	}
 
 	if !success {
@@ -2880,7 +2880,7 @@ func (s *CodeService) handleMakeCmd(args map[string]any) (any, error) {
 	// Check if Makefile exists
 	makefileFound := false
 	makefileNames := []string{"Makefile", "makefile", "GNUmakefile"}
-	
+
 	for _, name := range makefileNames {
 		if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
 			makefileFound = true
@@ -2924,11 +2924,11 @@ func (s *CodeService) handleMakeCmd(args map[string]any) (any, error) {
 	// Check if the make command succeeded
 	success := err == nil
 	result := map[string]any{
-		"directory":   directory,
-		"target":      target,
+		"directory":    directory,
+		"target":       target,
 		"make_command": makeCmd,
-		"success":     success,
-		"output":      string(cmdOutput),
+		"success":      success,
+		"output":       string(cmdOutput),
 	}
 
 	if !success && err != nil {
@@ -3066,13 +3066,13 @@ func (s *CodeService) parseSearchResults(output, tool string) []map[string]any {
 			if line == "" {
 				continue
 			}
-			
+
 			// Try to parse JSON
 			var jsonResult map[string]any
 			if err := json.Unmarshal([]byte(line), &jsonResult); err != nil {
 				continue
 			}
-			
+
 			// Check if it's a match line (type: "match")
 			if jsonType, ok := jsonResult["type"].(string); ok && jsonType == "match" {
 				if data, ok := jsonResult["data"].(map[string]any); ok {
@@ -3080,9 +3080,9 @@ func (s *CodeService) parseSearchResults(output, tool string) []map[string]any {
 						if text, ok := data["text"].(map[string]any); ok {
 							if lines, ok := data["line_number"].(float64); ok {
 								result := map[string]any{
-									"file":      path["text"],
-									"line":      int(lines),
-									"content":   text["text"],
+									"file":    path["text"],
+									"line":    int(lines),
+									"content": text["text"],
 								}
 								results = append(results, result)
 							}
@@ -3097,14 +3097,14 @@ func (s *CodeService) parseSearchResults(output, tool string) []map[string]any {
 			if line == "" {
 				continue
 			}
-			
+
 			parts := strings.SplitN(line, ":", 3)
 			if len(parts) >= 3 {
 				lineNum, _ := strconv.Atoi(parts[1])
 				result := map[string]any{
-					"file":      parts[0],
-					"line":      lineNum,
-					"content":   parts[2],
+					"file":    parts[0],
+					"line":    lineNum,
+					"content": parts[2],
 				}
 				results = append(results, result)
 			}
@@ -3115,14 +3115,14 @@ func (s *CodeService) parseSearchResults(output, tool string) []map[string]any {
 			if line == "" {
 				continue
 			}
-			
+
 			parts := strings.SplitN(line, ":", 3)
 			if len(parts) >= 3 {
 				lineNum, _ := strconv.Atoi(parts[1])
 				result := map[string]any{
-					"file":      parts[0],
-					"line":      lineNum,
-					"content":   parts[2],
+					"file":    parts[0],
+					"line":    lineNum,
+					"content": parts[2],
 				}
 				results = append(results, result)
 			}
@@ -3184,7 +3184,7 @@ func (s *CodeService) handleMesonBuild(projectDir, options string) (map[string]a
 
 	ninjaCmd := exec.Command("sh", "-c", ninjaCmdStr)
 	ninjaOutput, err := ninjaCmd.CombinedOutput()
-	
+
 	// Add ninja output
 	output += string(ninjaOutput)
 
@@ -3269,11 +3269,11 @@ func (s *CodeService) runProject(projectPath, args string, compileFirst bool) (m
 		compileResult, err := s.handleCompile(map[string]any{
 			"path": projectPath,
 		})
-		
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile project: %v", err)
 		}
-		
+
 		// If compilation failed, return the error
 		if compileResultMap, ok := compileResult.(map[string]any); ok {
 			if success, ok := compileResultMap["success"].(bool); ok && !success {
@@ -3288,16 +3288,16 @@ func (s *CodeService) runProject(projectPath, args string, compileFirst bool) (m
 
 	// Handle special cases for specific build systems
 	switch buildSystem {
-		case "Meson":
-			return s.runMesonProject(projectPath, args)
-		
-		case "npm", "Yarn":
-			// For JavaScript/Node projects, prefer "start" or "dev" command
-			if startCmd, hasStart := buildCommands["start"]; hasStart {
-				runCommand = startCmd
-			} else if devCmd, hasDev := buildCommands["dev"]; hasDev {
-				runCommand = devCmd
-			}
+	case "Meson":
+		return s.runMesonProject(projectPath, args)
+
+	case "npm", "Yarn":
+		// For JavaScript/Node projects, prefer "start" or "dev" command
+		if startCmd, hasStart := buildCommands["start"]; hasStart {
+			runCommand = startCmd
+		} else if devCmd, hasDev := buildCommands["dev"]; hasDev {
+			runCommand = devCmd
+		}
 	}
 
 	if !hasRunCommand {
@@ -3306,7 +3306,7 @@ func (s *CodeService) runProject(projectPath, args string, compileFirst bool) (m
 		if err != nil {
 			return nil, fmt.Errorf("no run command available for build system %s: %v", buildSystem, err)
 		}
-		
+
 		// Construct run command for the executable
 		runCommand = executablePath
 	}
@@ -3369,11 +3369,11 @@ func (s *CodeService) runFile(filePath, args string, compileFirst bool) (map[str
 		compileResult, err := s.handleCompile(map[string]any{
 			"path": filePath,
 		})
-		
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile file: %v", err)
 		}
-		
+
 		// If compilation failed, return the error
 		if compileResultMap, ok := compileResult.(map[string]any); ok {
 			if success, ok := compileResultMap["success"].(bool); ok && !success {
@@ -3385,40 +3385,40 @@ func (s *CodeService) runFile(filePath, args string, compileFirst bool) (map[str
 	// Determine run command based on language
 	var runCmd string
 	switch lang {
-		case "Python":
-			runCmd = fmt.Sprintf("python %s %s", filePath, args)
-		
-		case "JavaScript":
-			runCmd = fmt.Sprintf("node %s %s", filePath, args)
-		
-		case "TypeScript":
-			runCmd = fmt.Sprintf("ts-node %s %s", filePath, args)
-		
-		case "Go":
-			runCmd = fmt.Sprintf("go run %s %s", filePath, args)
-		
-		case "Java":
-			// Extract class name for Java (assume filename matches class name)
-			className := strings.TrimSuffix(filepath.Base(filePath), ".java")
-			runCmd = fmt.Sprintf("java -cp %s %s %s", filepath.Dir(filePath), className, args)
-		
-		case "Ruby":
-			runCmd = fmt.Sprintf("ruby %s %s", filePath, args)
-		
-		case "PHP":
-			runCmd = fmt.Sprintf("php %s %s", filePath, args)
-		
-		case "C", "C++", "Rust":
-			// For compiled languages, try to find the executable
-			execPath := strings.TrimSuffix(filePath, filepath.Ext(filePath))
-			// Check if executable exists
-			if _, err := os.Stat(execPath); os.IsNotExist(err) {
-				return nil, fmt.Errorf("executable not found for %s, compile the file first", filePath)
-			}
-			runCmd = fmt.Sprintf("%s %s", execPath, args)
-		
-		default:
-			return nil, fmt.Errorf("unsupported language for direct execution: %s", lang)
+	case "Python":
+		runCmd = fmt.Sprintf("python %s %s", filePath, args)
+
+	case "JavaScript":
+		runCmd = fmt.Sprintf("node %s %s", filePath, args)
+
+	case "TypeScript":
+		runCmd = fmt.Sprintf("ts-node %s %s", filePath, args)
+
+	case "Go":
+		runCmd = fmt.Sprintf("go run %s %s", filePath, args)
+
+	case "Java":
+		// Extract class name for Java (assume filename matches class name)
+		className := strings.TrimSuffix(filepath.Base(filePath), ".java")
+		runCmd = fmt.Sprintf("java -cp %s %s %s", filepath.Dir(filePath), className, args)
+
+	case "Ruby":
+		runCmd = fmt.Sprintf("ruby %s %s", filePath, args)
+
+	case "PHP":
+		runCmd = fmt.Sprintf("php %s %s", filePath, args)
+
+	case "C", "C++", "Rust":
+		// For compiled languages, try to find the executable
+		execPath := strings.TrimSuffix(filePath, filepath.Ext(filePath))
+		// Check if executable exists
+		if _, err := os.Stat(execPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("executable not found for %s, compile the file first", filePath)
+		}
+		runCmd = fmt.Sprintf("%s %s", execPath, args)
+
+	default:
+		return nil, fmt.Errorf("unsupported language for direct execution: %s", lang)
 	}
 
 	// Execute the run command
@@ -3499,12 +3499,12 @@ func (s *CodeService) runMesonProject(projectDir, args string) (map[string]any, 
 	// Check if execution succeeded
 	success := err == nil
 	result := map[string]any{
-		"build_system":  "Meson",
-		"executable":    executables[0],
-		"run_command":   runCmd,
-		"build_dir":     filepath.Join(projectDir, buildDir),
-		"success":       success,
-		"output":        string(cmdOutput),
+		"build_system": "Meson",
+		"executable":   executables[0],
+		"run_command":  runCmd,
+		"build_dir":    filepath.Join(projectDir, buildDir),
+		"success":      success,
+		"output":       string(cmdOutput),
 	}
 
 	if !success {
@@ -3558,39 +3558,39 @@ func (s *CodeService) findExecutablesInDir(dirPath string) ([]string, error) {
 func (s *CodeService) findProjectExecutable(projectPath, buildSystem string) (string, error) {
 	// Check common locations based on build system
 	switch buildSystem {
-		case "Go Modules", "Go":
-			// Look for Go main package files
-			mainFile, err := s.findGoMainPackage(projectPath)
-			if err == nil {
-				return "go run " + mainFile, nil
-			}
+	case "Go Modules", "Go":
+		// Look for Go main package files
+		mainFile, err := s.findGoMainPackage(projectPath)
+		if err == nil {
+			return "go run " + mainFile, nil
+		}
 
-		case "Cargo":
-			// Rust projects use cargo run
-			return "cargo run", nil
+	case "Cargo":
+		// Rust projects use cargo run
+		return "cargo run", nil
 
-		case "CMake", "Make":
-			// Look for executables in common output directories
-			executables, _ := s.findExecutablesInDir(projectPath)
-			if len(executables) > 0 {
-				return "." + string(os.PathSeparator) + executables[0], nil
+	case "CMake", "Make":
+		// Look for executables in common output directories
+		executables, _ := s.findExecutablesInDir(projectPath)
+		if len(executables) > 0 {
+			return "." + string(os.PathSeparator) + executables[0], nil
+		}
+
+		// Check build directories
+		buildDirs := []string{"build", "bin", "out"}
+		for _, dir := range buildDirs {
+			execs, err := s.findExecutablesInDir(filepath.Join(projectPath, dir))
+			if err == nil && len(execs) > 0 {
+				return filepath.Join(dir, execs[0]), nil
 			}
-			
-			// Check build directories
-			buildDirs := []string{"build", "bin", "out"}
-			for _, dir := range buildDirs {
-				execs, err := s.findExecutablesInDir(filepath.Join(projectPath, dir))
-				if err == nil && len(execs) > 0 {
-					return filepath.Join(dir, execs[0]), nil
-				}
-			}
-		
-		default:
-			// Look for executables in the project directory
-			executables, _ := s.findExecutablesInDir(projectPath)
-			if len(executables) > 0 {
-				return "." + string(os.PathSeparator) + executables[0], nil
-			}
+		}
+
+	default:
+		// Look for executables in the project directory
+		executables, _ := s.findExecutablesInDir(projectPath)
+		if len(executables) > 0 {
+			return "." + string(os.PathSeparator) + executables[0], nil
+		}
 	}
 
 	return "", fmt.Errorf("could not find executable for project")
@@ -3671,7 +3671,7 @@ func (s *CodeService) handleCreateFile(args map[string]any) (any, error) {
 	}
 
 	return map[string]any{
-		"success": true,
+		"success":   true,
 		"file_path": filePath,
 	}, nil
 }

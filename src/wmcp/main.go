@@ -55,6 +55,50 @@ type ToolsListResult struct {
 	Tools []Tool `json:"tools"`
 }
 
+// MCP Prompt structures (MCP Prompts API)
+// PromptArgument represents a parameter for a prompt
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// Prompt represents a single prompt available on the server
+type Prompt struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+// PromptsListResult is the result for prompts/list
+type PromptsListResult struct {
+	Prompts []Prompt `json:"prompts"`
+}
+
+// GetPromptParams is the params object for prompts/get
+type GetPromptParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
+// PromptMessageContent models a prompt message's content item
+type PromptMessageContent struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+// PromptMessage models a message returned by prompts/get
+type PromptMessage struct {
+	Role    string                 `json:"role"`
+	Content []PromptMessageContent `json:"content"`
+}
+
+// GetPromptResult is the result for prompts/get
+type GetPromptResult struct {
+	Messages []PromptMessage `json:"messages"`
+}
+
 type CallToolParams struct {
 	Name      string                 `json:"name"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
@@ -118,6 +162,7 @@ type MCPServer struct {
 	Stdout       io.ReadCloser
 	Stderr       io.ReadCloser
 	Tools        []Tool
+	Prompts      []Prompt
 	mutex        sync.RWMutex
 	stderrDone   chan struct{}
 	stderrActive bool
@@ -245,6 +290,11 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 		log.Printf("Warning: failed to load tools for server %s: %v", name, err)
 	}
 
+	// Load prompts (best-effort)
+	if err := s.loadPrompts(server); err != nil {
+		log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
+	}
+
 	log.Printf("Started MCP server: %s", name)
 	return nil
 }
@@ -257,7 +307,8 @@ func (s *MCPService) initializeServer(server *MCPServer) error {
 		Params: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
 			"capabilities": map[string]interface{}{
-				"tools": map[string]interface{}{},
+				"tools":   map[string]interface{}{},
+				"prompts": map[string]interface{}{},
 			},
 			"clientInfo": map[string]interface{}{
 				"name":    "ai-mcpd",
@@ -327,6 +378,40 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 	server.mutex.Unlock()
 
 	log.Printf("Loaded %d tools for server %s", len(toolsResult.Tools), server.Name)
+	return nil
+}
+
+// loadPrompts loads available prompts from the server
+func (s *MCPService) loadPrompts(server *MCPServer) error {
+	promptsRequest := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "prompts/list",
+		Params:  map[string]interface{}{},
+		ID:      3,
+	}
+
+	response, err := s.sendRequest(server, promptsRequest)
+	if err != nil {
+		return err
+	}
+
+	if response.Error != nil {
+		// Not all servers implement prompts; don't treat as fatal
+		log.Printf("prompts/list failed on %s: %v", server.Name, response.Error)
+		return nil
+	}
+
+	resultBytes, _ := json.Marshal(response.Result)
+	var list PromptsListResult
+	if err := json.Unmarshal(resultBytes, &list); err != nil {
+		return fmt.Errorf("failed to parse prompts response: %v", err)
+	}
+
+	server.mutex.Lock()
+	server.Prompts = list.Prompts
+	server.mutex.Unlock()
+
+	log.Printf("Loaded %d prompts for server %s", len(list.Prompts), server.Name)
 	return nil
 }
 
@@ -649,7 +734,7 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	var output strings.Builder
 	output.WriteString("# Tools Catalog\n\n")
 
-	for _/*serverName */, server := range s.servers {
+	for _ /*serverName */, server := range s.servers {
 		// output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		server.mutex.RLock()
 		// output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
@@ -703,6 +788,176 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write([]byte(output.String()))
+}
+
+// listPromptsHandler returns all prompts from all servers
+func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+	output.WriteString("# Prompts Catalog\n\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, prompt := range server.Prompts {
+			output.WriteString(fmt.Sprintf("PromptName: %s/%s\n", serverName, prompt.Name))
+			if prompt.Description != "" {
+				output.WriteString(fmt.Sprintf("Description: %s\n", prompt.Description))
+			}
+			if len(prompt.Arguments) > 0 {
+				output.WriteString("Arguments:\n")
+				for _, a := range prompt.Arguments {
+					req := ""
+					if a.Required {
+						req = " [required]"
+					}
+					typ := a.Type
+					if typ == "" {
+						typ = "string"
+					}
+					output.WriteString(fmt.Sprintf("- %s=<%s> : %s%s\n", a.Name, typ, a.Description, req))
+				}
+			}
+			output.WriteString("\n")
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// jsonPromptsHandler returns all prompts in JSON grouped by server
+func (s *MCPService) jsonPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	result := make(map[string][]Prompt)
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		prompts := make([]Prompt, len(server.Prompts))
+		copy(prompts, server.Prompts)
+		server.mutex.RUnlock()
+		result[serverName] = prompts
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// getPromptHandler calls prompts/get on a server (or auto-discovers by prompt name)
+func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["server"]
+	promptName := vars["prompt"]
+
+	// Always log HTTP requests
+	log.Printf("HTTP %s %s - Server: %s, Prompt: %s", r.Method, r.URL.String(), serverName, promptName)
+
+	s.mutex.RLock()
+	server, exists := s.servers[serverName]
+	s.mutex.RUnlock()
+	if !exists {
+		// Try to auto-discover by prompt name
+		for name, srv := range s.servers {
+			srv.mutex.RLock()
+			for _, p := range srv.Prompts {
+				if p.Name == promptName {
+					serverName = name
+					server = srv
+					exists = true
+					break
+				}
+			}
+			srv.mutex.RUnlock()
+			if exists {
+				break
+			}
+		}
+	}
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
+		return
+	}
+
+	// Parse arguments (similar to tools)
+	arguments := make(map[string]interface{})
+	if r.Method == "POST" {
+		contentType := r.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to read request body", http.StatusBadRequest)
+				return
+			}
+			if len(body) > 0 {
+				if err := json.Unmarshal(body, &arguments); err != nil {
+					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
+					return
+				}
+			}
+		} else {
+			r.ParseForm()
+			for key, values := range r.Form {
+				if len(values) == 1 {
+					if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+						arguments[key] = num
+					} else if b, err := strconv.ParseBool(values[0]); err == nil {
+						arguments[key] = b
+					} else {
+						arguments[key] = values[0]
+					}
+				} else {
+					arguments[key] = values
+				}
+			}
+		}
+	} else if r.Method == "GET" {
+		for key, values := range r.URL.Query() {
+			if len(values) == 1 {
+				if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+					arguments[key] = num
+				} else if b, err := strconv.ParseBool(values[0]); err == nil {
+					arguments[key] = b
+				} else {
+					arguments[key] = values[0]
+				}
+			} else {
+				arguments[key] = values
+			}
+		}
+	}
+
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "prompts/get",
+		Params: GetPromptParams{
+			Name:      promptName,
+			Arguments: arguments,
+		},
+		ID: 4,
+	}
+
+	response, err := s.sendRequest(server, req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get prompt: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if response.Error != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Return result as JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response.Result)
 }
 
 // jsonToolsHandler returns all tools from all servers in JSON format
@@ -1192,6 +1447,12 @@ func main() {
 	// Markdown list of all tools
 	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET")
 
+	// Prompts endpoints
+	router.HandleFunc("/prompts", service.listPromptsHandler).Methods("GET")
+	router.HandleFunc("/prompts/json", service.jsonPromptsHandler).Methods("GET")
+	router.HandleFunc("/prompts/{prompt}", service.getPromptHandler).Methods("GET", "POST")
+	router.HandleFunc("/prompts/{server}/{prompt}", service.getPromptHandler).Methods("GET", "POST")
+
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
 
@@ -1218,7 +1479,15 @@ Available endpoints:
 - GET /call/{tool}?param=value - Call tool on auto-discovered server
 - POST /tools/{server}/{tool} - Call tool with JSON body or form data (legacy)
 - POST /call/{server}/{tool} - Call tool with JSON body or form data
-- POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
+ - POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
+
+Prompts endpoints:
+- GET /prompts - List all available prompts
+- GET /prompts/json - List all available prompts in JSON format
+- GET /prompts/{server}/{prompt} - Get a prompt by name from a server (args as query)
+- GET /prompts/{prompt} - Get a prompt by name via auto-discovery
+- POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
+- POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
 
 Examples:
 - curl http://localhost:8080/tools
@@ -1226,7 +1495,11 @@ Examples:
 - curl http://localhost:8080/tools/quiet
 - curl http://localhost:8080/tools/markdown
 - curl http://localhost:8080/tools/server1/mytool?arg1=value1
-- curl -X POST http://localhost:8080/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
+ - curl -X POST http://localhost:8080/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
+ - curl http://localhost:8080/prompts
+ - curl http://localhost:8080/prompts/json
+ - curl http://localhost:8080/prompts/server1/myPrompt?topic=xyz
+ - curl -X POST http://localhost:8080/prompts/server1/myPrompt -H "Content-Type: application/json" -d '{"topic":"xyz"}'
 `
 		w.Write([]byte(usage))
 	}).Methods("GET")
