@@ -314,7 +314,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 		case "promptfile":
 			return r.loadSystemPrompt(val)
 		case "systemprompt":
-			r.systemPrompt = val
+			// Store inline system prompt via config API; no local cache
 			r.configOptions.Set("systemprompt", val)
 			fmt.Printf("System prompt set (%d chars)\r\n", len(val))
 			return nil
@@ -404,35 +404,29 @@ func (r *REPL) handleSetCommand(args []string) error {
 		return nil
 	}
 
-	// Handle special options that require updating REPL state
+	// Handle special options that require updating REPL output/state
 	switch option {
 	case "stream":
-		r.streamingEnabled = r.configOptions.GetBool("stream")
 		streamStatus := "enabled"
-		if !r.streamingEnabled {
+		if !r.configOptions.GetBool("stream") {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s\r\n", streamStatus)
 	case "conversation_include_llm":
-		r.includeReplies = r.configOptions.GetBool("conversation_include_llm")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "reasoning":
-		r.reasoningEnabled = r.configOptions.GetBool("reasoning")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "logging":
-		r.loggingEnabled = r.configOptions.GetBool("logging")
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "markdown":
-		r.markdownEnabled = r.configOptions.GetBool("markdown")
 		markdownStatus := "enabled"
-		if !r.markdownEnabled {
+		if !r.configOptions.GetBool("markdown") {
 			markdownStatus = "disabled"
 		}
 		fmt.Printf("Markdown rendering %s\r\n", markdownStatus)
 	case "usetools":
-		r.useToolsEnabled = r.configOptions.GetBool("usetools")
 		toolsStatus := "enabled"
-		if !r.useToolsEnabled {
+		if !r.configOptions.GetBool("usetools") {
 			toolsStatus = "disabled"
 		}
 		fmt.Printf("Tools processing %s\r\n", toolsStatus)
@@ -523,34 +517,26 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	r.configOptions.Unset(option)
 	fmt.Printf("Unset %s\r\n", option)
 
-	// Handle special options that require updating REPL state
+	// Handle special options that require updating REPL output/state
 	switch option {
 	case "rawdog":
-		r.config.Rawdog = false
 	case "stream":
-		r.streamingEnabled = r.configOptions.GetBool("stream")
 		streamStatus := "enabled"
-		if !r.streamingEnabled {
+		if !r.configOptions.GetBool("stream") {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
 	case "conversation_include_llm":
-		r.includeReplies = r.configOptions.GetBool("conversation_include_llm")
 		fmt.Printf("Include replies reverted to default\r\n")
 	case "reasoning":
-		r.reasoningEnabled = r.configOptions.GetBool("reasoning")
 		fmt.Printf("AI reasoning reverted to default\r\n")
 	case "logging":
-		r.loggingEnabled = r.configOptions.GetBool("logging")
 		fmt.Printf("Logging reverted to default\r\n")
 	case "markdown":
-		r.markdownEnabled = r.configOptions.GetBool("markdown")
 		fmt.Printf("Markdown rendering reverted to default\r\n")
 	case "usetools":
-		r.useToolsEnabled = r.configOptions.GetBool("usetools")
 		fmt.Printf("Tools processing reverted to default\r\n")
 	case "promptfile", "systemprompt":
-		r.systemPrompt = ""
 		fmt.Print("System prompt removed\r\n")
 	case "model":
 		fmt.Print("Model setting reverted to default\r\n")

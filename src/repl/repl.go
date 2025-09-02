@@ -34,35 +34,27 @@ type Command struct {
 }
 
 type REPL struct {
-	config             *llm.Config
-	configOptions      ConfigOptions
-	currentClient      *llm.LLMClient
-	readline           *ReadLine // Persistent readline instance for input handling
-	currentInput       strings.Builder
-	cursorPos          int // Current cursor position in the line
-	ctx                context.Context
-	cancel             context.CancelFunc
-	mu                 sync.Mutex
-	isStreaming        bool
-	oldState           *term.State
-	completeState      int
-	completeOptions    []string
-	completePrefix     string
-	completeIdx        int    // Current index in completion options
-	lastTabInput       string // last input text when Tab was pressed
-	streamingEnabled   bool
-	systemPrompt       string
-	messages           []llm.Message
-	includeReplies     bool               // Whether to include assistant replies in the context
-	pendingFiles       []pendingFile      // Files and images to include in the next message
-	reasoningEnabled   bool               // Whether reasoning is enabled for the AI model
-	loggingEnabled     bool               // Whether to save conversation history
-	markdownEnabled    bool               // Whether to render markdown with colors
-	useToolsEnabled    bool               // Whether to process input using tools.go functions
-	useNewToolsEnabled bool               // Whether to process input using tools.go functions
-	commands           map[string]Command // Registry of available commands
-	currentSession     string             // Name of the active chat session
-	unsavedTopic       string             // Topic for unsaved session before saving to disk
+	config          *llm.Config
+	configOptions   ConfigOptions
+	currentClient   *llm.LLMClient
+	readline        *ReadLine // Persistent readline instance for input handling
+	currentInput    strings.Builder
+	cursorPos       int // Current cursor position in the line
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.Mutex
+	isStreaming     bool
+	oldState        *term.State
+	completeState   int
+	completeOptions []string
+	completePrefix  string
+	completeIdx     int    // Current index in completion options
+	lastTabInput    string // last input text when Tab was pressed
+	messages        []llm.Message
+	pendingFiles    []pendingFile      // Files and images to include in the next message
+	commands        map[string]Command // Registry of available commands
+	currentSession  string             // Name of the active chat session
+	unsavedTopic    string             // Topic for unsaved session before saving to disk
 }
 
 type pendingFile struct {
@@ -161,14 +153,22 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		repl.configOptions.RegisterOption("stream", BooleanOption, "Enable streaming mode", streamDefault)
 	}
 
-	// Initialize all settings from options
-	repl.streamingEnabled = repl.configOptions.GetBool("stream")
-	repl.includeReplies = repl.configOptions.GetBool("conversation_include_llm")
-	repl.reasoningEnabled = repl.configOptions.GetBool("reasoning")
-	repl.loggingEnabled = repl.configOptions.GetBool("logging")
-	repl.markdownEnabled = repl.configOptions.GetBool("markdown")
-	repl.useToolsEnabled = repl.configOptions.GetBool("usetools")
-	repl.useNewToolsEnabled = repl.configOptions.GetBool("newtools")
+	// Keep provider config booleans in sync with config options to avoid duplication
+	// Markdown controls streaming rendering in providers
+	repl.config.Markdown = repl.configOptions.GetBool("markdown")
+	repl.configOptions.RegisterOptionListener("markdown", func(value string) {
+		repl.config.Markdown = repl.configOptions.GetBool("markdown")
+	})
+	// Deterministic toggles temp/top_p in providers
+	repl.config.Deterministic = repl.configOptions.GetBool("deterministic")
+	repl.configOptions.RegisterOptionListener("deterministic", func(value string) {
+		repl.config.Deterministic = repl.configOptions.GetBool("deterministic")
+	})
+	// Rawdog is used to add /no_think decorations, keep in sync
+	repl.config.Rawdog = repl.configOptions.GetBool("rawdog")
+	repl.configOptions.RegisterOptionListener("rawdog", func(value string) {
+		repl.config.Rawdog = repl.configOptions.GetBool("rawdog")
+	})
 
 	// Initialize conversation formatting options into the provider config
 	repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
@@ -179,7 +179,6 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 	// Keep conversation options in sync when changed via configOptions
 	repl.configOptions.RegisterOptionListener("conversation_include_llm", func(value string) {
 		repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
-		repl.includeReplies = repl.configOptions.GetBool("conversation_include_llm")
 	})
 	repl.configOptions.RegisterOptionListener("conversation_include_system", func(value string) {
 		repl.config.ConversationIncludeSystem = repl.configOptions.GetBool("conversation_include_system")
@@ -235,18 +234,7 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		}
 	}
 
-	// Load system prompt from promptfile if set, processing include directives
-	if promptFile := repl.configOptions.Get("promptfile"); promptFile != "" {
-		content, err := os.ReadFile(promptFile)
-		if err == nil {
-			promptText := string(content)
-			promptText = repl.processIncludeStatements(promptText, filepath.Dir(promptFile))
-			repl.systemPrompt = promptText
-		}
-	} else if systemPrompt := repl.configOptions.Get("systemprompt"); systemPrompt != "" {
-		// Or use systemprompt text if set
-		repl.systemPrompt = systemPrompt
-	}
+	// Do not cache system prompt here; it will be read dynamically from configOptions (or file)
 
 	// Load schema from schemafile or inline schema option
 	if schemaFile := repl.configOptions.Get("schemafile"); schemaFile != "" {
@@ -1735,38 +1723,14 @@ func (r *REPL) sendToAI(input string) error {
 
 	// Add system prompt if present
 	messages := []llm.Message{}
-	// Determine the final system prompt, giving user-set text priority
-	finalSystemPrompt := r.systemPrompt
-	if finalSystemPrompt == "" {
-		// Try systempromptfile option or default .mai/systemprompt.md
-		spFile := r.configOptions.Get("systempromptfile")
-		if spFile == "" {
-			if d, err := findMaiDir(); err == nil {
-				candidate := filepath.Join(d, "systemprompt.md")
-				if _, err := os.Stat(candidate); err == nil {
-					spFile = candidate
-					r.configOptions.Set("systempromptfile", spFile)
-				}
-			}
-		}
-		if spFile != "" {
-			if content, err := os.ReadFile(spFile); err != nil {
-				fmt.Fprintf(os.Stderr, "Error loading system prompt file %s: %v\r\n", spFile, err)
-			} else {
-				text := string(content)
-				text = r.processIncludeStatements(text, filepath.Dir(spFile))
-				finalSystemPrompt = text
-			}
-		}
-	}
-	if finalSystemPrompt != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: finalSystemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
 
 	// Handle conversation history based on logging and reply settings
-	if r.loggingEnabled {
+	if r.configOptions.GetBool("logging") {
 		// When logging is enabled, use normal message history behavior
-		if r.includeReplies {
+		if r.configOptions.GetBool("conversation_include_llm") {
 			// Include all messages
 			messages = append(messages, r.messages...)
 		} else {
@@ -1807,7 +1771,7 @@ func (r *REPL) sendToAI(input string) error {
 	userMessage := llm.Message{Role: "user", Content: input}
 
 	// Handle conversation history based on logging settings
-	if r.loggingEnabled {
+	if r.configOptions.GetBool("logging") {
 		// Save the user message to conversation history when logging is enabled
 		r.messages = append(r.messages, userMessage)
 	} else {
@@ -1827,7 +1791,7 @@ func (r *REPL) sendToAI(input string) error {
 	}
 
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM
-	if !r.reasoningEnabled && r.configOptions.GetBool("rawdog") {
+	if !r.configOptions.GetBool("reasoning") && r.configOptions.GetBool("rawdog") {
 		// Create a copy of the messages for the API call with /no_think appended
 		messagesCopy := make([]llm.Message, len(messages))
 		copy(messagesCopy, messages)
@@ -1842,7 +1806,7 @@ func (r *REPL) sendToAI(input string) error {
 	}
 
 	// Reset the markdown processor state before starting a new streaming session
-	if r.streamingEnabled && r.markdownEnabled {
+	if r.configOptions.GetBool("stream") && r.configOptions.GetBool("markdown") {
 		llm.ResetStreamRenderer()
 	}
 
@@ -1854,13 +1818,13 @@ func (r *REPL) sendToAI(input string) error {
 		}
 	}
 	// Send message with streaming based on REPL settings
-	response, err := client.SendMessage(messages, r.streamingEnabled, images)
+	response, err := client.SendMessage(messages, r.configOptions.GetBool("stream"), images)
 
 	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
 		// If not streaming, we need to print the response here
-		if !r.streamingEnabled {
-			if r.markdownEnabled {
+		if !r.configOptions.GetBool("stream") {
+			if r.configOptions.GetBool("markdown") {
 				// Use markdown formatting
 				fmt.Print(llm.RenderMarkdown(response))
 			} else {
@@ -1872,7 +1836,7 @@ func (r *REPL) sendToAI(input string) error {
 		// Create assistant message
 		assistantMessage := llm.Message{Role: "assistant", Content: response}
 
-		if r.loggingEnabled {
+		if r.configOptions.GetBool("logging") {
 			// Save to conversation history when logging is enabled
 			r.messages = append(r.messages, assistantMessage)
 		} else {
@@ -1888,7 +1852,7 @@ func (r *REPL) sendToAI(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) supportsStreaming() bool {
 	// Check if streaming mode is enabled in REPL
-	if !r.streamingEnabled {
+	if !r.configOptions.GetBool("stream") {
 		return false
 	}
 	// Check if API supports streaming
@@ -1900,8 +1864,8 @@ func (r *REPL) supportsStreaming() bool {
 func (r *REPL) regularResponse(input string) error {
 	// Create messages
 	messages := []llm.Message{}
-	if r.systemPrompt != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
@@ -1931,8 +1895,8 @@ func (r *REPL) streamOllama(input string) error {
 
 	// Prepare messages
 	messages := []llm.Message{}
-	if r.systemPrompt != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
@@ -1951,8 +1915,8 @@ func (r *REPL) streamOpenAI(input string) error {
 
 	// Prepare messages
 	messages := []llm.Message{}
-	if r.systemPrompt != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
@@ -1971,8 +1935,8 @@ func (r *REPL) streamClaude(input string) error {
 
 	// Prepare messages
 	messages := []llm.Message{}
-	if r.systemPrompt != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
@@ -2194,7 +2158,7 @@ func (r *REPL) initCommands() {
 			}
 
 			// Print the content with markdown rendering if enabled
-			if r.markdownEnabled {
+			if r.configOptions.GetBool("markdown") {
 				fmt.Print(llm.RenderMarkdown(content))
 			} else {
 				// Replace single newlines with \r\n for proper terminal display
@@ -2236,10 +2200,11 @@ func (r *REPL) initCommands() {
 		Name:        "/prompt",
 		Description: "Show current system prompt",
 		Handler: func(r *REPL, args []string) error {
-			if r.systemPrompt == "" {
+			sp := r.currentSystemPrompt()
+			if sp == "" {
 				fmt.Print("No system prompt set\r\n")
 			} else {
-				fmt.Printf("System prompt (%d chars):\r\n%s\r\n", len(r.systemPrompt), r.systemPrompt)
+				fmt.Printf("System prompt (%d chars):\r\n%s\r\n", len(sp), sp)
 			}
 			return nil
 		},
@@ -2249,8 +2214,10 @@ func (r *REPL) initCommands() {
 		Name:        "/noprompt",
 		Description: "Clear system prompt",
 		Handler: func(r *REPL, args []string) error {
-			r.systemPrompt = ""
+			// Clear inline and file-based system prompt settings
+			r.configOptions.Unset("systemprompt")
 			r.configOptions.Unset("promptfile")
+			r.configOptions.Unset("systempromptfile")
 			fmt.Print("System prompt cleared\r\n")
 			return nil
 		},
@@ -2341,7 +2308,7 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 
 		// Format the content based on markdown setting
 		content := response.Message.Content
-		if r.markdownEnabled {
+		if r.configOptions.GetBool("markdown") {
 			content = llm.FormatStreamingChunk(content, true)
 		} else {
 			content = strings.ReplaceAll(content, "\n", "\r\n")
@@ -2398,7 +2365,7 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 		if len(response.Choices) > 0 {
 			// Format the content based on markdown setting
 			content := response.Choices[0].Delta.Content
-			if r.markdownEnabled {
+			if r.configOptions.GetBool("markdown") {
 				content = llm.FormatStreamingChunk(content, true)
 			} else {
 				content = strings.ReplaceAll(content, "\n", "\r\n")
@@ -2451,7 +2418,7 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 		if response.Type == "content_block_delta" {
 			// Format the content based on markdown setting
 			content := response.Delta.Text
-			if r.markdownEnabled {
+			if r.configOptions.GetBool("markdown") {
 				content = llm.FormatStreamingChunk(content, true)
 			} else {
 				content = strings.ReplaceAll(content, "\n", "\r\n")
@@ -2981,12 +2948,12 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 
 	// Build the messages array
 	messages := []llm.Message{}
-	if r.systemPrompt != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
 
 	// Add conversation history if we should include replies
-	if r.includeReplies && len(r.messages) > 0 {
+	if r.configOptions.GetBool("conversation_include_llm") && len(r.messages) > 0 {
 		messages = append(messages, r.messages...)
 	}
 
@@ -3102,19 +3069,15 @@ func (r *REPL) loadSystemPrompt(path string) error {
 		path = filepath.Join(homeDir, path[1:])
 	}
 
-	// Read the file
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read prompt file: %v", err)
-	}
-
-	// Set the system prompt
-	r.systemPrompt = string(content)
-
 	// Update the promptfile configuration
 	r.configOptions.Set("promptfile", path)
 
-	fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
+	// Try to read to provide feedback, but don't cache the content
+	if content, err := os.ReadFile(path); err == nil {
+		fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
+	} else {
+		fmt.Printf("System prompt set to %s (failed to read: %v)\r\n", path, err)
+	}
 	return nil
 }
 
@@ -3147,7 +3110,10 @@ func (r *REPL) displayConversationLog() {
 
 	fmt.Printf("Total messages: %d\r\n", len(r.messages))
 	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
-		r.includeReplies, r.streamingEnabled, r.reasoningEnabled, r.loggingEnabled)
+		r.configOptions.GetBool("conversation_include_llm"),
+		r.configOptions.GetBool("stream"),
+		r.configOptions.GetBool("reasoning"),
+		r.configOptions.GetBool("logging"))
 
 	// Display pending files if any
 	if len(r.pendingFiles) > 0 {
@@ -3186,7 +3152,7 @@ func (r *REPL) displayFullConversationLog() {
 
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
-		if r.markdownEnabled {
+		if r.configOptions.GetBool("markdown") {
 			fmt.Printf("%s\r\n", llm.RenderMarkdown(msg.Content.(string)))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
@@ -3424,6 +3390,40 @@ func (r *REPL) processIncludeStatements(content, baseDir string) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// currentSystemPrompt resolves the active system prompt from config options.
+// Priority: explicit text (systemprompt) > promptfile > systempromptfile > default .mai/systemprompt.md
+func (r *REPL) currentSystemPrompt() string {
+	// 1. Inline system prompt text
+	if sp := r.configOptions.Get("systemprompt"); sp != "" {
+		return sp
+	}
+	// 2. Prompt file path
+	var path string
+	if p := r.configOptions.Get("promptfile"); p != "" {
+		path = p
+	} else if p := r.configOptions.Get("systempromptfile"); p != "" {
+		path = p
+	} else {
+		// 3. Default .mai/systemprompt.md
+		if d, err := findMaiDir(); err == nil {
+			candidate := filepath.Join(d, "systemprompt.md")
+			if _, err := os.Stat(candidate); err == nil {
+				path = candidate
+				_ = r.configOptions.Set("systempromptfile", path)
+			}
+		}
+	}
+	if path == "" {
+		return ""
+	}
+	if content, err := os.ReadFile(path); err == nil {
+		text := string(content)
+		text = r.processIncludeStatements(text, filepath.Dir(path))
+		return text
+	}
+	return ""
 }
 
 // autoDetectPromptDir attempts to find a prompts directory relative to the executable path
@@ -3822,8 +3822,8 @@ func (r *REPL) handleCompactCommand() error {
 
 	// Prepare messages for the API
 	apiMessages := []llm.Message{}
-	if r.systemPrompt != "" {
-		apiMessages = append(apiMessages, llm.Message{Role: "system", Content: r.systemPrompt})
+	if sp := r.currentSystemPrompt(); sp != "" {
+		apiMessages = append(apiMessages, llm.Message{Role: "system", Content: sp})
 	}
 	apiMessages = append(apiMessages, compactMessage)
 
@@ -3882,7 +3882,7 @@ func (r *REPL) saveConversation(path string) error {
 		SystemPrompt string        `json:"system_prompt,omitempty"`
 		Messages     []llm.Message `json:"messages"`
 	}{
-		SystemPrompt: r.systemPrompt,
+		SystemPrompt: r.currentSystemPrompt(),
 		Messages:     r.messages,
 	}
 
@@ -3943,7 +3943,11 @@ func (r *REPL) loadConversation(path string) error {
 	}
 
 	// Update REPL with loaded data
-	r.systemPrompt = conversationData.SystemPrompt
+	if conversationData.SystemPrompt != "" {
+		_ = r.configOptions.Set("systemprompt", conversationData.SystemPrompt)
+	} else {
+		r.configOptions.Unset("systemprompt")
+	}
 	r.messages = conversationData.Messages
 
 	fmt.Printf("Conversation loaded from %s (%d messages)\r\n", path, len(r.messages))

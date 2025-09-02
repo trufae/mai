@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -290,6 +291,55 @@ func setModelForProvider(config *llm.Config, model string) {
 	}
 }
 
+// applyConfigOptionsToLLMConfig maps relevant ConfigOptions into the llm.Config
+// so that stdin mode and providers see the same effective configuration.
+func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
+	if opts == nil {
+		return
+	}
+	if v := opts.Get("provider"); v != "" {
+		config.PROVIDER = v
+	}
+	if v := opts.Get("model"); v != "" {
+		setModelForProvider(config, v)
+	}
+	if v := opts.Get("baseurl"); v != "" {
+		config.BaseURL = v
+	}
+	if v := opts.Get("useragent"); v != "" {
+		config.UserAgent = v
+	}
+	// Behavior toggles used by providers
+	if opts.Get("markdown") != "" {
+		config.Markdown = opts.GetBool("markdown")
+	}
+	if opts.Get("deterministic") != "" {
+		config.Deterministic = opts.GetBool("deterministic")
+	}
+	if opts.Get("rawdog") != "" {
+		config.Rawdog = opts.GetBool("rawdog")
+	}
+	// Structured output schema: prefer schemafile if provided, else inline schema
+	if path := opts.Get("schemafile"); path != "" {
+		if strings.HasPrefix(path, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				path = filepath.Join(home, path[1:])
+			}
+		}
+		if content, err := os.ReadFile(path); err == nil {
+			var schema map[string]interface{}
+			if err := json.Unmarshal(content, &schema); err == nil {
+				config.Schema = schema
+			}
+		}
+	} else if inline := opts.Get("schema"); inline != "" {
+		var schema map[string]interface{}
+		if err := json.Unmarshal([]byte(inline), &schema); err == nil {
+			config.Schema = schema
+		}
+	}
+}
+
 func main() {
 	args := os.Args[1:]
 
@@ -396,6 +446,9 @@ func main() {
 			}
 		}
 	}
+
+	// Apply -c options into the llm.Config so both REPL and stdin modes see them
+	applyConfigOptionsToLLMConfig(config, configOptions)
 
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
