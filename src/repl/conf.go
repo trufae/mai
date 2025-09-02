@@ -76,6 +76,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
 	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
 	co.RegisterOption("newtools", BooleanOption, "Process user input using newtools functions (overrides usetools)", "false")
+	co.RegisterOption("mcpprompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "false")
 
 	// Conversation formatting options (used when building a single prompt from history)
 	co.RegisterOption("conversation_include_llm", BooleanOption, "Include assistant/LLM messages when building a single prompt", "false")

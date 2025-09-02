@@ -9,16 +9,13 @@ import (
 	"strings"
 )
 
-const _planTemplate = `
-# Plan Template
-
-1. analyze the binary
-`
-const planTemplate = ""
+// planTemplate holds an optional plan template to be embedded into the tools prompt.
+// When mcpprompts is enabled, this value is populated dynamically from a selected MCP prompt.
+var planTemplate string
 
 // 3. Update your plan only if **new, unforeseen information** is discovered.
 // 1. Track progress, each step should move the plan forward.
-const toolsPrompt = `
+const toolsPromptPrefix = `
 # System Prompt
 
 This a multi-step planning and execution agent designed to **efficiently** solve user requests using the provided tools.
@@ -39,7 +36,9 @@ This a multi-step planning and execution agent designed to **efficiently** solve
   2. Analyze tool results to determine extra steps to perform.
   3. Do not leave information gaps in the plan, add the plan steps necessary.
 
-` + planTemplate + `
+`
+
+const toolsPromptSuffix = `
 
 ### Output Rules
 
@@ -308,6 +307,13 @@ func FillLineWithTriangles() string {
 	return result
 }
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
+	// If enabled, query MCP prompts to choose a plan template before running the tool loop
+	if r.configOptions.GetBool("mcpprompts") {
+		if err := r.prepareMCPromptTemplate(input, messages); err != nil {
+			// Non-fatal: proceed without a template if selection fails
+			fmt.Fprintf(os.Stderr, "mcpprompts: %v\n", err)
+		}
+	}
 	origSchema := r.config.Schema
 	defer func() {
 		r.config.Schema = origSchema
@@ -336,7 +342,9 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 	var stepCount = 0
 	for {
 		stepCount++
-		step, err := r.newToolStep(toolsPrompt, input, context, toolList, chatHistory)
+		// Build the dynamic tools prompt with optional plan template
+		dynamicToolsPrompt := toolsPromptPrefix + planTemplate + toolsPromptSuffix
+		step, err := r.newToolStep(dynamicToolsPrompt, input, context, toolList, chatHistory)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
 			if strings.Contains(err.Error(), "failed") {
