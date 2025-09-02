@@ -4,14 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
-	"strings"
 	"golang.org/x/term"
-	//
 	"os"
+	"strings"
 )
 
-  // 3. Update your plan only if **new, unforeseen information** is discovered.
-  // 1. Track progress, each step should move the plan forward.
+const _planTemplate = `
+# Plan Template
+
+1. analyze the binary
+`
+const planTemplate = ""
+
+// 3. Update your plan only if **new, unforeseen information** is discovered.
+// 1. Track progress, each step should move the plan forward.
 const toolsPrompt = `
 # System Prompt
 
@@ -33,7 +39,8 @@ This a multi-step planning and execution agent designed to **efficiently** solve
   2. Analyze tool results to determine extra steps to perform.
   3. Do not leave information gaps in the plan, add the plan steps necessary.
 
-  ` planTemplate + `V
+` + planTemplate + `
+
 ### Output Rules
 
 Based on these instructions, determine the action for the current step inside the plan.
@@ -216,7 +223,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		responseJson = res
 	}
 	var response PlanResponse
-	debug(responseJson)
+	fmt.Println(responseJson)
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
 		if err2 != nil {
@@ -289,6 +296,7 @@ func FillLineWithTriangles() string {
 	if err != nil || width <= 0 {
 		width = 80 // fallback if we can't get size
 	}
+	width *= 2
 
 	// Each "◤◢" takes 2 runes (width = 2)
 	pattern := "◤◢"
@@ -297,10 +305,7 @@ func FillLineWithTriangles() string {
 	for len(result) < width {
 		result += pattern
 	}
-
-	// Trim if it overshoots
-	// res := []rune(result)
-	return result // string(result)[:width]
+	return result
 }
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 	origSchema := r.config.Schema
@@ -361,10 +366,12 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			fmt.Println(err)
 			// break
 		} else {
-			msg := fmt.Sprintf("\n\n## Step %d Tool '%s' Output\n\n**Reasoning**: %s\n**Output**:\n\n```\n%s\n```\n\n", stepCount, tool.Name, step.Reasoning, result)
-			fmt.Println("-----------")
-			fmt.Println(msg)
-			fmt.Println("-----------")
+			msg := fmt.Sprintf("\n\n## Step %d Tool '%s'\n\n%s\n<output>\n%s\n</output>\n", stepCount, tool.ToString(), step.Reasoning, result)
+			/*
+				fmt.Println("-----------")
+				fmt.Println(msg)
+				fmt.Println("-----------")
+			*/
 			context += msg
 			// context += "## Action Done\n" + step.NextStep
 		}

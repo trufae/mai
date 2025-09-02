@@ -289,8 +289,8 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 			}
 		}
 		// response.NextStep += "<think>" + explainText + "</think>"
-	//	fmt.Println(response)
-	//	fmt.Println(response.NextStep)
+		//	fmt.Println(response)
+		//	fmt.Println(response.NextStep)
 		return response, explainText, err2
 	}
 	return response, explainText, nil

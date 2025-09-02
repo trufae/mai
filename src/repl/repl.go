@@ -3958,12 +3958,12 @@ func (r *REPL) loadConversation(path string) error {
 var startTime time.Time
 
 func StartTimer() {
-        startTime = time.Now()
+	startTime = time.Now()
 }
 
 func StopTimer() {
-        elapsed := time.Since(startTime)
-        minutes := int(elapsed.Minutes())    // Get the elapsed minutes
-        seconds := int(elapsed.Seconds()) % 60 // Get the remaining seconds
-        fmt.Printf("⏳ Elapsed time: %d minutes and %d seconds\n", minutes, seconds)
+	elapsed := time.Since(startTime)
+	minutes := int(elapsed.Minutes())      // Get the elapsed minutes
+	seconds := int(elapsed.Seconds()) % 60 // Get the remaining seconds
+	fmt.Printf("⏳ Elapsed time: %d minutes and %d seconds\n", minutes, seconds)
 }
