@@ -54,12 +54,12 @@ type mcpPromptChoice struct {
 // prepareMCPromptTemplate queries the model with available MCP prompts and the user's query
 // to select which plan template to import into the newtools flow. It sets the package-level
 // variable planTemplate used by newtools.go.
-func (r *REPL) prepareMCPromptTemplate(userInput string, messages []llm.Message) error {
+func (r *REPL) prepareMCPromptTemplate(userInput string, messages []llm.Message) (string, error) {
 	// List all available MCP prompts
 	promptList, err := GetAvailableMCPrompts(Markdown)
 	if err != nil || strings.TrimSpace(promptList) == "" {
 		// If we can't retrieve prompts, silently skip
-		return err
+		return "", err
 	}
 
 	// Build a selection prompt
@@ -82,7 +82,7 @@ Return a concise JSON object only, with the fields:
 
 	resp, err := r.currentClient.SendMessage(req, false, nil)
 	if err != nil {
-		return fmt.Errorf("failed to query LLM for mcpprompts selection: %w", err)
+		return "", fmt.Errorf("failed to query LLM for mcpprompts selection: %w", err)
 	}
 
 	// Remove any <think> blocks and extract JSON
@@ -91,28 +91,28 @@ Return a concise JSON object only, with the fields:
 	resp = strings.ReplaceAll(resp, "<think>", "")
 	resp = strings.ReplaceAll(resp, "</think>", "")
 	jsonText, _ := extractJSONBlock(resp)
-	jsonText = stripJSONComments(jsonText)
+	fmt.Println(jsonText)
+	//jsonText = stripJSONComments(jsonText)
 	if strings.TrimSpace(jsonText) == "" {
 		// If the model did not reply JSON, attempt minimal extraction: look for server/name in text
 		// and skip silently if nothing found.
-		return nil
+		return "", nil
 	}
 
 	var choice mcpPromptChoice
 	if err := json.Unmarshal([]byte(jsonText), &choice); err != nil {
-		return nil // don't fail the run if parsing fails
+		return "", err // don't fail the run if parsing fails
 	}
 	name := strings.TrimSpace(choice.Prompt)
 	if name == "" {
-		return nil
+		return "", nil
 	}
 
 	// Fetch the selected template content and set it for newtools
 	content, err := GetMCPromptContent(name)
 	if err != nil {
-		return nil // keep going without a template on failure
+		return "", nil // keep going without a template on failure
 	}
 	// Inject the selected template into the tools prompt used by newtools
-	planTemplate = "\n# Selected Plan Template\n\n" + strings.TrimSpace(content) + "\n"
-	return nil
+	return "\n# Selected Plan Template\n\n" + strings.TrimSpace(content) + "\n", nil
 }

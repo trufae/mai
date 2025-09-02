@@ -167,9 +167,6 @@ func mapToArray(m map[string]interface{}) []string {
 // extractJSONBlock locates the first balanced JSON object in text (or fenced JSON)
 // and returns it plus any remaining tail text.
 func extractJSONBlock(text string) (string, string) {
-	if !strings.Contains(text, "\"plan\":") {
-		return "", text
-	}
 	// Attempt fenced JSON block: ```json ... ```
 	re := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```")
 	matches := re.FindStringSubmatch(text)
@@ -237,49 +234,29 @@ func stripJSONComments(input string) string {
 
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
 	query := buildMessageWithTools(toolPrompt, input, ctx, toolList)
-	/*
-		fmt.Println("==========================")
-		fmt.Println(query)
-		fmt.Println("==========================")
-	*/
+	// debug(query)
 	messages := []llm.Message{{Role: "user", Content: query}}
-	/*
-		fmt.Println("-------------------------8<-------------------------")
-		fmt.Println(query)
-		fmt.Println("------------------------->8-------------------------")
-	*/
+	// debug(query)
 	responseText, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
 	}
-	/*
-		fmt.Println("-------------------------8<-------------------------")
-		fmt.Println(responseText)
-		fmt.Println("------------------------->8-------------------------")
-	*/
+	// debug(responseText)
 	// strip out any internal reasoning between <think>...</think> before processing
 	reThink := regexp.MustCompile(`(?s)\s*<think>.*?</think>\s*`)
 	responseText = reThink.ReplaceAllString(responseText, "")
 	if responseText == "" {
 		return PlanResponse{}, "", fmt.Errorf("cancel empty response from the llm")
 	}
-	// fmt.Println(responseText)
+	// debug(responseText)
 	responseJson, explainText := extractJSONBlock(responseText)
 	responseJson = stripJSONComments(responseJson)
-	/*
-		fmt.Println("{{ EXPLAIN")
-		fmt.Println(explainText)
-		fmt.Println("}} EXPLAIN")
-	*/
+	// debug(explainText)
 	var response PlanResponse
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
 		if err2 != nil {
-			/*
-				fmt.Println("{{ JSONBLOCK")
-				fmt.Println(responseJson)
-				fmt.Println("}} JSONBLOCK")
-			*/
+			// debug(responseJson)
 			if strings.Contains(responseJson, "\"action\": \"Done\"") {
 				response = PlanResponse{
 					NextStep: "Cannot recover from invalid json parsing",

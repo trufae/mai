@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-// planTemplate holds an optional plan template to be embedded into the tools prompt.
-// When mcpprompts is enabled, this value is populated dynamically from a selected MCP prompt.
-var planTemplate string
-
 // 3. Update your plan only if **new, unforeseen information** is discovered.
 // 1. Track progress, each step should move the plan forward.
 const toolsPromptPrefix = `
@@ -27,6 +23,7 @@ This a multi-step planning and execution agent designed to **efficiently** solve
   2. Break down the problem into a sequence of steps.
   3. Choose the **most efficient path**.
   4. Avoid unnecessary or redundant actions.
+  5. Perform actions once, do not reopen files.
 - Follow the plan **step-by-step**, run only one action at a time.
   1. Update the plan outline on every iteration with tool results.
   2. Track progress accurately, what to avoid, tools executed and decisions taken.
@@ -222,7 +219,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		responseJson = res
 	}
 	var response PlanResponse
-	fmt.Println(responseJson)
+	// debug fmt.Println(responseJson)
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
 		if err2 != nil {
@@ -307,11 +304,17 @@ func FillLineWithTriangles() string {
 	return result
 }
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
+
+	var planTemplate = ""
 	// If enabled, query MCP prompts to choose a plan template before running the tool loop
 	if r.configOptions.GetBool("mcpprompts") {
-		if err := r.prepareMCPromptTemplate(input, messages); err != nil {
+		planTemplate, err := r.prepareMCPromptTemplate(input, messages)
+		if err != nil {
 			// Non-fatal: proceed without a template if selection fails
 			fmt.Fprintf(os.Stderr, "mcpprompts: %v\n", err)
+		} else if planTemplate != "" {
+			fmt.Println("\x1b[0m 📝| Using a prompt template for the given task")
+			fmt.Println(planTemplate)
 		}
 	}
 	origSchema := r.config.Schema
@@ -344,6 +347,7 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		stepCount++
 		// Build the dynamic tools prompt with optional plan template
 		dynamicToolsPrompt := toolsPromptPrefix + planTemplate + toolsPromptSuffix
+		fmt.Println("\x1b[0m 🐾| ...")
 		step, err := r.newToolStep(dynamicToolsPrompt, input, context, toolList, chatHistory)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
