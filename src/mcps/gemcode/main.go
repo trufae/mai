@@ -5,7 +5,7 @@ import (
 )
 
 func main() {
-	gemcodeService := NewGemCodeService()
+    gemcodeService := NewGemCodeService()
 
 	// Get all tools from the service
 	tools := gemcodeService.GetTools()
@@ -21,14 +21,17 @@ func main() {
 		})
 	}
 
-	// Initialize the server with tool definitions
-	server := mcplib.NewMCPServer(toolDefs)
+    // Initialize the server with tool definitions
+    server := mcplib.NewMCPServer(toolDefs)
 
-	// Register all tool handlers
-	for _, tool := range tools {
-		server.RegisterTool(tool.Name, tool.Handler)
-	}
+    // Register all tool handlers
+    for _, tool := range tools {
+        server.RegisterTool(tool.Name, tool.Handler)
+    }
 
-	// Start the server - this will block until the server is stopped
-	server.Start()
+    // Register prompts exposed by this coding agent
+    server.SetPrompts(getSamplePrompts())
+
+    // Start the server - this will block until the server is stopped
+    server.Start()
 }
