@@ -1098,6 +1098,39 @@ func (r *REPL) handleChatCommand(args []string) error {
 		return nil
 	case "compact":
 		return r.handleCompactCommand()
+	case "memory":
+		// Generate or manage consolidated memory file
+		if len(args) < 3 || args[2] == "generate" {
+			return r.generateMemory()
+		}
+		if args[2] == "show" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Printf("Cannot get home directory: %v\r\n", err)
+				return nil
+			}
+			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+			b, err := os.ReadFile(memFile)
+			if err != nil {
+				fmt.Printf("Cannot read memory file: %v\r\n", err)
+				return nil
+			}
+			fmt.Printf("%s\r\n", string(b))
+			return nil
+		}
+		if args[2] == "clear" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Printf("Cannot get home directory: %v\r\n", err)
+				return nil
+			}
+			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+			_ = os.Remove(memFile)
+			fmt.Print("Memory file removed\r\n")
+			return nil
+		}
+		fmt.Print("Usage: /chat memory [generate|show|clear]\r\n")
+		return nil
 	default:
 		fmt.Printf("Unknown action: %s\r\n", action)
 		fmt.Print("Available actions: save, load, sessions, clear, list, log, undo, compact\r\n")
@@ -1517,6 +1550,79 @@ func (r *REPL) purgeSessions() error {
 	return nil
 }
 
+// generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to ~/.mai/memory.txt
+func (r *REPL) generateMemory() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot get home directory: %v", err)
+	}
+	chatDir := filepath.Join(homeDir, ".mai", "chat")
+	files, err := os.ReadDir(chatDir)
+	if err != nil {
+		return fmt.Errorf("cannot read chat directory: %v", err)
+	}
+
+	var combined strings.Builder
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(chatDir, file.Name()))
+		if err != nil {
+			continue
+		}
+		var sess sessionData
+		if err := json.Unmarshal(data, &sess); err != nil {
+			continue
+		}
+		sessionName := strings.TrimSuffix(file.Name(), ".json")
+		combined.WriteString("Session: " + sessionName + "\n")
+		for _, m := range sess.Messages {
+			role := m.Role
+			content := fmt.Sprintf("%v", m.Content)
+			combined.WriteString(fmt.Sprintf("%s: %s\n", role, content))
+		}
+		combined.WriteString("\n---\n\n")
+	}
+
+	if combined.Len() == 0 {
+		return fmt.Errorf("no conversation data found in %s", chatDir)
+	}
+
+	// Load memory prompt template
+	promptPath, err := r.resolvePromptPath("memory.md")
+	promptContent := ""
+	if err == nil {
+		if b, err := os.ReadFile(promptPath); err == nil {
+			promptContent = string(b)
+		}
+	}
+
+	client, err := llm.NewLLMClient(r.config)
+	if err != nil {
+		return fmt.Errorf("failed to create LLM client: %v", err)
+	}
+
+	messages := []llm.Message{}
+	if promptContent != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: promptContent})
+	}
+	messages = append(messages, llm.Message{Role: "user", Content: combined.String()})
+
+	response, err := client.SendMessage(messages, false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to generate memory: %v", err)
+	}
+
+	memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+	if err := os.WriteFile(memFile, []byte(response), 0644); err != nil {
+		return fmt.Errorf("cannot write memory file: %v", err)
+	}
+
+	fmt.Printf("Memory written to %s\r\n", memFile)
+	return nil
+}
+
 func (r *REPL) generateTopic() (string, error) {
 	// Use the last message to generate a topic
 	if len(r.messages) == 0 {
@@ -1725,6 +1831,17 @@ func (r *REPL) sendToAI(input string) error {
 	messages := []llm.Message{}
 	if sp := r.currentSystemPrompt(); sp != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: sp})
+	}
+
+	// If memory option is enabled, load consolidated memory and include as system context
+	if r.configOptions.GetBool("memory") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+			if b, err := os.ReadFile(memFile); err == nil && len(b) > 0 {
+				messages = append(messages, llm.Message{Role: "system", Content: "MEMORY:\n" + string(b)})
+			}
+		}
 	}
 
 	// Handle conversation history based on logging and reply settings
