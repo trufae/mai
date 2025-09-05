@@ -55,6 +55,8 @@ type REPL struct {
 	commands        map[string]Command // Registry of available commands
 	currentSession  string             // Name of the active chat session
 	unsavedTopic    string             // Topic for unsaved session before saving to disk
+	// Guard to avoid recursive followup execution
+	followupInProgress bool
 }
 
 type pendingFile struct {
@@ -1959,6 +1961,28 @@ func (r *REPL) sendToAI(input string) error {
 		} else {
 			// When logging is disabled, keep just the current exchange
 			r.messages = []llm.Message{userMessage, assistantMessage}
+		}
+
+		// If followup is enabled, run the #followup prompt once asynchronously
+		if r.configOptions.GetBool("followup") {
+			r.mu.Lock()
+			if !r.followupInProgress {
+				r.followupInProgress = true
+				r.mu.Unlock()
+				go func() {
+					defer func() {
+						r.mu.Lock()
+						r.followupInProgress = false
+						r.mu.Unlock()
+					}()
+					// Call the prompt handler for #followup; ignore errors but print them
+					if err := r.handlePromptCommand("#followup"); err != nil {
+						fmt.Printf("Followup error: %v\r\n", err)
+					}
+				}()
+			} else {
+				r.mu.Unlock()
+			}
 		}
 	}
 
