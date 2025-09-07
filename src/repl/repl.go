@@ -1857,6 +1857,11 @@ func (r *REPL) sendToAI(input string) error {
 			for _, msg := range r.messages {
 				if msg.Role == "user" {
 					messages = append(messages, msg)
+				} else {
+					msg2 := msg
+					msg2.Content = ""
+					// include empty response from the llm
+					messages = append(messages, msg2)
 				}
 			}
 		}
