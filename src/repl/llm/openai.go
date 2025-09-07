@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 )
@@ -34,6 +35,13 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 
 func (p *OpenAIProvider) GetName() string {
 	return "OpenAI"
+}
+
+func (p *OpenAIProvider) DefaultModel() string {
+	if v := os.Getenv("OPENAI_MODEL"); v != "" {
+		return v
+	}
+	return "gpt-4o"
 }
 
 func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -90,8 +98,12 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		imageMessage := Message{Role: "user", Content: blocks}
 		messages = append([]Message{imageMessage}, messages...)
 	}
+	effectiveModel := p.config.Model
+	if effectiveModel == "" {
+		effectiveModel = p.DefaultModel()
+	}
 	request := map[string]interface{}{
-		"model":    p.config.OpenAIModel,
+		"model":    effectiveModel,
 		"messages": messages,
 	}
 
@@ -113,7 +125,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	// Apply deterministic settings if enabled
 	if p.config.Deterministic {
 		// Skip for o4 and o1 models which don't support these parameters
-		modelName := strings.ToLower(p.config.OpenAIModel)
+		modelName := strings.ToLower(effectiveModel)
 		if !strings.HasPrefix(modelName, "o4") && !strings.HasPrefix(modelName, "o1") {
 			request["temperature"] = 0
 			request["top_p"] = 0

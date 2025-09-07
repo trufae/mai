@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -22,6 +23,13 @@ func NewGeminiProvider(config *Config) *GeminiProvider {
 
 func (p *GeminiProvider) GetName() string {
 	return "Gemini"
+}
+
+func (p *GeminiProvider) DefaultModel() string {
+	if v := os.Getenv("GEMINI_MODEL"); v != "" {
+		return v
+	}
+	return "gemini-2.5-flash"
 }
 
 func defaultString(s, def string) string {
@@ -155,10 +163,9 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Use the configured base URL if available, otherwise use the default API URL
-	defaultModel := "gemini-2.5-flash"
-	model := defaultModel
-	if p.config.GeminiModel != "" {
-		model = p.config.GeminiModel
+	model := p.config.Model
+	if model == "" {
+		model = p.DefaultModel()
 	}
 	var action = "generateContent"
 	if stream {

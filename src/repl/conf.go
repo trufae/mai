@@ -53,6 +53,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("debug", BooleanOption, "Show internal processing logs", "false")
 	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
 	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
+	co.RegisterOption("skiprc", BooleanOption, "Skip loading rc file on start", "false")
 
 	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
 	co.RegisterOption("markdown", BooleanOption, "Enable markdown rendering with colors", "false")
@@ -308,12 +309,12 @@ func (r *REPL) handleSetCommand(args []string) error {
 		val := strings.Join(args[2:], " ")
 		switch args[1] {
 		case "deterministic":
-			b, _ := strconv.ParseBool(val)
-			r.config.Deterministic = b
+			// Update option; REPL binds keep provider config in sync
+			r.configOptions.Set("deterministic", val)
 			return nil
 		case "rawdog":
-			b, _ := strconv.ParseBool(val)
-			r.config.Rawdog = b
+			// Update option; REPL binds keep provider config in sync
+			r.configOptions.Set("rawdog", val)
 			return nil
 		case "promptfile":
 			return r.loadSystemPrompt(val)
@@ -328,14 +329,11 @@ func (r *REPL) handleSetCommand(args []string) error {
 			provider := strings.ToLower(val)
 			return r.setProvider(provider)
 		case "conversation_include_llm":
-			b, _ := strconv.ParseBool(val)
-			r.config.ConversationIncludeLLM = b
-			// Also set the option so it's persisted
+			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("conversation_include_llm", val)
 			return nil
 		case "conversation_include_system":
-			b, _ := strconv.ParseBool(val)
-			r.config.ConversationIncludeSystem = b
+			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("conversation_include_system", val)
 			return nil
 		case "conversation_format":
@@ -345,12 +343,10 @@ func (r *REPL) handleSetCommand(args []string) error {
 				// still set, but warn
 				fmt.Printf("Warning: unknown conversation_format '%s'\n", val)
 			}
-			r.config.ConversationFormat = valLower
 			r.configOptions.Set("conversation_format", valLower)
 			return nil
 		case "conversation_use_last_user":
-			b, _ := strconv.ParseBool(val)
-			r.config.ConversationUseLastUser = b
+			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("conversation_use_last_user", val)
 			return nil
 		}
@@ -547,7 +543,6 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 	case "provider":
 		fmt.Print("Provider setting reverted to default\r\n")
 	case "schema", "schemafile":
-		r.config.Schema = nil
 		fmt.Print("Schema cleared\r\n")
 	default:
 		fmt.Printf("Unset %s\r\n", option)

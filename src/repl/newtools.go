@@ -317,9 +317,10 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			fmt.Println(planTemplate)
 		}
 	}
-	origSchema := r.config.Schema
+	// Temporarily override schema via options; providers read it from buildLLMConfig
+	origSchema := r.configOptions.Get("schema")
 	defer func() {
-		r.config.Schema = origSchema
+		_ = r.configOptions.Set("schema", origSchema)
 	}()
 	schemaString := func(s string) string {
 		if s == "gemini" {
@@ -334,7 +335,8 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 	if err := json.Unmarshal([]byte(schemaString), &schema); err != nil {
 		return "", fmt.Errorf("I cannot unmarshal the schema")
 	}
-	r.config.Schema = schema
+	// Store inline schema JSON in options for providers to consume
+	_ = r.configOptions.Set("schema", schemaString)
 	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")

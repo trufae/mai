@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -21,6 +22,14 @@ func NewOpenAPIProvider(config *Config) *OpenAPIProvider {
 
 func (p *OpenAPIProvider) GetName() string {
 	return "OpenAPI"
+}
+
+func (p *OpenAPIProvider) DefaultModel() string {
+	// OpenAPI provider doesn't use a model string in requests; return a placeholder
+	if v := os.Getenv("OPENAPI_MODEL"); v != "" {
+		return v
+	}
+	return "default"
 }
 
 func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {

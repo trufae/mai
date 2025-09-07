@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -22,6 +23,13 @@ func NewMistralProvider(config *Config) *MistralProvider {
 
 func (p *MistralProvider) GetName() string {
 	return "Mistral"
+}
+
+func (p *MistralProvider) DefaultModel() string {
+	if v := os.Getenv("MISTRAL_MODEL"); v != "" {
+		return v
+	}
+	return "mistral-large-latest"
 }
 
 func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -100,6 +108,10 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Mistral")
 	}
+	model := p.config.Model
+	if model == "" {
+		model = p.DefaultModel()
+	}
 	request := struct {
 		Model          string                 `json:"model""`
 		Messages       []Message              `json:"messages""`
@@ -111,7 +123,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		Temperature    float64                `json:"temperature,omitempty""`
 		ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
 	}{
-		Model:     p.config.MistralModel,
+		Model:     model,
 		Messages:  messages,
 		MaxTokens: 5128,
 		Stream:    stream,

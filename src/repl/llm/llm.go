@@ -23,6 +23,9 @@ type LLMProvider interface {
 
 	// ListModels returns a list of available models for this provider
 	ListModels(ctx context.Context) ([]Model, error)
+
+	// DefaultModel returns the provider's default model, honoring env/config
+	DefaultModel() string
 }
 
 type ContentBlock struct {
@@ -123,6 +126,14 @@ func (c *LLMClient) ListModels() ([]Model, error) {
 	ctx, cancel := c.newContext()
 	defer cancel()
 	return c.provider.ListModels(ctx)
+}
+
+// DefaultModel returns the default model of the current provider
+func (c *LLMClient) DefaultModel() string {
+	if c.provider == nil {
+		return ""
+	}
+	return c.provider.DefaultModel()
 }
 
 // InterruptResponse cancels the current LLM response if one is being generated

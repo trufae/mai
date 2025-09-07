@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -34,6 +35,13 @@ func NewClaudeProvider(config *Config) *ClaudeProvider {
 
 func (p *ClaudeProvider) GetName() string {
 	return "Claude"
+}
+
+func (p *ClaudeProvider) DefaultModel() string {
+	if v := os.Getenv("CLAUDE_MODEL"); v != "" {
+		return v
+	}
+	return "claude-3-5-sonnet-20241022"
 }
 
 func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -84,8 +92,12 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Claude")
 	}
+	effectiveModel := p.config.Model
+	if effectiveModel == "" {
+		effectiveModel = p.DefaultModel()
+	}
 	request := map[string]interface{}{
-		"model":      p.config.ClaudeModel,
+		"model":      effectiveModel,
 		"max_tokens": 5128,
 		"messages":   messages,
 	}

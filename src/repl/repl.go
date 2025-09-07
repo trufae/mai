@@ -34,7 +34,6 @@ type Command struct {
 }
 
 type REPL struct {
-	config          *llm.Config
 	configOptions   ConfigOptions
 	currentClient   *llm.LLMClient
 	readline        *ReadLine // Persistent readline instance for input handling
@@ -57,6 +56,18 @@ type REPL struct {
 	unsavedTopic    string             // Topic for unsaved session before saving to disk
 	// Guard to avoid recursive followup execution
 	followupInProgress bool
+}
+
+// buildLLMConfig constructs a provider config from environment defaults and current options.
+// This avoids storing a persistent config in the REPL and ensures providers
+// always receive up-to-date settings (provider, model, schema, headers, etc.).
+func (r *REPL) buildLLMConfig() *llm.Config {
+	cfg := loadConfig()
+	// Apply current options into the provider config (provider, model, baseurl, toggles, schema)
+	applyConfigOptionsToLLMConfig(cfg, &r.configOptions)
+	// Respect REPL streaming option
+	cfg.NoStream = !r.configOptions.GetBool("stream")
+	return cfg
 }
 
 type pendingFile struct {
@@ -110,7 +121,7 @@ func AskYesNo(question string, defaultVal rune) bool {
 	return c == 'y'
 }
 
-func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
+func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create a persistent readline instance
@@ -122,7 +133,6 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 
 	// Initialize the REPL
 	repl := &REPL{
-		config:          config,
 		readline:        readLine,
 		cursorPos:       0, // Initialize cursor position to 0
 		ctx:             ctx,
@@ -144,53 +154,9 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		fmt.Fprintf(os.Stderr, "Error loading history: %v\n", err)
 	}
 
-	// Initialize streaming from options with the NoStream flag as a fallback
-	streamDefault := "true"
-	if config.NoStream {
-		streamDefault = "false"
-	}
+	// stream option already registered in NewConfigOptions; defaults handled in main flags
 
-	// Override defaults based on command line flags if needed
-	if _, exists := repl.configOptions.GetOptionInfo("stream"); !exists {
-		repl.configOptions.RegisterOption("stream", BooleanOption, "Enable streaming mode", streamDefault)
-	}
-
-	// Keep provider config booleans in sync with config options to avoid duplication
-	// Markdown controls streaming rendering in providers
-	repl.config.Markdown = repl.configOptions.GetBool("markdown")
-	repl.configOptions.RegisterOptionListener("markdown", func(value string) {
-		repl.config.Markdown = repl.configOptions.GetBool("markdown")
-	})
-	// Deterministic toggles temp/top_p in providers
-	repl.config.Deterministic = repl.configOptions.GetBool("deterministic")
-	repl.configOptions.RegisterOptionListener("deterministic", func(value string) {
-		repl.config.Deterministic = repl.configOptions.GetBool("deterministic")
-	})
-	// Rawdog is used to add /no_think decorations, keep in sync
-	repl.config.Rawdog = repl.configOptions.GetBool("rawdog")
-	repl.configOptions.RegisterOptionListener("rawdog", func(value string) {
-		repl.config.Rawdog = repl.configOptions.GetBool("rawdog")
-	})
-
-	// Initialize conversation formatting options into the provider config
-	repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
-	repl.config.ConversationIncludeSystem = repl.configOptions.GetBool("conversation_include_system")
-	repl.config.ConversationFormat = repl.configOptions.Get("conversation_format")
-	repl.config.ConversationUseLastUser = repl.configOptions.GetBool("conversation_use_last_user")
-
-	// Keep conversation options in sync when changed via configOptions
-	repl.configOptions.RegisterOptionListener("conversation_include_llm", func(value string) {
-		repl.config.ConversationIncludeLLM = repl.configOptions.GetBool("conversation_include_llm")
-	})
-	repl.configOptions.RegisterOptionListener("conversation_include_system", func(value string) {
-		repl.config.ConversationIncludeSystem = repl.configOptions.GetBool("conversation_include_system")
-	})
-	repl.configOptions.RegisterOptionListener("conversation_format", func(value string) {
-		repl.config.ConversationFormat = value
-	})
-	repl.configOptions.RegisterOptionListener("conversation_use_last_user", func(value string) {
-		repl.config.ConversationUseLastUser = repl.configOptions.GetBool("conversation_use_last_user")
-	})
+	// Avoid duplicating options into config; REPL reads from r.configOptions directly where needed.
 
 	// Set prompts in the readline instance
 	if prompt := repl.configOptions.Get("prompt"); prompt != "" {
@@ -201,107 +167,50 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		repl.readline.SetReadlinePrompt(readlinePrompt)
 	}
 
-	// Synchronize provider and model settings with configOptions
-	if provider := repl.configOptions.Get("provider"); provider != "" {
-		repl.config.PROVIDER = provider
-	} else if repl.config.PROVIDER != "" {
-		// Set the provider option if it's not set but PROVIDER is
-		repl.configOptions.Set("provider", repl.config.PROVIDER)
+	// Initialize provider/model/baseurl/useragent options from environment defaults if not set
+	// Use loadConfig to honor env defaults and then apply into options only on first run
+	envCfg := loadConfig()
+	if repl.configOptions.Get("provider") == "" && envCfg.PROVIDER != "" {
+		repl.configOptions.Set("provider", envCfg.PROVIDER)
 	}
-
-	// Synchronize model setting based on current provider
-	if model := repl.configOptions.Get("model"); model != "" {
-		// Set the appropriate model based on provider
-		switch strings.ToLower(repl.config.PROVIDER) {
-		case "ollama":
-			repl.config.OllamaModel = model
-		case "openai":
-			repl.config.OpenAIModel = model
-		case "claude":
-			repl.config.ClaudeModel = model
-		case "gemini", "google":
-			repl.config.GeminiModel = model
-		case "mistral":
-			repl.config.MistralModel = model
-		case "deepseek":
-			repl.config.DeepSeekModel = model
-		case "bedrock", "aws":
-			repl.config.BedrockModel = model
+	if repl.configOptions.Get("model") == "" {
+		// Use provider's DefaultModel if model not set
+		if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("provider")); dm != "" {
+			repl.configOptions.Set("model", dm)
 		}
-	} else {
-		// Set the model option based on the current provider's model
-		currentModel := repl.getCurrentModelForProvider()
-		if currentModel != "" {
-			repl.configOptions.Set("model", currentModel)
-		}
+	}
+	if repl.configOptions.Get("baseurl") == "" && envCfg.BaseURL != "" {
+		repl.configOptions.Set("baseurl", envCfg.BaseURL)
+	}
+	if repl.configOptions.Get("useragent") == "" && envCfg.UserAgent != "" {
+		repl.configOptions.Set("useragent", envCfg.UserAgent)
 	}
 
 	// Do not cache system prompt here; it will be read dynamically from configOptions (or file)
 
-	// Load schema from schemafile or inline schema option
+	// Validate schema if provided (no storage here; providers read from options via buildLLMConfig)
 	if schemaFile := repl.configOptions.Get("schemafile"); schemaFile != "" {
 		if content, err := os.ReadFile(schemaFile); err == nil {
-			var schema map[string]interface{}
-			if err := json.Unmarshal(content, &schema); err == nil {
-				repl.config.Schema = schema
-			} else {
+			var tmp map[string]interface{}
+			if err := json.Unmarshal(content, &tmp); err != nil {
 				fmt.Fprintf(os.Stderr, "Invalid JSON in schemafile %s: %v\n", schemaFile, err)
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "Failed to read schemafile %s: %v\n", schemaFile, err)
 		}
 	} else if inline := repl.configOptions.Get("schema"); inline != "" {
-		var schema map[string]interface{}
-		if err := json.Unmarshal([]byte(inline), &schema); err == nil {
-			repl.config.Schema = schema
-		} else {
+		var tmp map[string]interface{}
+		if err := json.Unmarshal([]byte(inline), &tmp); err != nil {
 			fmt.Fprintf(os.Stderr, "Invalid JSON for schema: %v\n", err)
 		}
 	}
 
 	// Keep schema in sync when options change at runtime
-	repl.configOptions.RegisterOptionListener("schemafile", func(value string) {
-		if value == "" {
-			// If schemafile unset, do not clear schema automatically; rely on 'schema' if present
-			return
-		}
-		if content, err := os.ReadFile(value); err == nil {
-			var schema map[string]interface{}
-			if err := json.Unmarshal(content, &schema); err == nil {
-				repl.config.Schema = schema
-			} else {
-				fmt.Fprintf(os.Stderr, "Invalid JSON in schemafile %s: %v\n", value, err)
-			}
-		} else {
-			fmt.Fprintf(os.Stderr, "Failed to read schemafile %s: %v\n", value, err)
-		}
-	})
-	repl.configOptions.RegisterOptionListener("schema", func(value string) {
-		if value == "" {
-			// Clearing inline schema does not unset existing parsed schema; user can /unset schemafile to clear
-			repl.config.Schema = nil
-			return
-		}
-		var schema map[string]interface{}
-		if err := json.Unmarshal([]byte(value), &schema); err == nil {
-			repl.config.Schema = schema
-		} else {
-			fmt.Fprintf(os.Stderr, "Invalid JSON for schema: %v\n", err)
-		}
-	})
+	// Schema listeners no longer need to update any local state
+	repl.configOptions.RegisterOptionListener("schemafile", func(value string) {})
+	repl.configOptions.RegisterOptionListener("schema", func(value string) {})
 
-	// Set baseurl from command line flag if provided
-	if repl.config.BaseURL != "" {
-		repl.configOptions.Set("baseurl", repl.config.BaseURL)
-	} else if baseURL := repl.configOptions.Get("baseurl"); baseURL != "" {
-		// Or use the config option if set
-		repl.config.BaseURL = baseURL
-	}
-
-	// Register listener to sync BaseURL when changed via configOptions
-	repl.configOptions.RegisterOptionListener("baseurl", func(value string) {
-		repl.config.BaseURL = value
-	})
+	// baseurl is fully handled in options; providers will receive it via buildLLMConfig
 
 	// Register listeners for prompt option changes
 	repl.configOptions.RegisterOptionListener("prompt", func(value string) {
@@ -316,13 +225,7 @@ func NewREPL(config *llm.Config, configOptions ConfigOptions) (*REPL, error) {
 		}
 	})
 
-	// Set useragent from command line flag if provided
-	if repl.config.UserAgent != "mai-repl/1.0" {
-		repl.configOptions.Set("useragent", repl.config.UserAgent)
-	} else if userAgent := repl.configOptions.Get("useragent"); userAgent != "" {
-		// Or use the config option if set
-		repl.config.UserAgent = userAgent
-	}
+	// useragent handled via options only
 
 	// Initialize command registry
 	repl.initCommands()
@@ -396,10 +299,8 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	// fmt.Print(fmt.Sprintf("mai-repl - %s - /help\r\n", strings.ToUpper(r.config.PROVIDER)))
-
-	// Load and process 'rc' file from project or home .mai directory if not in stdin mode and not skipped
-	if !r.config.IsStdinMode && !r.config.SkipRcFile {
+	// Load and process 'rc' file from project or home .mai directory unless skipped by option
+	if !r.configOptions.GetBool("skiprc") {
 		if err := r.loadRCFile(); err != nil {
 			fmt.Printf("Error loading rc file: %v\r\n", err)
 		}
@@ -550,7 +451,7 @@ func (r *REPL) interruptResponse() {
 		r.ctx, r.cancel = context.WithCancel(context.Background())
 
 		// Also interrupt the LLM client if it's active
-		client, err := llm.NewLLMClient(r.config)
+		client, err := llm.NewLLMClient(r.buildLLMConfig())
 		if err == nil && client != nil {
 			client.InterruptResponse()
 			r.mu.Lock()
@@ -1401,9 +1302,9 @@ func (r *REPL) saveSession(sessionName string) error {
 	// Save messages plus current provider/model/baseurl
 	sess := sessionData{
 		Messages: r.messages,
-		Provider: r.config.PROVIDER,
+		Provider: r.configOptions.Get("provider"),
 		Model:    r.configOptions.Get("model"),
-		BaseURL:  r.config.BaseURL,
+		BaseURL:  r.configOptions.Get("baseurl"),
 	}
 	data, err := json.MarshalIndent(sess, "", "  ")
 	if err != nil {
@@ -1454,12 +1355,9 @@ func (r *REPL) loadSession(sessionName string) error {
 		return fmt.Errorf("cannot unmarshal session: %v", err)
 	}
 	r.messages = sess.Messages
-	// Restore provider, model, baseurl
-	r.config.PROVIDER = sess.Provider
+	// Restore provider, model, baseurl via options only
 	r.configOptions.Set("provider", sess.Provider)
-	setModelForProvider(r.config, sess.Model)
 	r.configOptions.Set("model", sess.Model)
-	r.config.BaseURL = sess.BaseURL
 	r.configOptions.Set("baseurl", sess.BaseURL)
 	fmt.Printf("Session '%s' loaded (provider=%s, model=%s, baseurl=%s)\r\n",
 		sessionName, sess.Provider, sess.Model, sess.BaseURL)
@@ -1600,7 +1498,7 @@ func (r *REPL) generateMemory() error {
 		}
 	}
 
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -1633,7 +1531,7 @@ func (r *REPL) generateTopic() (string, error) {
 	lastMessage := r.messages[len(r.messages)-1].Content.(string)
 	prompt := "Summarize the following text in a few words:\n\n" + lastMessage
 
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -1821,7 +1719,7 @@ func (r *REPL) sendToAI(input string) error {
 	input = processedInput
 
 	// Create client
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -2002,7 +1900,7 @@ func (r *REPL) supportsStreaming() bool {
 		return false
 	}
 	// Check if API supports streaming
-	provider := strings.ToLower(r.config.PROVIDER)
+	provider := strings.ToLower(r.configOptions.Get("provider"))
 	return provider == "ollama" || provider == "openai" || provider == "claude"
 }
 
@@ -2016,7 +1914,7 @@ func (r *REPL) regularResponse(input string) error {
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Create client and send message
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -2034,7 +1932,7 @@ func (r *REPL) regularResponse(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) streamOllama(input string) error {
 	// Create a new LLM client
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -2054,7 +1952,7 @@ func (r *REPL) streamOllama(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) streamOpenAI(input string) error {
 	// Create a new LLM client
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -2074,7 +1972,7 @@ func (r *REPL) streamOpenAI(input string) error {
 // Legacy function kept for compatibility
 func (r *REPL) streamClaude(input string) error {
 	// Create a new LLM client
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -3074,7 +2972,7 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 // executeLLMQueryWithoutStreaming executes an LLM query without streaming and returns the result
 func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	// Create a new client for this query
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -3623,66 +3521,30 @@ func (r *REPL) autoDetectPromptDir() {
 
 // showCurrentModel displays the current model based on the provider
 func (r *REPL) showCurrentModel() {
-	switch strings.ToLower(r.config.PROVIDER) {
-	case "ollama":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.OllamaModel, r.config.PROVIDER)
-	case "openai":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.OpenAIModel, r.config.PROVIDER)
-	case "claude":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.ClaudeModel, r.config.PROVIDER)
-	case "gemini", "google":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.GeminiModel, r.config.PROVIDER)
-	case "mistral":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.MistralModel, r.config.PROVIDER)
-	case "deepseek":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.DeepSeekModel, r.config.PROVIDER)
-	case "bedrock", "aws":
-		fmt.Printf("Current model: %s (provider: %s)\r\n", r.config.BedrockModel, r.config.PROVIDER)
-	default:
-		fmt.Printf("Unknown provider: %s\r\n", r.config.PROVIDER)
+	provider := r.configOptions.Get("provider")
+	model := r.configOptions.Get("model")
+	if provider == "" {
+		fmt.Printf("Current model: %s\r\n", model)
+		return
 	}
+	fmt.Printf("Current model: %s (provider: %s)\r\n", model, provider)
 }
 
 // setModel changes the model for the current provider
 func (r *REPL) setModel(model string) error {
-	switch strings.ToLower(r.config.PROVIDER) {
-	case "ollama":
-		r.config.OllamaModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("Ollama model set to %s\r\n", model)
-	case "openai":
-		r.config.OpenAIModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("OpenAI model set to %s\r\n", model)
-	case "claude":
-		r.config.ClaudeModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("Claude model set to %s\r\n", model)
-	case "gemini", "google":
-		r.config.GeminiModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("Gemini model set to %s\r\n", model)
-	case "mistral":
-		r.config.MistralModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("Mistral model set to %s\r\n", model)
-	case "deepseek":
-		r.config.DeepSeekModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("DeepSeek model set to %s\r\n", model)
-	case "bedrock", "aws":
-		r.config.BedrockModel = model
-		r.configOptions.Set("model", model)
-		fmt.Printf("Bedrock model set to %s\r\n", model)
-	default:
-		return fmt.Errorf("unknown provider: %s", r.config.PROVIDER)
+	r.configOptions.Set("model", model)
+	prov := r.configOptions.Get("provider")
+	if prov == "" {
+		fmt.Printf("Model set to %s\r\n", model)
+		return nil
 	}
+	fmt.Printf("%s model set to %s\r\n", strings.Title(prov), model)
 	return nil
 }
 
 // showCurrentProvider displays the current provider
 func (r *REPL) showCurrentProvider() {
-	fmt.Printf("Current provider: %s\r\n", r.config.PROVIDER)
+	fmt.Printf("Current provider: %s\r\n", r.configOptions.Get("provider"))
 	// Also show the current model for this provider
 	r.showCurrentModel()
 }
@@ -3719,7 +3581,7 @@ func (r *REPL) listProviders() error {
 
 	fmt.Print("Available providers:\r\n")
 	for _, provider := range providers {
-		if provider == r.config.PROVIDER {
+		if provider == r.configOptions.Get("provider") {
 			fmt.Printf("* %s (current)\r\n", provider)
 		} else {
 			fmt.Printf("  %s\r\n", provider)
@@ -3744,10 +3606,13 @@ func (r *REPL) setProvider(provider string) error {
 		return nil
 	}
 
-	// Set the new provider
-	r.config.PROVIDER = provider
 	// Update the provider in the configOptions
 	r.configOptions.Set("provider", provider)
+
+	// Resolve a default model for the new provider from env/provider defaults
+	if dm := r.resolveDefaultModelForProvider(provider); dm != "" {
+		r.configOptions.Set("model", dm)
+	}
 
 	fmt.Printf("Provider set to %s\r\n", provider)
 
@@ -3757,15 +3622,26 @@ func (r *REPL) setProvider(provider string) error {
 	return nil
 }
 
+// resolveDefaultModelForProvider returns the provider's default model using current settings
+func (r *REPL) resolveDefaultModelForProvider(provider string) string {
+	cfg := r.buildLLMConfig()
+	cfg.PROVIDER = provider
+	client, err := llm.NewLLMClient(cfg)
+	if err != nil || client == nil {
+		return ""
+	}
+	return client.DefaultModel()
+}
+
 // listModels fetches and displays available models for the current provider
 func (r *REPL) listModels() error {
 	// Create client
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
-	fmt.Printf("Fetching available models for %s...\r\n", r.config.PROVIDER)
+	fmt.Printf("Fetching available models for %s...\r\n", r.configOptions.Get("provider"))
 
 	// Get models from the provider
 	models, err := client.ListModels()
@@ -3779,7 +3655,7 @@ func (r *REPL) listModels() error {
 	}
 
 	// Display models
-	fmt.Printf("Available %s models:\r\n", r.config.PROVIDER)
+	fmt.Printf("Available %s models:\r\n", r.configOptions.Get("provider"))
 	fmt.Print("-----------------------\r\n")
 
 	// Get current model for highlighting
@@ -3809,24 +3685,7 @@ func (r *REPL) listModels() error {
 
 // getCurrentModelForProvider returns the current model ID for the active provider
 func (r *REPL) getCurrentModelForProvider() string {
-	switch strings.ToLower(r.config.PROVIDER) {
-	case "ollama":
-		return r.config.OllamaModel
-	case "openai":
-		return r.config.OpenAIModel
-	case "claude":
-		return r.config.ClaudeModel
-	case "gemini", "google":
-		return r.config.GeminiModel
-	case "mistral":
-		return r.config.MistralModel
-	case "deepseek":
-		return r.config.DeepSeekModel
-	case "bedrock", "aws":
-		return r.config.BedrockModel
-	default:
-		return ""
-	}
+	return r.configOptions.Get("model")
 }
 
 // handleCompactCommand processes the /compact command
@@ -3959,7 +3818,7 @@ func (r *REPL) handleCompactCommand() error {
 	fmt.Print("Compacting conversation...\r\n")
 
 	// Create client and send message
-	client, err := llm.NewLLMClient(r.config)
+	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
 		// Restore original messages on error
 		r.messages = originalMessages

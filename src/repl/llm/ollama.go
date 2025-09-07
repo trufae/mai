@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -34,6 +35,13 @@ func NewOllamaProvider(config *Config) *OllamaProvider {
 
 func (p *OllamaProvider) GetName() string {
 	return "Ollama"
+}
+
+func (p *OllamaProvider) DefaultModel() string {
+	if v := os.Getenv("OLLAMA_MODEL"); v != "" {
+		return v
+	}
+	return "gemma3:1b"
 }
 
 func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -116,9 +124,13 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			apiMessages = append(apiMessages, msg)
 		}
 
+		effectiveModel := p.config.Model
+		if effectiveModel == "" {
+			effectiveModel = p.DefaultModel()
+		}
 		request := map[string]interface{}{
 			"stream":   stream,
-			"model":    p.config.OllamaModel,
+			"model":    effectiveModel,
 			"messages": apiMessages,
 		}
 		if p.config.Schema != nil {
@@ -185,6 +197,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		for _, msg := range messages {
 			messageline += msg.Content.(string)
 		}
+		effectiveModel := p.config.Model
+		if effectiveModel == "" {
+			effectiveModel = p.DefaultModel()
+		}
 		request := struct {
 			Model   string             `json:"model""`
 			Prompt  string             `json:"prompt""`
@@ -193,7 +209,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			Options map[string]float64 `json:"options,omitempty""`
 		}{
 			Stream: stream,
-			Model:  p.config.OllamaModel,
+			Model:  effectiveModel,
 			Prompt: messageline,
 		}
 		if p.config.Schema != nil {
@@ -253,6 +269,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		// Return raw content - newline conversion happens in the REPL
 		return response.Response, nil
 	}
+	effectiveModel := p.config.Model
+	if effectiveModel == "" {
+		effectiveModel = p.DefaultModel()
+	}
 	request := struct {
 		Stream   bool               `json:"stream""`
 		Model    string             `json:"model""`
@@ -262,7 +282,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		Options  map[string]float64 `json:"options,omitempty""`
 	}{
 		Stream:   stream,
-		Model:    p.config.OllamaModel,
+		Model:    effectiveModel,
 		Messages: messages,
 		// Prompt: "Summarize: Alice (29) likes cycling and reading",
 	}

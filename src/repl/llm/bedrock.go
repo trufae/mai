@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -21,6 +22,13 @@ func NewBedrockProvider(config *Config) *BedrockProvider {
 
 func (p *BedrockProvider) GetName() string {
 	return "Bedrock"
+}
+
+func (p *BedrockProvider) DefaultModel() string {
+	if v := os.Getenv("BEDROCK_MODEL"); v != "" {
+		return v
+	}
+	return "anthropic.claude-3-5-sonnet-v1"
 }
 
 func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -97,6 +105,10 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Bedrock")
 	}
+	model := p.config.Model
+	if model == "" {
+		model = p.DefaultModel()
+	}
 	request := struct {
 		ModelId         string `json:"modelId""`
 		InferenceParams struct {
@@ -108,7 +120,7 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 			Messages []Message `json:"messages""`
 		} `json:"input""`
 	}{
-		ModelId: p.config.BedrockModel,
+		ModelId: model,
 		InferenceParams: struct {
 			MaxTokens   int     `json:"maxTokenCount""`
 			Temperature float64 `json:"temperature""`
@@ -132,9 +144,9 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 
 	// Use the configured base URL if available, otherwise use the default AWS endpoint format
 	apiURL := fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/invoke",
-		p.config.BedrockRegion, p.config.BedrockModel)
+		p.config.BedrockRegion, model)
 	if p.config.BaseURL != "" {
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/model/%s/invoke", p.config.BedrockModel)
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + fmt.Sprintf("/model/%s/invoke", model)
 	}
 
 	headers := map[string]string{

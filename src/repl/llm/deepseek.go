@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -21,6 +22,13 @@ func NewDeepSeekProvider(config *Config) *DeepSeekProvider {
 
 func (p *DeepSeekProvider) GetName() string {
 	return "DeepSeek"
+}
+
+func (p *DeepSeekProvider) DefaultModel() string {
+	if v := os.Getenv("DEEPSEEK_MODEL"); v != "" {
+		return v
+	}
+	return "deepseek-chat"
 }
 
 func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -113,12 +121,16 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: DeepSeek")
 	}
+	model := p.config.Model
+	if model == "" {
+		model = p.DefaultModel()
+	}
 	request := struct {
 		Model    string    `json:"model""`
 		Stream   string    `json:"stream""`
 		Messages []Message `json:"messages""`
 	}{
-		Model:    "deepseek-chat",
+		Model:    model,
 		Stream:   "false",
 		Messages: messages,
 	}

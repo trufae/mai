@@ -14,21 +14,15 @@ type Config struct {
 	OpenAPIPort   string
 	OllamaHost    string
 	OllamaPort    string
-	OllamaModel   string
 	GeminiKey     string
-	GeminiModel   string
 	OpenAIKey     string
-	OpenAIModel   string
 	ClaudeKey     string
-	ClaudeModel   string
 	DeepSeekKey   string
-	DeepSeekModel string
 	MistralKey    string
-	MistralModel  string
 	BedrockKey    string
-	BedrockModel  string
 	BedrockRegion string
 	PROVIDER      string
+	Model         string
 	NoStream      bool
 	ImagePath     string
 	BaseURL       string

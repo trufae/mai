@@ -2,16 +2,13 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"golang.org/x/term"
 
@@ -62,13 +59,6 @@ func loadConfig() *llm.Config {
 		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8080"),
 		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
 		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
-		OllamaModel:   getEnvOrDefault("OLLAMA_MODEL", "gemma3:1b"),
-		GeminiModel:   getEnvOrDefault("GEMINI_MODEL", "gemini-2.5-flash"),
-		OpenAIModel:   getEnvOrDefault("OPENAI_MODEL", "gpt-4o"),
-		ClaudeModel:   getEnvOrDefault("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
-		DeepSeekModel: getEnvOrDefault("DEEPSEEK_MODEL", "deepseek-chat"),
-		MistralModel:  getEnvOrDefault("MISTRAL_MODEL", "mistral-large-latest"),
-		BedrockModel:  getEnvOrDefault("BEDROCK_MODEL", "anthropic.claude-3-5-sonnet-v1"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
 		PROVIDER:      getEnvOrDefault("MAI_PROVIDER", "ollama"),
 		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
@@ -83,6 +73,15 @@ func loadConfig() *llm.Config {
 		// options:       &llm.Config{}, // NewConfigOptions(), // Initialize configuration options
 		// configOptions:       NewConfigOptions(), // Initialize configuration options
 	}
+
+	// Backwards compatibility: if MAI_PROVIDER is not set, honor legacy API env var
+	if os.Getenv("MAI_PROVIDER") == "" {
+		if apiVal := os.Getenv("API"); apiVal != "" {
+			config.PROVIDER = apiVal
+		}
+	}
+
+	// MAI_MODEL deprecated: model selection is handled via REPL config options
 
 	// Load API keys from files if environment variables are not set
 	if config.GeminiKey == "" {
@@ -166,53 +165,11 @@ func readInput(args []string) string {
 	return input.String()
 }
 
-func makeRequest(method, url string, headers map[string]string, body []byte, config *llm.Config) ([]byte, error) {
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating HTTP request: %v\n", err)
-		return nil, err
-	}
-
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	// Set User-Agent header if specified
-	if config != nil && config.UserAgent != "" {
-		req.Header.Set("User-Agent", config.UserAgent)
-	}
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
-	// fmt.Fprintf(os.Stderr, "Sending %s request to %s\n", method, url)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "HTTP request failed: %v\n\r", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// fmt.Fprintf(os.Stderr, "Response status code: %d\n", resp.StatusCode)
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n\r", resp.StatusCode, resp.Status)
-	}
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading response body: %v\n\r", err)
-		return nil, err
-	}
-
-	return respBody, nil
-}
+// makeRequest was unused; removed to simplify main.go.
 
 func showEnvHelp() {
 	fmt.Print(`
 MAI_PROVIDER=[ollama | gemini | deepseek | claude | openai | mistral | bedrock]
-MAI_MODEL=[modelname]
 MAI_BASEURL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
 MAI_USERAGENT=[custom user agent string for HTTP requests]
 
@@ -266,30 +223,8 @@ func showHelp() {
 `)
 }
 
-// setModelForProvider sets the appropriate model field in the config based on the provider
-func setModelForProvider(config *llm.Config, model string) {
-	// Get the current provider in lowercase for easier comparison
-	provider := strings.ToLower(config.PROVIDER)
-
-	switch provider {
-	case "ollama":
-		config.OllamaModel = model
-	case "openai":
-		config.OpenAIModel = model
-	case "claude":
-		config.ClaudeModel = model
-	case "gemini", "google":
-		config.GeminiModel = model
-	case "mistral":
-		config.MistralModel = model
-	case "deepseek":
-		config.DeepSeekModel = model
-	case "bedrock", "aws":
-		config.BedrockModel = model
-	default:
-		fmt.Fprintf(os.Stderr, "Warning: Unknown provider '%s', cannot set model\n", provider)
-	}
-}
+// setModel sets the generic model; providers handle defaults when empty
+func setModel(config *llm.Config, model string) { config.Model = model }
 
 // applyConfigOptionsToLLMConfig maps relevant ConfigOptions into the llm.Config
 // so that stdin mode and providers see the same effective configuration.
@@ -301,7 +236,7 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 		config.PROVIDER = v
 	}
 	if v := opts.Get("model"); v != "" {
-		setModelForProvider(config, v)
+		config.Model = v
 	}
 	if v := opts.Get("baseurl"); v != "" {
 		config.BaseURL = v
@@ -358,9 +293,7 @@ func main() {
 	if apiVal := os.Getenv("API"); apiVal != "" && os.Getenv("MAI_PROVIDER") == "" {
 		config.PROVIDER = apiVal
 	}
-	if defaultModel := os.Getenv("MAI_MODEL"); defaultModel != "" {
-		setModelForProvider(config, defaultModel)
-	}
+	// MAI_MODEL is deprecated; use -m or /set model instead
 
 	configOptions := NewConfigOptions()
 	// Process command line flags
@@ -369,6 +302,7 @@ func main() {
 		case "-n":
 			// Skip loading rc file and disable REPL history
 			configOptions.Set("history", "false")
+			configOptions.Set("skiprc", "true")
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
@@ -379,6 +313,8 @@ func main() {
 			i--
 		case "-1":
 			config.NoStream = true
+			// Keep REPL in sync with stdin mode: disable streaming in options
+			configOptions.Set("stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-i":
@@ -393,6 +329,8 @@ func main() {
 		case "-p":
 			if i+1 < len(args) {
 				config.PROVIDER = args[i+1]
+				// Keep REPL options in sync so /get reflects this
+				configOptions.Set("provider", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -402,6 +340,8 @@ func main() {
 		case "-b":
 			if i+1 < len(args) {
 				config.BaseURL = args[i+1]
+				// Mirror into options for REPL visibility
+				configOptions.Set("baseurl", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -410,7 +350,9 @@ func main() {
 			}
 		case "-m":
 			if i+1 < len(args) {
-				setModelForProvider(config, args[i+1])
+				setModel(config, args[i+1])
+				// Also set generic model option for REPL
+				configOptions.Set("model", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -420,6 +362,8 @@ func main() {
 		case "-a":
 			if i+1 < len(args) {
 				config.UserAgent = args[i+1]
+				// Mirror into options so /get useragent shows it
+				configOptions.Set("useragent", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -456,7 +400,7 @@ func main() {
 		// Not stdin mode, will load 'rc' file and start REPL
 		config.IsStdinMode = false
 
-		repl, err := NewREPL(config, *configOptions)
+		repl, err := NewREPL(*configOptions)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
 			os.Exit(1)
