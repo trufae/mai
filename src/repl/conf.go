@@ -83,7 +83,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("followup", BooleanOption, "Automatically run #followup after assistant replies", "false")
 
 	// Conversation formatting options (used when building a single prompt from history)
-	co.RegisterOption("conversation_include_llm", BooleanOption, "Include assistant/LLM messages when building a single prompt", "false")
+	co.RegisterOption("conversation_include_llm", BooleanOption, "Include assistant/LLM messages when building a single prompt", "true")
 	co.RegisterOption("conversation_include_system", BooleanOption, "Include system messages when building a single prompt", "true")
 	co.RegisterOption("conversation_format", StringOption, "Conversation formatting: tokens, labeled, or plain", "plain")
 	co.RegisterOption("conversation_use_last_user", BooleanOption, "Only include the last user message when building a single prompt", "false")
