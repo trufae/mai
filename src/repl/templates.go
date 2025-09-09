@@ -100,7 +100,7 @@ func (r *REPL) handleTemplateCommand(input string) error {
 	}
 
 	// Send processed content to AI
-	return r.sendToAI(expandedInput)
+	return r.sendToAI(expandedInput, "", "")
 }
 
 // processTemplate processes template text by:

@@ -519,6 +519,30 @@ func (r *REPL) handleInput() error {
 		return nil
 	}
 
+	// Handle verbatim inputs
+	var isVerbatim bool
+	if len(input) >= 2 {
+		if input[0] == '\'' && input[len(input)-1] == '\'' {
+			// || (input[0] == '`' && input[len(input)-1] == '`')
+			input = input[1 : len(input)-1]
+			isVerbatim = true
+		}
+	}
+
+	// Handle redirection if not verbatim
+	var redirectType, redirectTarget string
+	if !isVerbatim {
+		if idx := strings.LastIndex(input, " > "); idx != -1 {
+			redirectType = "file"
+			redirectTarget = strings.TrimSpace(input[idx+3:])
+			input = strings.TrimSpace(input[:idx])
+		} else if idx := strings.LastIndex(input, " | "); idx != -1 {
+			redirectType = "pipe"
+			redirectTarget = strings.TrimSpace(input[idx+3:])
+			input = strings.TrimSpace(input[:idx])
+		}
+	}
+
 	// Handle commands (slash- and dot-prefixed, plus '_' for last reply)
 	if strings.HasPrefix(input, "/") || strings.HasPrefix(input, ".") || input == "_" {
 		// Add to history
@@ -542,7 +566,7 @@ func (r *REPL) handleInput() error {
 		err = r.executeShellCommand(input[1:])
 	} else {
 		r.addToHistory(input)
-		err = r.sendToAI(input)
+		err = r.sendToAI(input, redirectType, redirectTarget)
 	}
 	if skipMessage {
 		r.handleCommand("/chat undo")
@@ -1759,9 +1783,9 @@ func (r *REPL) substituteInput(input string) (string, error) {
 	return input, nil
 }
 
-func (r *REPL) sendToAI(input string) error {
+func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string) error {
 	r.mu.Lock()
-	r.isStreaming = true
+	r.isStreaming = redirectType == ""
 	r.mu.Unlock()
 
 	defer func() {
@@ -1897,8 +1921,11 @@ func (r *REPL) sendToAI(input string) error {
 		messages = append(messages, userMessage)
 	}
 
+	// Send message with streaming based on REPL settings, but disable if redirected
+	streamEnabled := r.configOptions.GetBool("stream") && redirectType == ""
+
 	// Reset the markdown processor state before starting a new streaming session
-	if r.configOptions.GetBool("stream") && r.configOptions.GetBool("markdown") {
+	if streamEnabled && r.configOptions.GetBool("markdown") {
 		llm.ResetStreamRenderer()
 	}
 
@@ -1909,19 +1936,38 @@ func (r *REPL) sendToAI(input string) error {
 			images = append(images, file.imageB64)
 		}
 	}
-	// Send message with streaming based on REPL settings
-	response, err := client.SendMessage(messages, r.configOptions.GetBool("stream"), images)
+
+	response, err := client.SendMessage(messages, streamEnabled, images)
 
 	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
-		// If not streaming, we need to print the response here
-		if !r.configOptions.GetBool("stream") {
-			if r.configOptions.GetBool("markdown") {
-				// Use markdown formatting
-				fmt.Print(llm.RenderMarkdown(response))
-			} else {
-				// Use standard formatting
-				fmt.Println(strings.ReplaceAll(response, "\n", "\r\n"))
+		// Handle redirection
+		if redirectType == "file" {
+			// Write response to file
+			err = os.WriteFile(redirectTarget, []byte(response), 0644)
+			if err != nil {
+				return fmt.Errorf("failed to write to file %s: %v", redirectTarget, err)
+			}
+			fmt.Printf("Response written to %s\r\n", redirectTarget)
+		} else if redirectType == "pipe" {
+			// Pipe response to command
+			cmd := exec.Command("/bin/sh", "-c", redirectTarget)
+			cmd.Stdin = strings.NewReader(response)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("failed to execute command %s: %v", redirectTarget, err)
+			}
+			fmt.Print(string(output))
+		} else {
+			// Normal output
+			if !streamEnabled {
+				if r.configOptions.GetBool("markdown") {
+					// Use markdown formatting
+					fmt.Print(llm.RenderMarkdown(response))
+				} else {
+					// Use standard formatting
+					fmt.Println(strings.ReplaceAll(response, "\n", "\r\n"))
+				}
 			}
 		}
 
@@ -2109,7 +2155,7 @@ func (r *REPL) handleSlurpCommand() error {
 	}
 
 	// Send the input to the AI
-	return r.sendToAI(input)
+	return r.sendToAI(input, "", "")
 }
 
 // initCommands initializes the command registry with all available commands
@@ -2151,7 +2197,7 @@ func (r *REPL) initCommands() {
 				buf.Write(data)
 				buf.WriteString("\n")
 			}
-			return r.sendToAI(buf.String())
+			return r.sendToAI(buf.String(), "", "")
 		},
 	}
 
@@ -2601,7 +2647,7 @@ func (r *REPL) handlePromptCommand(input string) error {
 	}
 
 	// Send expanded input to AI
-	return r.sendToAI(expandedInput)
+	return r.sendToAI(expandedInput, "", "")
 }
 
 // listPrompts lists all .md files in the promptdir
