@@ -259,9 +259,11 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			}
 
 			// Add character to code block content
-			r.currentElement.Content += string(c)
 			if c == '\n' {
+				r.currentElement.Content += "\r\n"
 				r.isInLineStart = true
+			} else {
+				r.currentElement.Content += string(c)
 			}
 			continue
 		}
@@ -344,11 +346,24 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			continue
 		}
 
-		if c == ']' && r.collectingLinkText && i+1 < len(runes) && runes[i+1] == '(' {
-			r.collectingLinkText = false
-			r.collectingLinkURL = true
-			i++ // Skip the opening (
-			continue
+		if c == ']' && r.collectingLinkText {
+			if i+1 < len(runes) && runes[i+1] == '(' {
+				r.collectingLinkText = false
+				r.collectingLinkURL = true
+				i++ // Skip the opening (
+				continue
+			} else {
+				// Not a valid link, treat as regular text
+				r.linkTextBuffer += "]"
+				r.collectingLinkText = false
+				// Add the collected text as regular content
+				if r.currentElement.Content != "" {
+					result.WriteString(r.currentElement.Content)
+				}
+				r.currentElement.Content = "[" + r.linkTextBuffer
+				r.linkTextBuffer = ""
+				continue
+			}
 		}
 
 		if c == ')' && r.collectingLinkURL {
@@ -388,6 +403,32 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				r.collectingBlockquote = false
 				result.WriteString(QuoteColor + r.currentElement.Content + Reset)
 				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+			} else if r.collectingLinkText {
+				// Incomplete link, treat as regular text
+				result.WriteString("[" + r.linkTextBuffer)
+				r.collectingLinkText = false
+				r.linkTextBuffer = ""
+			} else if r.collectingLinkURL {
+				// Incomplete link, treat as regular text
+				result.WriteString("[" + r.linkTextBuffer + "](" + r.currentElement.Content)
+				r.collectingLinkURL = false
+				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+				r.linkTextBuffer = ""
+			} else if r.collectingInlineCode {
+				// Incomplete inline code, treat as regular text
+				result.WriteString("`" + r.currentElement.Content)
+				r.collectingInlineCode = false
+				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+			} else if r.collectingBold {
+				// Incomplete bold, treat as regular text
+				result.WriteString(string(r.boldMarker) + string(r.boldMarker) + r.currentElement.Content)
+				r.collectingBold = false
+				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+			} else if r.collectingItalic {
+				// Incomplete italic, treat as regular text
+				result.WriteString(string(r.italicMarker) + r.currentElement.Content)
+				r.collectingItalic = false
+				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 			} else if r.currentElement.Type == TextElement && r.currentElement.Content != "" {
 				result.WriteString(r.currentElement.Content)
 				r.currentElement.Content = ""
@@ -417,52 +458,95 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 		r.currentElement.Content = ""
 	}
 
-	res := result.String()
-	return strings.ReplaceAll(res, "\n", "\n\r")
+	// Handle incomplete states
+	if r.collectingLinkText {
+		result.WriteString("[" + r.linkTextBuffer)
+		r.collectingLinkText = false
+		r.linkTextBuffer = ""
+	} else if r.collectingLinkURL {
+		result.WriteString("[" + r.linkTextBuffer + "](" + r.currentElement.Content)
+		r.collectingLinkURL = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+		r.linkTextBuffer = ""
+	} else if r.collectingInlineCode {
+		result.WriteString("`" + r.currentElement.Content)
+		r.collectingInlineCode = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.collectingBold {
+		result.WriteString(string(r.boldMarker) + string(r.boldMarker) + r.currentElement.Content)
+		r.collectingBold = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.collectingItalic {
+		result.WriteString(string(r.italicMarker) + r.currentElement.Content)
+		r.collectingItalic = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	}
+
+	return result.String()
 }
 
 // Flush handles any remaining content in the buffer
 // This is used in streaming mode to finish processing
 func (r *MarkdownRenderer) Flush() string {
-	if r.currentElement.Content == "" {
-		return ""
-	}
-
 	var result strings.Builder
 
-	// Format based on current element type
-	switch r.currentElement.Type {
-	case HeaderElement:
-		switch r.headerLevel {
-		case 1:
-			result.WriteString(H1Color + r.currentElement.Content + Reset)
-		case 2:
-			result.WriteString(H2Color + r.currentElement.Content + Reset)
-		case 3:
-			result.WriteString(H3Color + r.currentElement.Content + Reset)
-		case 4:
-			result.WriteString(H4Color + r.currentElement.Content + Reset)
-		case 5:
-			result.WriteString(H5Color + r.currentElement.Content + Reset)
-		case 6:
-			result.WriteString(H6Color + r.currentElement.Content + Reset)
+	// Handle incomplete states first
+	if r.collectingLinkText {
+		result.WriteString("[" + r.linkTextBuffer)
+		r.collectingLinkText = false
+		r.linkTextBuffer = ""
+	} else if r.collectingLinkURL {
+		result.WriteString("[" + r.linkTextBuffer + "](" + r.currentElement.Content)
+		r.collectingLinkURL = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+		r.linkTextBuffer = ""
+	} else if r.collectingInlineCode {
+		result.WriteString("`" + r.currentElement.Content)
+		r.collectingInlineCode = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.collectingBold {
+		result.WriteString(string(r.boldMarker) + string(r.boldMarker) + r.currentElement.Content)
+		r.collectingBold = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.collectingItalic {
+		result.WriteString(string(r.italicMarker) + r.currentElement.Content)
+		r.collectingItalic = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.currentElement.Content != "" {
+		// Format based on current element type
+		switch r.currentElement.Type {
+		case HeaderElement:
+			switch r.headerLevel {
+			case 1:
+				result.WriteString(H1Color + r.currentElement.Content + Reset)
+			case 2:
+				result.WriteString(H2Color + r.currentElement.Content + Reset)
+			case 3:
+				result.WriteString(H3Color + r.currentElement.Content + Reset)
+			case 4:
+				result.WriteString(H4Color + r.currentElement.Content + Reset)
+			case 5:
+				result.WriteString(H5Color + r.currentElement.Content + Reset)
+			case 6:
+				result.WriteString(H6Color + r.currentElement.Content + Reset)
+			}
+		case ListItemElement:
+			result.WriteString(ListItemColor + "• " + r.currentElement.Content + Reset)
+		case BlockquoteElement:
+			result.WriteString(QuoteColor + r.currentElement.Content + Reset)
+		case CodeBlockElement:
+			result.WriteString(CodeBlockColor + r.currentElement.Content + Reset)
+		case InlineCodeElement:
+			result.WriteString(InlineCodeColor + r.currentElement.Content + Reset)
+		case BoldElement:
+			result.WriteString(BoldColor + r.currentElement.Content + Reset)
+		case ItalicElement:
+			result.WriteString(ItalicColor + r.currentElement.Content + Reset)
+		case LinkElement:
+			result.WriteString(LinkColor + r.linkTextBuffer + Reset + " (" + LinkColor + r.currentElement.Content + Reset + ")")
+		case TextElement:
+			result.WriteString(r.currentElement.Content)
 		}
-	case ListItemElement:
-		result.WriteString(ListItemColor + "• " + r.currentElement.Content + Reset)
-	case BlockquoteElement:
-		result.WriteString(QuoteColor + r.currentElement.Content + Reset)
-	case CodeBlockElement:
-		result.WriteString(CodeBlockColor + r.currentElement.Content + Reset)
-	case InlineCodeElement:
-		result.WriteString(InlineCodeColor + r.currentElement.Content + Reset)
-	case BoldElement:
-		result.WriteString(BoldColor + r.currentElement.Content + Reset)
-	case ItalicElement:
-		result.WriteString(ItalicColor + r.currentElement.Content + Reset)
-	case LinkElement:
-		result.WriteString(LinkColor + r.linkTextBuffer + Reset + " (" + LinkColor + r.currentElement.Content + Reset + ")")
-	case TextElement:
-		result.WriteString(r.currentElement.Content)
 	}
 
 	// Reset the current element
