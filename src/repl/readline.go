@@ -35,6 +35,12 @@ type ReadLine struct {
 	// Line continuation support
 	isContinuation     bool     // Whether we are in line continuation mode
 	continuationBuffer []string // Lines collected in continuation mode
+	// Reverse search support
+	isSearchMode   bool   // Whether we are in reverse search mode
+	searchQuery    string // Current search query
+	searchIndex    int    // Current position in search results
+	searchMatches  []int  // Indices of history items that match the search
+	originalBuffer []rune // Buffer content before entering search mode
 }
 
 // NewReadLine creates a new ReadLine instance
@@ -76,6 +82,11 @@ func NewReadLine() (*ReadLine, error) {
 		heredocBuffer:      nil,
 		isContinuation:     false,
 		continuationBuffer: nil,
+		isSearchMode:       false,
+		searchQuery:        "",
+		searchIndex:        0,
+		searchMatches:      nil,
+		originalBuffer:     nil,
 	}
 	r.Restore()
 	return r, nil
@@ -141,6 +152,15 @@ func (r *ReadLine) isHeredocSyntax() (bool, string) {
 	return false, ""
 }
 
+func (r *ReadLine) Interrupted() {
+	// this function aims to be called by the Interrupt handler
+	r.isSearchMode = false
+	r.searchQuery = ""
+	r.searchIndex = 0
+	r.searchMatches = nil
+	r.originalBuffer = nil
+}
+
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
 	r.prompt = r.defaultPrompt
@@ -196,6 +216,12 @@ func (r *ReadLine) Read() (string, error) {
 					r.isHeredoc = false
 					r.heredocDelim = ""
 					r.heredocBuffer = nil
+					// Reset search mode if active
+					r.isSearchMode = false
+					r.searchQuery = ""
+					r.searchIndex = 0
+					r.searchMatches = nil
+					r.originalBuffer = nil
 					// Clear buffer for next input while preserving history
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -237,6 +263,12 @@ func (r *ReadLine) Read() (string, error) {
 					// Reset continuation state
 					r.isContinuation = false
 					r.continuationBuffer = nil
+					// Reset search mode if active
+					r.isSearchMode = false
+					r.searchQuery = ""
+					r.searchIndex = 0
+					r.searchMatches = nil
+					r.originalBuffer = nil
 					// Clear buffer for next input
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -288,6 +320,12 @@ func (r *ReadLine) Read() (string, error) {
 			}
 
 			// Regular line input (not heredoc or continuation)
+			// Reset search mode if somehow still active
+			r.isSearchMode = false
+			r.searchQuery = ""
+			r.searchIndex = 0
+			r.searchMatches = nil
+			r.originalBuffer = nil
 			// Clear buffer for next input while preserving history
 			r.buffer = r.buffer[:0]
 			r.cursorPos = 0
@@ -319,6 +357,7 @@ func (r *ReadLine) Read() (string, error) {
 			// the OS signal handler to intercept Ctrl+C first. But we keep it for robustness.
 			fmt.Print("^C\n")
 			r.buffer = r.buffer[:0]
+			r.isSearchMode = false
 			r.cursorPos = 0
 			r.scrollPos = 0
 			// Call the interrupt function if set
@@ -349,7 +388,15 @@ func (r *ReadLine) Read() (string, error) {
 			r.navigateHistory(1)
 			continue
 
+		case 18: // Ctrl+R (reverse search)
+			r.startReverseSearch()
+			continue
+
 		case 9: // Tab (completion)
+			// Exit search mode if active before returning tab
+			if r.isSearchMode {
+				r.exitSearchMode()
+			}
 			// Return a special value to indicate tab was pressed
 			// This will be handled by the REPL's tab completion logic
 			return "\t", nil
@@ -359,38 +406,11 @@ func (r *ReadLine) Read() (string, error) {
 			continue
 
 		default:
-			// Handle ASCII printable characters directly
-			if b >= 32 && b <= 126 {
-				r.insertRune(rune(b))
-				r.refreshLine()
-			} else if b >= 128 {
-				// This is the start of a UTF-8 multi-byte sequence
-				// Determine how many bytes are in this character
-				totalBytes := 0
-				if b&0xE0 == 0xC0 { // 2 bytes
-					totalBytes = 2
-				} else if b&0xF0 == 0xE0 { // 3 bytes
-					totalBytes = 3
-				} else if b&0xF8 == 0xF0 { // 4 bytes
-					totalBytes = 4
-				}
-
-				if totalBytes > 1 {
-					// Already read first byte, read remaining bytes
-					for i := 1; i < totalBytes; i++ {
-						n, err := os.Stdin.Read(buf[i : i+1])
-						if err != nil || n == 0 {
-							// If error reading additional bytes, skip this character
-							break
-						}
-					}
-					// Convert complete sequence to rune and insert
-					char, _ := utf8.DecodeRune(buf[:totalBytes])
-					if char != utf8.RuneError {
-						r.insertRune(char)
-						r.refreshLine()
-					}
-				}
+			// Handle input based on current mode
+			if r.isSearchMode {
+				r.handleSearchInput(b, buf)
+			} else {
+				r.handleNormalInput(b, buf)
 			}
 		}
 	}
@@ -674,4 +694,198 @@ func (r *ReadLine) navigateHistory(direction int) {
 	}
 
 	r.refreshLine()
+}
+
+// startReverseSearch initiates reverse search mode
+func (r *ReadLine) startReverseSearch() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.history) == 0 {
+		return
+	}
+
+	// Save the current buffer content
+	r.originalBuffer = make([]rune, len(r.buffer))
+	copy(r.originalBuffer, r.buffer)
+
+	r.isSearchMode = true
+	r.searchQuery = ""
+	r.searchIndex = 0
+	r.searchMatches = nil
+
+	// Find all matches for empty query (all history items)
+	for i := len(r.history) - 1; i >= 0; i-- {
+		r.searchMatches = append(r.searchMatches, i)
+	}
+
+	if len(r.searchMatches) > 0 {
+		r.showSearchResult()
+	} else {
+		r.showSearchPrompt()
+	}
+}
+
+// updateSearchQuery updates the search query and finds new matches
+func (r *ReadLine) updateSearchQuery(query string) {
+	r.searchQuery = query
+	r.searchMatches = nil
+	r.searchIndex = 0
+
+	// Find matches in reverse order
+	for i := len(r.history) - 1; i >= 0; i-- {
+		if strings.Contains(r.history[i], query) {
+			r.searchMatches = append(r.searchMatches, i)
+		}
+	}
+
+	if len(r.searchMatches) > 0 {
+		r.showSearchResult()
+	} else {
+		r.showSearchPrompt()
+	}
+}
+
+// showSearchResult displays the current search match
+func (r *ReadLine) showSearchResult() {
+	if len(r.searchMatches) == 0 || r.searchIndex >= len(r.searchMatches) {
+		return
+	}
+
+	matchIdx := r.searchMatches[r.searchIndex]
+	historyItem := r.history[matchIdx]
+
+	// Set buffer to the matched history item
+	r.buffer = []rune(historyItem)
+	r.cursorPos = len(r.buffer)
+	r.scrollPos = 0
+	if r.cursorPos >= r.width {
+		r.scrollPos = r.cursorPos - r.width + 1
+	}
+
+	r.showSearchPrompt()
+}
+
+// showSearchPrompt displays the search prompt with current query and match info
+func (r *ReadLine) showSearchPrompt() {
+	// Clear current line
+	fmt.Print("\r\033[K")
+
+	// Show search prompt
+	if len(r.searchMatches) > 0 && r.searchIndex < len(r.searchMatches) {
+		matchIdx := r.searchMatches[r.searchIndex]
+		// Replace newlines with spaces to avoid display issues with multi-line entries
+		displayText := strings.ReplaceAll(r.history[matchIdx], "\n", " ")
+		fmt.Printf("(reverse-i-search)`%s': %s", r.searchQuery, displayText)
+	} else {
+		fmt.Printf("(failed reverse-i-search)`%s': ", r.searchQuery)
+	}
+}
+
+// nextSearchResult moves to the next search result
+func (r *ReadLine) nextSearchResult() {
+	if len(r.searchMatches) == 0 {
+		return
+	}
+
+	r.searchIndex = (r.searchIndex + 1) % len(r.searchMatches)
+	r.showSearchResult()
+}
+
+// exitSearchMode exits reverse search mode and restores normal input
+func (r *ReadLine) exitSearchMode() {
+	r.isSearchMode = false
+	r.searchQuery = ""
+	r.searchIndex = 0
+	r.searchMatches = nil
+
+	// Restore the original buffer content
+	if r.originalBuffer != nil {
+		r.buffer = make([]rune, len(r.originalBuffer))
+		copy(r.buffer, r.originalBuffer)
+		r.cursorPos = len(r.buffer)
+		r.scrollPos = 0
+		if r.cursorPos >= r.width {
+			r.scrollPos = r.cursorPos - r.width + 1
+		}
+		r.originalBuffer = nil
+	}
+
+	// Clear the search prompt and show normal prompt
+	fmt.Print("\r\033[K")
+	fmt.Printf("\x1b[33m%s ", r.prompt)
+	r.refreshLine()
+}
+
+// acceptSearchResult accepts the current search result and exits search mode
+func (r *ReadLine) acceptSearchResult() {
+	r.isSearchMode = false
+	r.searchQuery = ""
+	r.searchIndex = 0
+	r.searchMatches = nil
+	r.originalBuffer = nil
+	// Keep the current buffer content
+}
+
+// handleSearchInput handles input when in reverse search mode
+func (r *ReadLine) handleSearchInput(b byte, buf []byte) {
+	switch b {
+	case '\r', '\n': // Enter - accept current result
+		r.acceptSearchResult()
+		r.refreshLine()
+	case 27: // Escape - exit search mode
+		r.exitSearchMode()
+	case 18: // Ctrl+R - cycle to next result
+		r.nextSearchResult()
+	case 3: // Ctrl+C - exit search mode
+		r.exitSearchMode()
+	default:
+		// Handle ASCII printable characters for search query
+		if b >= 32 && b <= 126 {
+			r.searchQuery += string(b)
+			r.updateSearchQuery(r.searchQuery)
+		} else if b == 127 || b == 8 { // Backspace
+			if len(r.searchQuery) > 0 {
+				r.searchQuery = r.searchQuery[:len(r.searchQuery)-1]
+				r.updateSearchQuery(r.searchQuery)
+			}
+		}
+	}
+}
+
+// handleNormalInput handles normal input when not in search mode
+func (r *ReadLine) handleNormalInput(b byte, buf []byte) {
+	// Handle ASCII printable characters directly
+	if b >= 32 && b <= 126 {
+		r.insertRune(rune(b))
+		r.refreshLine()
+	} else if b >= 128 {
+		// This is the start of a UTF-8 multi-byte sequence
+		// Determine how many bytes are in this character
+		totalBytes := 0
+		if b&0xE0 == 0xC0 { // 2 bytes
+			totalBytes = 2
+		} else if b&0xF0 == 0xE0 { // 3 bytes
+			totalBytes = 3
+		} else if b&0xF8 == 0xF0 { // 4 bytes
+			totalBytes = 4
+		}
+
+		if totalBytes > 1 {
+			// Already read first byte, read remaining bytes
+			for i := 1; i < totalBytes; i++ {
+				n, err := os.Stdin.Read(buf[i : i+1])
+				if err != nil || n == 0 {
+					// If error reading additional bytes, skip this character
+					break
+				}
+			}
+			// Convert complete sequence to rune and insert
+			char, _ := utf8.DecodeRune(buf[:totalBytes])
+			if char != utf8.RuneError {
+				r.insertRune(char)
+				r.refreshLine()
+			}
+		}
+	}
 }

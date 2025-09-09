@@ -441,6 +441,7 @@ func (r *REPL) saveHistory() error {
 // interruptResponse interrupts the current LLM response if one is being generated
 func (r *REPL) interruptResponse() {
 	r.mu.Lock()
+	r.readline.Interrupted()
 	isStreaming := r.isStreaming
 	r.mu.Unlock()
 
