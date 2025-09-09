@@ -1,6 +1,6 @@
 include config.mk
 
-.PHONY: all run clean deps
+.PHONY: all run clean deps install uninstall
 
 all:
 	$(MAKE) -C src/wmcp
@@ -20,6 +20,13 @@ install:
 	$(MAKE) -C src/tool install
 	$(MAKE) -C src/mcps install
 	$(MAKE) -C src/vdb install
+
+uninstall:
+	$(MAKE) -C src/wmcp uninstall
+	$(MAKE) -C src/repl uninstall
+	$(MAKE) -C src/tool uninstall
+	$(MAKE) -C src/mcps uninstall
+	$(MAKE) -C src/vdb uninstall
 
 run:
 	go run $(MAIN_FILE)

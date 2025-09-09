@@ -9,3 +9,6 @@ indent fmt:
 install:
 	mkdir -p $(DESTDIR)/$(PREFIX)/bin
 	ln -fs $(shell pwd)/mai-vdb $(DESTDIR)/$(PREFIX)/bin/mai-vdb
+
+uninstall:
+	rm -f $(DESTDIR)/$(PREFIX)/bin/mai-vdb
