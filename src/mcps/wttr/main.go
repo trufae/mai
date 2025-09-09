@@ -1,10 +1,16 @@
 package main
 
 import (
+	"flag"
+	"log"
+
 	"mcplib"
 )
 
 func main() {
+	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
+	flag.Parse()
+
 	// Create the weather service
 	weatherService := NewWeatherService()
 
@@ -18,5 +24,11 @@ func main() {
 	server.RegisterTool("getWeather", WeatherToolHandler(weatherService))
 
 	// Start the server
-	server.Start()
+	if *listen != "" {
+		if err := server.ServeTCP(*listen); err != nil {
+			log.Fatalln("ServeTCP:", err)
+		}
+	} else {
+		server.Start()
+	}
 }

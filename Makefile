@@ -3,16 +3,13 @@ include config.mk
 .PHONY: all run clean deps install uninstall
 
 all:
-	$(MAKE) -C src/wmcp
-	$(MAKE) -C src/mcps
-	$(MAKE) -C src/repl
-	$(MAKE) -C src/tool
+	$(MAKE) -C src
 
 fmt:
+	$(MAKE) -C src/mcps indent
 	go fmt $(shell ls src/repl/*.go )
 	go fmt $(shell ls src/wmcp/*.go )
 	go fmt $(shell ls src/tool/*.go )
-	for a in src/mcps/* ; do ( go fmt $$a/*.go ) ; done
 
 install:
 	$(MAKE) -C src/wmcp install

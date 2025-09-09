@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 )
 
@@ -74,6 +75,39 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		reader:       bufio.NewScanner(os.Stdin),
 		writer:       os.Stdout,
 	}
+}
+
+// SetIO allows overriding the server's input/output streams.
+// By default the server uses stdin/stdout; calling SetIO enables
+// serving MCP over arbitrary io.Readers/Writers (e.g. TCP connections).
+func (s *MCPServer) SetIO(r io.Reader, w io.Writer) {
+	if r != nil {
+		s.reader = bufio.NewScanner(r)
+	}
+	if w != nil {
+		s.writer = w
+	}
+}
+
+// ServeTCP listens on the provided TCP address (host:port), accepts a
+// single connection and serves MCP requests over that connection.
+// Returns when the connection closes or on error.
+func (s *MCPServer) ServeTCP(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	conn, err := ln.Accept()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	// Use the connection for both read/write
+	s.SetIO(conn, conn)
+	// This will block until the connection is closed
+	s.Start()
+	return nil
 }
 
 // RegisterTool registers a tool handler for a specific tool name

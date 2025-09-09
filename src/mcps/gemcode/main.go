@@ -1,10 +1,16 @@
 package main
 
 import (
+	"flag"
+	"log"
+
 	"mcplib"
 )
 
 func main() {
+	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
+	flag.Parse()
+
 	gemcodeService := NewGemCodeService()
 
 	// Get all tools from the service
@@ -33,5 +39,11 @@ func main() {
 	server.SetPrompts(getSamplePrompts())
 
 	// Start the server - this will block until the server is stopped
-	server.Start()
+	if *listen != "" {
+		if err := server.ServeTCP(*listen); err != nil {
+			log.Fatalln("ServeTCP:", err)
+		}
+	} else {
+		server.Start()
+	}
 }
