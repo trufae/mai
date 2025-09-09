@@ -379,7 +379,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		isDone := false
-		content := ""
+		raw := ""
 		if p.config.Rawdog {
 			var response struct {
 				Response string `json:"response""`
@@ -390,10 +390,8 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 				continue
 			}
 
-			// Format content based on markdown setting
-			content = response.Response
+			raw = response.Response
 			isDone = response.Done
-			fmt.Println(content)
 		} else {
 			var response struct {
 				Message struct {
@@ -407,22 +405,17 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 				continue
 			}
 			if response.Response != "" {
-				content = response.Response
+				raw = response.Response
 			} else {
-				// Format content based on markdown setting
-				content = response.Message.Content
+				raw = response.Message.Content
 			}
 			isDone = response.Done
 		}
-		if !markdownEnabled {
-			// Standard formatting - just replace newlines for terminal display
-			content = strings.ReplaceAll(content, "\n", "\n\r")
-		} else {
-			// Format the content using our streaming-friendly formatter
-			content = FormatStreamingChunk(content, markdownEnabled)
-		}
-		fmt.Print(content)
-		fullResponse.WriteString(content) // response.Message.Content)
+
+		// Format for printing only, keep raw for storage
+		formatted := FormatStreamingChunk(raw, markdownEnabled)
+		fmt.Print(formatted)
+		fullResponse.WriteString(raw)
 
 		if isDone {
 			break
