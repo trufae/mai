@@ -10,16 +10,21 @@ body {
     margin: 0 auto;
     background: white;
     min-height: 100vh;
+    height: 100vh; /* Ensure full-viewport layout so only chat scrolls */
     display: flex;
     flex-direction: column;
 }
 .header {
     background: #2c3e50;
     color: white;
-    padding: 15px;
+    padding: 5px;
     display: flex;
     align-items: center;
     gap: 15px;
+}
+/* Align status to the right within header */
+.header .status {
+    margin-left: auto;
 }
 .menu-toggle {
     background: none;
@@ -49,6 +54,9 @@ body {
     flex-direction: column;
     padding: 15px;
     box-sizing: border-box;
+    /* Let messages be the scrolling area, keep input visible */
+    overflow: hidden;
+    min-height: 0; /* Allow flex child (.messages) to shrink and scroll */
 }
 
 /* Mobile styles */
@@ -137,7 +145,7 @@ body {
     overflow-y: auto;
     background: #fafafa;
     margin-bottom: 15px;
-    min-height: 300px;
+    min-height: 0; /* Avoid forcing input off-screen on short viewports */
 }
 .message {
     margin-bottom: 12px;
@@ -204,7 +212,7 @@ body {
 @media (max-width: 768px) {
     .messages {
         padding: 8px;
-        min-height: 250px;
+        min-height: 0;
     }
     .message {
         padding: 10px;
@@ -253,8 +261,32 @@ body {
         background: rgba(0, 0, 0, 0.5);
         z-index: 999;
         display: none;
-    }
+}
     .sidebar-overlay.show {
         display: block;
+    }
+}
+
+/* Wide screens: make provider bar full-width and button right-aligned */
+@media (min-width: 768px) {
+    .sidebar {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .provider-model-row {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 0;
+    }
+    .sidebar select {
+        margin-bottom: 0;
+    }
+    .sidebar button {
+        width: auto; /* override 100% width in sidebar */
+        margin-left: auto; /* push to the right */
     }
 }

@@ -34,10 +34,10 @@ async function checkStatus() {
         const statusDiv = document.getElementById('status');
         if (data.server === 'running') {
             statusDiv.className = 'status online';
-            statusDiv.textContent = 'MAI REPL Server Online';
+            statusDiv.textContent = 'Online';
         } else {
             statusDiv.className = 'status offline';
-            statusDiv.textContent = 'MAI REPL Server Offline';
+            statusDiv.textContent = 'Offline';
         }
     } catch (error) {
         document.getElementById('status').textContent = 'Cannot connect to MAI REPL server';
@@ -50,10 +50,8 @@ async function loadConfig() {
         const response = await fetch('/api/config');
         const config = await response.json();
 
-        document.getElementById('provider').value = config.provider || 'ollama';
-        document.getElementById('stream').value = config.stream || 'true';
-        document.getElementById('max_tokens').value = config.max_tokens || '5128';
-        document.getElementById('temperature').value = config.temperature || '0.7';
+        const providerEl = document.getElementById('provider');
+        if (providerEl) providerEl.value = config.provider || 'ollama';
 
         // Load models for the current provider
         await loadModelsForProvider(config.provider || 'ollama', config.model || 'gemma3:1b');
@@ -120,7 +118,7 @@ async function updateProvider() {
 
     // Disable button and show loading
     updateButton.disabled = true;
-    updateButton.textContent = 'Updating...';
+    updateButton.textContent = 'Refreshing...';
 
     try {
         // First load models for the new provider
@@ -141,21 +139,19 @@ async function updateProvider() {
     } finally {
         // Re-enable button
         updateButton.disabled = false;
-        updateButton.textContent = 'Update Provider';
+        updateButton.textContent = 'Refresh';
     }
 }
 
 // Update settings
 async function updateSettings() {
-    const stream = document.getElementById('stream').value;
-    const max_tokens = document.getElementById('max_tokens').value;
-    const temperature = document.getElementById('temperature').value;
+    const payload = {};
 
     try {
         await fetch('/api/config/set', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stream, max_tokens, temperature })
+            body: JSON.stringify(payload)
         });
         addMessage('System', 'Settings updated', 'system');
     } catch (error) {
@@ -215,7 +211,8 @@ async function sendMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message: message,
-                stream: document.getElementById('stream').value === 'true'
+                // Default to true if the #stream control is missing
+                stream: (document.getElementById('stream') ? document.getElementById('stream').value === 'true' : true)
             })
         });
 

@@ -3,19 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MAI REPL Web Interface</title>
+    <title>MAI Web Interface</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <div class="header">
             <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
-            <h1>MAI</h1>
-            <div id="status" class="status offline">Connecting...</div>
+	    <div id="status" class="status offline">Connecting...</div> <!-- TODO: align to the right -->
         </div>
 
         <div class="sidebar" id="sidebar">
-            <h3>Provider & Model</h3>
+            <h3>MAI</h3>
             <div class="provider-model-row">
                 <select id="provider">
                     <option value="ollama">Ollama</option>
@@ -32,7 +31,7 @@
                 </select>
             </div>
 
-            <button onclick="updateProvider()">Update Provider</button>
+            <button onclick="updateProvider()">Refresh</button>
 
         </div>
 
