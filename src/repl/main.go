@@ -82,8 +82,6 @@ func loadConfig() *llm.Config {
 		}
 	}
 
-	// MAI_MODEL deprecated: model selection is handled via REPL config options
-
 	// Load API keys from files if environment variables are not set
 	if config.GeminiKey == "" {
 		if key := readKeyFile("~/.r2ai.gemini-key"); key != "" {
@@ -220,6 +218,8 @@ func showHelp() {
 -m <model>       select the model for the given provider
 	-n               do not load rc file and disable REPL history
 -p <provider>    select the provider to use
+-q               quit after running given actions
+-s <string>      send string directly to AI (can be used multiple times)
 -t               enable tools processing
 .mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
 .mai/history.json (project or ~/.mai) : REPL command history file (JSON array)
@@ -294,6 +294,12 @@ func main() {
 	}
 
 	config := loadConfig()
+
+	// Slice to store script strings from -s flags
+	var scriptStrings []string
+
+	// Flag to quit after running actions
+	quitAfterActions := false
 
 	// For backwards compatibility - check if API env var is set
 	if apiVal := os.Getenv("API"); apiVal != "" && os.Getenv("MAI_PROVIDER") == "" {
@@ -394,11 +400,55 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -c requires a config key=value pair\n")
 				os.Exit(1)
 			}
+		case "-q":
+			quitAfterActions = true
+			args = append(args[:i], args[i+1:]...)
+			i--
+		case "-s":
+			if i+1 < len(args) {
+				scriptStrings = append(scriptStrings, args[i+1])
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -s requires a string argument\n")
+				os.Exit(1)
+			}
 		}
 	}
 
 	// Apply -c options into the llm.Config so both REPL and stdin modes see them
 	applyConfigOptionsToLLMConfig(config, configOptions)
+
+	// Send strings from -s flags to AI if any
+	if len(scriptStrings) > 0 {
+		// Apply config options to LLM config
+		applyConfigOptionsToLLMConfig(config, configOptions)
+
+		// Create LLM client
+		client, err := llm.NewLLMClient(config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
+			os.Exit(1)
+		}
+
+		for _, scriptString := range scriptStrings {
+			fmt.Printf("Sending to AI: %s\n", scriptString)
+
+			// Prepare messages from the string
+			messages := llm.PrepareMessages(scriptString)
+
+			// Send to LLM without streaming
+			res, err := client.SendMessage(messages, false, nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error sending to AI: %v\n", err)
+			} else {
+				fmt.Println(res)
+			}
+		}
+		if quitAfterActions {
+			return
+		}
+	}
 
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))

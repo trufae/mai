@@ -1565,6 +1565,41 @@ func (r *REPL) generateAndSetTopic() (string, error) {
 	return full, nil
 }
 
+// handleScriptCommand executes a script file containing REPL commands
+func (r *REPL) handleScriptCommand(scriptPath string) error {
+	// Expand ~ to home directory
+	if strings.HasPrefix(scriptPath, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %v", err)
+		}
+		scriptPath = filepath.Join(homeDir, scriptPath[1:])
+	}
+
+	// Read the script file
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return fmt.Errorf("failed to read script file: %v", err)
+	}
+
+	// Split into lines and execute each command
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments
+		}
+
+		fmt.Printf("> %s\n", line)
+		err := r.handleCommand(line)
+		if err != nil {
+			return fmt.Errorf("error executing command '%s': %v", line, err)
+		}
+	}
+
+	return nil
+}
+
 func (r *REPL) handleCommand(input string) error {
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
@@ -2083,6 +2118,19 @@ func (r *REPL) initCommands() {
 				buf.WriteString("\n")
 			}
 			return r.sendToAI(buf.String())
+		},
+	}
+
+	// Script command: execute a script file containing REPL commands
+	r.commands["/script"] = Command{
+		Name:        "/script",
+		Description: "Execute a script file containing REPL commands",
+		Handler: func(r *REPL, args []string) error {
+			if len(args) < 2 {
+				fmt.Print("Usage: /script <path>\n\r")
+				return nil
+			}
+			return r.handleScriptCommand(args[1])
 		},
 	}
 
