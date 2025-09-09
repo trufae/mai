@@ -1816,7 +1816,7 @@ func (r *REPL) sendToAI(input string) error {
 	// Handle conversation history based on logging and reply settings
 	if r.configOptions.GetBool("logging") {
 		// When logging is enabled, use normal message history behavior
-		if r.configOptions.GetBool("conversation_include_llm") {
+		if r.configOptions.GetBool("chat_replies") {
 			// Include all messages
 			messages = append(messages, r.messages...)
 		} else {
@@ -3088,7 +3088,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	}
 
 	// Add conversation history if we should include replies
-	if r.configOptions.GetBool("conversation_include_llm") && len(r.messages) > 0 {
+	if r.configOptions.GetBool("chat_replies") && len(r.messages) > 0 {
 		messages = append(messages, r.messages...)
 	}
 
@@ -3245,7 +3245,7 @@ func (r *REPL) displayConversationLog() {
 
 	fmt.Printf("Total messages: %d\r\n", len(r.messages))
 	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
-		r.configOptions.GetBool("conversation_include_llm"),
+		r.configOptions.GetBool("chat_replies"),
 		r.configOptions.GetBool("stream"),
 		r.configOptions.GetBool("reasoning"),
 		r.configOptions.GetBool("logging"))

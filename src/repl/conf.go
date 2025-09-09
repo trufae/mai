@@ -88,10 +88,9 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("vdblimit", StringOption, "Limit of entries to be used when calling mai-vdb", "5")
 
 	// Conversation formatting options (used when building a single prompt from history)
-	co.RegisterOption("conversation_include_llm", BooleanOption, "Include assistant/LLM messages when building a single prompt", "false")
-	co.RegisterOption("conversation_include_system", BooleanOption, "Include system messages when building a single prompt", "true")
-	co.RegisterOption("conversation_format", StringOption, "Conversation formatting: tokens, labeled, or plain", "plain")
-	co.RegisterOption("conversation_use_last_user", BooleanOption, "Only include the last user message when building a single prompt", "false")
+	co.RegisterOption("chat_replies", BooleanOption, "Include chat replies when building a single prompt", "false")
+	co.RegisterOption("chat_system", BooleanOption, "Include chat system messages when building a single prompt", "true")
+	co.RegisterOption("chat_format", StringOption, "Chat formatting: tokens, labeled, or plain", "plain")
 
 	// Server configuration
 	co.RegisterOption("listen", StringOption, "Listen address for the web server (host:port)", "0.0.0.0:9000")
@@ -337,27 +336,24 @@ func (r *REPL) handleSetCommand(args []string) error {
 		case "provider":
 			provider := strings.ToLower(val)
 			return r.setProvider(provider)
-		case "conversation_include_llm":
+		case "chat_replies":
 			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("conversation_include_llm", val)
+			r.configOptions.Set("chat_replies", val)
 			return nil
-		case "conversation_include_system":
+		case "chat_system":
 			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("conversation_include_system", val)
+			r.configOptions.Set("chat_system", val)
 			return nil
-		case "conversation_format":
+		case "chat_format":
 			// Accept plain, labeled, tokens
 			valLower := strings.ToLower(val)
 			if valLower != "plain" && valLower != "labeled" && valLower != "tokens" {
 				// still set, but warn
-				fmt.Printf("Warning: unknown conversation_format '%s'\n", val)
+				fmt.Printf("Warning: unknown chat_format '%s'\n", val)
 			}
-			r.configOptions.Set("conversation_format", valLower)
+			r.configOptions.Set("chat_format", valLower)
 			return nil
-		case "conversation_use_last_user":
-			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("conversation_use_last_user", val)
-			return nil
+
 		}
 	}
 	if len(args) < 2 {
@@ -421,7 +417,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s\r\n", streamStatus)
-	case "conversation_include_llm":
+	case "chat_replies":
 		fmt.Printf("Set %s = %s\r\n", option, value)
 	case "reasoning":
 		fmt.Printf("Set %s = %s\r\n", option, value)
@@ -535,7 +531,7 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
-	case "conversation_include_llm":
+	case "chat_replies":
 		fmt.Printf("Include replies reverted to default\r\n")
 	case "reasoning":
 		fmt.Printf("AI reasoning reverted to default\r\n")
