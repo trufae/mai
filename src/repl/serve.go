@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +34,8 @@ type ServerManager struct {
 	config     *llm.Config
 	llmClient  *llm.LLMClient
 	listenAddr string
+	wwwRoot    string
+	repl       *REPL
 }
 
 // Global server manager instance
@@ -116,11 +121,13 @@ type GenerateResponse struct {
 }
 
 // NewServerManager creates a new server manager
-func NewServerManager(config *llm.Config, listenAddr string) *ServerManager {
+func NewServerManager(config *llm.Config, listenAddr string, wwwRoot string, repl *REPL) *ServerManager {
 	return &ServerManager{
 		status:     ServerStopped,
 		config:     config,
 		listenAddr: listenAddr,
+		wwwRoot:    wwwRoot,
+		repl:       repl,
 	}
 }
 
@@ -145,6 +152,17 @@ func (sm *ServerManager) Start() error {
 
 	// Create HTTP server
 	mux := http.NewServeMux()
+
+	// Static file serving
+	wwwRoot := sm.wwwRoot
+	if wwwRoot != "" {
+		absPath, err := filepath.Abs(wwwRoot)
+		if err == nil {
+			mux.Handle("/", http.FileServer(http.Dir(absPath)))
+		}
+	}
+
+	// API endpoints
 	mux.HandleFunc("/v1/models", sm.handleModels)
 	mux.HandleFunc("/v1/chat/completions", sm.handleChatCompletions)
 	mux.HandleFunc("/health", sm.handleHealth)
@@ -152,6 +170,14 @@ func (sm *ServerManager) Start() error {
 	// Additional simplified endpoints
 	mux.HandleFunc("/api/chat", sm.handleSimpleChat)
 	mux.HandleFunc("/api/generate", sm.handleGenerate)
+
+	// Web interface API endpoints
+	mux.HandleFunc("/api/config", sm.handleGetConfig)
+	mux.HandleFunc("/api/config/set", sm.handleSetConfig)
+	mux.HandleFunc("/api/sessions", sm.handleGetSessions)
+	mux.HandleFunc("/api/session/load", sm.handleLoadSession)
+	mux.HandleFunc("/api/session/save", sm.handleSaveSession)
+	mux.HandleFunc("/api/models/", sm.handleGetProviderModels)
 
 	sm.server = &http.Server{
 		Addr:    sm.listenAddr,
@@ -164,7 +190,7 @@ func (sm *ServerManager) Start() error {
 		sm.status = ServerRunning
 		sm.mu.Unlock()
 
-		fmt.Printf("Server started on %s\n", sm.listenAddr)
+		// fmt.Printf("Server started on http://%s\n", sm.listenAddr)
 		if err := sm.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("Server error: %v", err)
 			sm.mu.Lock()
@@ -221,6 +247,73 @@ func (sm *ServerManager) GetStatusString() string {
 	default:
 		return "unknown"
 	}
+}
+
+// executeCommandWithCapture executes a REPL command and captures its output
+func (sm *ServerManager) executeCommandWithCapture(command string) (string, error) {
+	// Create pipes to capture both stdout and stderr
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		stdoutR.Close()
+		stdoutW.Close()
+		return "", fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
+
+	// Redirect stdout and stderr to the pipes
+	os.Stdout = stdoutW
+	os.Stderr = stderrW
+
+	// Execute the command
+	err = sm.repl.handleCommand(command)
+
+	// Restore stdout and stderr
+	stdoutW.Close()
+	stderrW.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	// Read the captured output from both pipes
+	var output strings.Builder
+
+	stdoutData, readErr := io.ReadAll(stdoutR)
+	stdoutR.Close()
+	if readErr != nil {
+		return "", fmt.Errorf("failed to read stdout: %v", readErr)
+	}
+
+	stderrData, readErr := io.ReadAll(stderrR)
+	stderrR.Close()
+	if readErr != nil {
+		return "", fmt.Errorf("failed to read stderr: %v", readErr)
+	}
+
+	// Combine stdout and stderr output
+	if len(stdoutData) > 0 {
+		output.Write(stdoutData)
+	}
+	if len(stderrData) > 0 {
+		if output.Len() > 0 {
+			output.WriteString("\n")
+		}
+		output.Write(stderrData)
+	}
+
+	// Return any execution error
+	if err != nil {
+		return "", err
+	}
+
+	// Clean up the output (remove trailing newlines and carriage returns)
+	cleanedOutput := strings.TrimRight(output.String(), "\n\r")
+
+	return cleanedOutput, nil
 }
 
 // handleModels handles the /v1/models endpoint
@@ -431,7 +524,30 @@ func (sm *ServerManager) handleSimpleChat(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Build messages
+	// Check if wwwrepl is enabled and message starts with "/"
+	wwwReplEnabled := sm.repl.configOptions.GetBool("wwwrepl")
+	if wwwReplEnabled && strings.HasPrefix(req.Message, "/") {
+		// Route through REPL command system with output capture
+		commandOutput, err := sm.executeCommandWithCapture(req.Message)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(SimpleChatResponse{
+				Response: "",
+				Error:    fmt.Sprintf("Command error: %v", err),
+			})
+			return
+		}
+
+		// Return the captured command output
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SimpleChatResponse{
+			Response: commandOutput,
+		})
+		return
+	}
+
+	// Build messages for normal LLM processing
 	var messages []llm.Message
 	if req.System != "" {
 		messages = append(messages, llm.Message{
@@ -511,6 +627,204 @@ func (sm *ServerManager) handleGenerate(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// handleGetConfig handles the /api/config endpoint - get current configuration
+func (sm *ServerManager) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if sm.repl == nil {
+		http.Error(w, "REPL not available", http.StatusInternalServerError)
+		return
+	}
+
+	config := make(map[string]interface{})
+	for _, key := range sm.repl.configOptions.GetKeys() {
+		config[key] = sm.repl.configOptions.Get(key)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(config)
+}
+
+// handleSetConfig handles the /api/config/set endpoint - set configuration
+func (sm *ServerManager) handleSetConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if sm.repl == nil {
+		http.Error(w, "REPL not available", http.StatusInternalServerError)
+		return
+	}
+
+	var config map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	for key, value := range config {
+		if err := sm.repl.configOptions.Set(key, value); err != nil {
+			http.Error(w, fmt.Sprintf("Error setting %s: %v", key, err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleGetSessions handles the /api/sessions endpoint - get available sessions
+func (sm *ServerManager) handleGetSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if sm.repl == nil {
+		http.Error(w, "REPL not available", http.StatusInternalServerError)
+		return
+	}
+
+	err := sm.repl.listSessions()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error listing sessions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// For now, return a simple response - the actual session listing is printed to stdout
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleLoadSession handles the /api/session/load endpoint - load a session
+func (sm *ServerManager) handleLoadSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if sm.repl == nil {
+		http.Error(w, "REPL not available", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Session name is required", http.StatusBadRequest)
+		return
+	}
+
+	err := sm.repl.loadSession(req.Name)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error loading session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleSaveSession handles the /api/session/save endpoint - save current session
+func (sm *ServerManager) handleSaveSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if sm.repl == nil {
+		http.Error(w, "REPL not available", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	sessionName := req.Name
+	if sessionName == "" {
+		sessionName = fmt.Sprintf("%d", time.Now().Unix())
+	}
+
+	err := sm.repl.saveSession(sessionName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": sessionName})
+}
+
+// handleGetProviderModels handles the /api/models/<provider> endpoint - get models for a specific provider
+func (sm *ServerManager) handleGetProviderModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract provider from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/api/models/")
+	if path == "" || path == r.URL.Path {
+		http.Error(w, "Provider not specified", http.StatusBadRequest)
+		return
+	}
+
+	provider := strings.ToLower(path)
+
+	// Create a temporary config with the requested provider
+	tempConfig := *sm.config
+	tempConfig.PROVIDER = provider
+
+	// Create a temporary LLM client for the requested provider
+	tempClient, err := llm.NewLLMClient(&tempConfig)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create client for provider %s: %v", provider, err), http.StatusInternalServerError)
+		return
+	}
+
+	// Get models for the requested provider
+	models, err := tempClient.ListModels()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to list models for provider %s: %v", provider, err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to simple format for web interface
+	type SimpleModel struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+
+	var simpleModels []SimpleModel
+	for _, model := range models {
+		simpleModels = append(simpleModels, SimpleModel{
+			ID:   model.ID,
+			Name: model.Name,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"provider": provider,
+		"models":   simpleModels,
+	})
+}
+
 // handleServeCommand handles the /serve command
 func (r *REPL) handleServeCommand(args []string) error {
 	if len(args) < 2 {
@@ -544,7 +858,23 @@ func (r *REPL) handleServeCommand(args []string) error {
 		// Create server manager if it doesn't exist
 		if serverManager == nil {
 			config := r.buildLLMConfig()
-			serverManager = NewServerManager(config, listenAddr)
+			wwwRoot := r.configOptions.Get("wwwroot")
+
+			// Resolve wwwroot to an absolute path
+			if wwwRoot != "" && !filepath.IsAbs(wwwRoot) {
+				// Get the executable directory as the base for relative paths
+				execPath, err := os.Executable()
+				if err == nil {
+					realPath, err := filepath.EvalSymlinks(execPath)
+					if err != nil {
+						realPath = execPath
+					}
+					execDir := filepath.Dir(realPath)
+					wwwRoot = filepath.Join(execDir, wwwRoot)
+				}
+			}
+
+			serverManager = NewServerManager(config, listenAddr, wwwRoot, r)
 		}
 
 		// Start the server
@@ -552,7 +882,7 @@ func (r *REPL) handleServeCommand(args []string) error {
 			return fmt.Errorf("failed to start server: %v", err)
 		}
 
-		fmt.Printf("Server started on %s\r\n", listenAddr)
+		fmt.Printf("Server started on http://%s\r\n", listenAddr)
 		return nil
 
 	case "stop":

@@ -67,6 +67,7 @@ func loadConfig() *llm.Config {
 		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
 		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
 		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
+		XAIKey:        os.Getenv("XAI_API_KEY"),
 		BaseURL:       getEnvOrDefault("MAI_BASEURL", ""),
 		UserAgent:     getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
 		NoStream:      false,
@@ -112,6 +113,11 @@ func loadConfig() *llm.Config {
 	if config.BedrockKey == "" {
 		if key := readKeyFile("~/.r2ai.bedrock-key"); key != "" {
 			config.BedrockKey = key
+		}
+	}
+	if config.XAIKey == "" {
+		if key := readKeyFile("~/.r2ai.xai-key"); key != "" {
+			config.XAIKey = key
 		}
 	}
 

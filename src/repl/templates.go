@@ -8,6 +8,59 @@ import (
 	"strings"
 )
 
+// autoDetectDirectory attempts to find a directory relative to the executable path
+// and sets the specified config option if found
+func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
+	// Skip if the config option is already set
+	if r.configOptions.Get(configKey) != "" {
+		return
+	}
+
+	// Get the executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		if verbose {
+			fmt.Printf("Warning: Could not determine executable path: %v\r\n", err)
+		}
+		return
+	}
+
+	// Follow symlink if the executable is a symlink
+	realPath, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		if verbose {
+			fmt.Printf("Warning: Could not evaluate symlinks: %v\r\n", err)
+		}
+		realPath = execPath // Fall back to the original path
+	}
+
+	// Get the directory containing the executable
+	execDir := filepath.Dir(realPath)
+
+	// Start searching from the executable directory and go up to root
+	currentDir := execDir
+	for {
+		// Check if the target directory exists in the current directory
+		targetDir := filepath.Join(currentDir, dirName)
+		if _, err := os.Stat(targetDir); err == nil {
+			// Found the target directory
+			r.configOptions.Set(configKey, targetDir)
+			return
+		}
+
+		// Move up one directory
+		parentDir := filepath.Dir(currentDir)
+
+		// Stop if we've reached the root directory
+		if parentDir == currentDir {
+			break
+		}
+
+		// Continue with the parent directory
+		currentDir = parentDir
+	}
+}
+
 // handleTemplateCommand handles the $ command for template expansion
 func (r *REPL) handleTemplateCommand(input string) error {
 	// Split the input into command and arguments
@@ -224,46 +277,11 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 // autoDetectTemplateDir attempts to find a templates directory relative to the executable path
 // and sets the templatedir config variable if found
 func (r *REPL) autoDetectTemplateDir() {
-	// Skip if templatedir is already set
-	if r.configOptions.Get("templatedir") != "" {
-		return
-	}
+	r.autoDetectDirectory("templatedir", "templates", false)
+}
 
-	// Get the executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		return
-	}
-
-	// Follow symlink if the executable is a symlink
-	realPath, err := filepath.EvalSymlinks(execPath)
-	if err != nil {
-		realPath = execPath // Fall back to the original path
-	}
-
-	// Get the directory containing the executable
-	execDir := filepath.Dir(realPath)
-
-	// Start searching from the executable directory and go up to root
-	currentDir := execDir
-	for {
-		// Check if a templates directory exists in the current directory
-		templatesDir := filepath.Join(currentDir, "templates")
-		if _, err := os.Stat(templatesDir); err == nil {
-			// Found a templates directory
-			r.configOptions.Set("templatedir", templatesDir)
-			return
-		}
-
-		// Move up one directory
-		parentDir := filepath.Dir(currentDir)
-
-		// Stop if we've reached the root directory
-		if parentDir == currentDir {
-			break
-		}
-
-		// Continue with the parent directory
-		currentDir = parentDir
-	}
+// autoDetectWwwRoot attempts to find a www directory relative to the executable path
+// and sets the wwwroot config variable if found
+func (r *REPL) autoDetectWwwRoot() {
+	r.autoDetectDirectory("wwwroot", filepath.Join("doc", "www"), false)
 }

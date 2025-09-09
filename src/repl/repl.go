@@ -230,9 +230,10 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	// Initialize command registry
 	repl.initCommands()
 
-	// Auto-detect and set promptdir and templatedir
+	// Auto-detect and set promptdir, templatedir, and wwwroot
 	repl.autoDetectPromptDir()
 	repl.autoDetectTemplateDir()
+	repl.autoDetectWwwRoot()
 
 	return repl, nil
 }
@@ -1901,7 +1902,7 @@ func (r *REPL) supportsStreaming() bool {
 	}
 	// Check if API supports streaming
 	provider := strings.ToLower(r.configOptions.Get("provider"))
-	return provider == "ollama" || provider == "openai" || provider == "claude"
+	return provider == "ollama" || provider == "openai" || provider == "claude" || provider == "xai"
 }
 
 // Legacy function kept for compatibility
@@ -3482,50 +3483,7 @@ func (r *REPL) currentSystemPrompt() string {
 // autoDetectPromptDir attempts to find a prompts directory relative to the executable path
 // and sets the promptdir config variable if found
 func (r *REPL) autoDetectPromptDir() {
-	// Skip if promptdir is already set
-	if r.configOptions.Get("promptdir") != "" {
-		return
-	}
-
-	// Get the executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		fmt.Printf("Warning: Could not determine executable path: %v\r\n", err)
-		return
-	}
-
-	// Follow symlink if the executable is a symlink
-	realPath, err := filepath.EvalSymlinks(execPath)
-	if err != nil {
-		fmt.Printf("Warning: Could not evaluate symlinks: %v\r\n", err)
-		realPath = execPath // Fall back to the original path
-	}
-
-	// Get the directory containing the executable
-	execDir := filepath.Dir(realPath)
-
-	// Start searching from the executable directory and go up to root
-	currentDir := execDir
-	for {
-		// Check if a prompts directory exists in the current directory
-		promptsDir := filepath.Join(currentDir, "prompts")
-		if _, err := os.Stat(promptsDir); err == nil {
-			// Found a prompts directory
-			r.configOptions.Set("promptdir", promptsDir)
-			return
-		}
-
-		// Move up one directory
-		parentDir := filepath.Dir(currentDir)
-
-		// Stop if we've reached the root directory
-		if parentDir == currentDir {
-			break
-		}
-
-		// Continue with the parent directory
-		currentDir = parentDir
-	}
+	r.autoDetectDirectory("promptdir", "prompts", true)
 }
 
 // showCurrentModel displays the current model based on the provider
@@ -3570,6 +3528,7 @@ func (r *REPL) getValidProviders() map[string]bool {
 		"deepseek": true,
 		"bedrock":  true,
 		"aws":      true,
+		"xai":      true,
 	}
 }
 
@@ -3611,7 +3570,7 @@ func (r *REPL) setProvider(provider string) error {
 
 	if !validProviders[provider] {
 		fmt.Printf("Invalid provider: %s\r\n", provider)
-		fmt.Print("Valid providers: ollama, lmstudio, openai, claude, gemini/google, mistral, deepseek, bedrock/aws\r\n")
+		fmt.Print("Valid providers: ollama, lmstudio, openai, claude, gemini/google, mistral, deepseek, bedrock/aws, xai\r\n")
 		return nil
 	}
 

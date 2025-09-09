@@ -12,7 +12,7 @@ fmt:
 	go fmt $(shell ls src/repl/*.go )
 	go fmt $(shell ls src/wmcp/*.go )
 	go fmt $(shell ls src/tool/*.go )
-	go fmt $(shell ls src/mcps/*/*.go )
+	for a in src/mcps/* ; do ( go fmt $$a/*.go ) ; done
 
 install:
 	$(MAKE) -C src/wmcp install

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAI REPL Web Interface</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+            <h1>MAI</h1>
+            <div id="status" class="status offline">Connecting...</div>
+        </div>
+
+        <div class="sidebar" id="sidebar">
+            <h3>Provider & Model</h3>
+            <div class="provider-model-row">
+                <select id="provider">
+                    <option value="ollama">Ollama</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="mistral">Mistral</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="xai">XAI</option>
+                </select>
+
+                <select id="model">
+                    <option value="">Loading models...</option>
+                </select>
+            </div>
+
+            <button onclick="updateProvider()">Update Provider</button>
+
+        </div>
+
+        <div class="chat-area">
+            <div id="messages" class="messages"></div>
+
+            <div class="input-area">
+                <textarea id="message-input" placeholder="Type your message..." rows="2"></textarea>
+                <button onclick="sendMessage()" id="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

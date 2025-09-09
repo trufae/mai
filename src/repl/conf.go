@@ -91,6 +91,8 @@ func NewConfigOptions() *ConfigOptions {
 
 	// Server configuration
 	co.RegisterOption("listen", StringOption, "Listen address for the web server (host:port)", "0.0.0.0:9000")
+	co.RegisterOption("wwwroot", StringOption, "Directory to serve static web files from", "")
+	co.RegisterOption("wwwrepl", BooleanOption, "Route / commands from web UI through REPL command system", "true")
 
 	co.initialized = true
 

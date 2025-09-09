@@ -47,11 +47,11 @@ type ToolCallParams struct {
 
 // MCPServer represents an MCP server that can handle requests
 type MCPServer struct {
-    tools        []ToolDefinition
-    toolHandlers map[string]ToolHandler
-    reader       *bufio.Scanner
-    writer       io.Writer
-    prompts      []PromptDefinition
+	tools        []ToolDefinition
+	toolHandlers map[string]ToolHandler
+	reader       *bufio.Scanner
+	writer       io.Writer
+	prompts      []PromptDefinition
 }
 
 // ToolHandler is a function that handles a tool call
@@ -68,12 +68,12 @@ type Tool struct {
 
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {
-    return &MCPServer{
-        tools:        tools,
-        toolHandlers: make(map[string]ToolHandler),
-        reader:       bufio.NewScanner(os.Stdin),
-        writer:       os.Stdout,
-    }
+	return &MCPServer{
+		tools:        tools,
+		toolHandlers: make(map[string]ToolHandler),
+		reader:       bufio.NewScanner(os.Stdin),
+		writer:       os.Stdout,
+	}
 }
 
 // RegisterTool registers a tool handler for a specific tool name
@@ -83,46 +83,46 @@ func (s *MCPServer) RegisterTool(name string, handler ToolHandler) {
 
 // Start starts the MCP server and begins processing requests
 func (s *MCPServer) Start() {
-    for s.reader.Scan() {
-        line := s.reader.Bytes()
-        var req JSONRPCRequest
-        if err := json.Unmarshal(line, &req); err != nil {
-            s.sendError(req.ID, -32700, "Parse error: invalid JSON")
-            continue
-        }
+	for s.reader.Scan() {
+		line := s.reader.Bytes()
+		var req JSONRPCRequest
+		if err := json.Unmarshal(line, &req); err != nil {
+			s.sendError(req.ID, -32700, "Parse error: invalid JSON")
+			continue
+		}
 
-        switch req.Method {
-        case "initialize":
-            s.sendResult(req.ID, map[string]interface{}{
-                "protocolVersion": "2024-11-05",
-                "capabilities": map[string]interface{}{
-                    "tools":   map[string]interface{}{},
-                    "prompts": map[string]interface{}{},
-                },
-            })
-        case "notifications/initialized":
-            // This is a notification, no response needed
-            continue
-        case "tools/list":
-            // Return tools wrapped in proper MCP format
-            s.sendResult(req.ID, map[string]interface{}{
-                "tools": s.tools,
-            })
-        case "tools/call":
-            s.handleCall(req)
-        case "prompts/list":
-            s.handlePromptsList(req)
-        case "prompts/get":
-            s.handlePromptsGet(req)
-        case "prompts/apply":
-            s.handlePromptsApply(req)
-        default:
-            s.sendError(req.ID, -32601, "Method not found: "+req.Method)
-        }
-    }
-    if err := s.reader.Err(); err != nil {
-        log.Fatalln("Error reading stdin:", err)
-    }
+		switch req.Method {
+		case "initialize":
+			s.sendResult(req.ID, map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities": map[string]interface{}{
+					"tools":   map[string]interface{}{},
+					"prompts": map[string]interface{}{},
+				},
+			})
+		case "notifications/initialized":
+			// This is a notification, no response needed
+			continue
+		case "tools/list":
+			// Return tools wrapped in proper MCP format
+			s.sendResult(req.ID, map[string]interface{}{
+				"tools": s.tools,
+			})
+		case "tools/call":
+			s.handleCall(req)
+		case "prompts/list":
+			s.handlePromptsList(req)
+		case "prompts/get":
+			s.handlePromptsGet(req)
+		case "prompts/apply":
+			s.handlePromptsApply(req)
+		default:
+			s.sendError(req.ID, -32601, "Method not found: "+req.Method)
+		}
+	}
+	if err := s.reader.Err(); err != nil {
+		log.Fatalln("Error reading stdin:", err)
+	}
 }
 
 // handleCall handles a tools/call request
@@ -165,163 +165,165 @@ func (s *MCPServer) sendResult(id interface{}, result interface{}) {
 
 // sendError sends an error JSON-RPC response
 func (s *MCPServer) sendError(id interface{}, code int, message string) {
-    errObj := RPCError{Code: code, Message: message}
-    resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &errObj}
-    data, _ := json.Marshal(resp)
-    fmt.Fprintln(s.writer, string(data))
+	errObj := RPCError{Code: code, Message: message}
+	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &errObj}
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(s.writer, string(data))
 }
 
 // -------------------- Prompts support --------------------
 
 // Content represents a piece of message content.
 type Content struct {
-    Type string `json:"type"`
-    Text string `json:"text,omitempty"`
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
 }
 
 // Message represents a chat message used by prompts.
 type Message struct {
-    Role    string    `json:"role"`
-    Content []Content `json:"content"`
+	Role    string    `json:"role"`
+	Content []Content `json:"content"`
 }
 
 // PromptDefinition represents a prompt template the server exposes.
 type PromptDefinition struct {
-    Name        string                 `json:"name"`
-    Description string                 `json:"description,omitempty"`
-    Arguments   map[string]interface{} `json:"arguments,omitempty"`
-    Messages    []Message              `json:"messages,omitempty"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Arguments   map[string]interface{} `json:"arguments,omitempty"`
+	Messages    []Message              `json:"messages,omitempty"`
 }
 
 // SetPrompts configures the server's available prompts.
 func (s *MCPServer) SetPrompts(prompts []PromptDefinition) {
-    s.prompts = prompts
+	s.prompts = prompts
 }
 
 // prompts/list
 func (s *MCPServer) handlePromptsList(req JSONRPCRequest) {
-    // Return only metadata (name, description, arguments) without message bodies
-    type promptMeta struct {
-        Name        string                 `json:"name"`
-        Description string                 `json:"description,omitempty"`
-        Arguments   map[string]interface{} `json:"arguments,omitempty"`
-    }
-    list := make([]promptMeta, 0, len(s.prompts))
-    for _, p := range s.prompts {
-        list = append(list, promptMeta{Name: p.Name, Description: p.Description, Arguments: p.Arguments})
-    }
-    s.sendResult(req.ID, map[string]interface{}{"prompts": list})
+	// Return only metadata (name, description, arguments) without message bodies
+	type promptMeta struct {
+		Name        string                 `json:"name"`
+		Description string                 `json:"description,omitempty"`
+		Arguments   map[string]interface{} `json:"arguments,omitempty"`
+	}
+	list := make([]promptMeta, 0, len(s.prompts))
+	for _, p := range s.prompts {
+		list = append(list, promptMeta{Name: p.Name, Description: p.Description, Arguments: p.Arguments})
+	}
+	s.sendResult(req.ID, map[string]interface{}{"prompts": list})
 }
 
 // prompts/get
 func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) {
-    var params struct{ Name string `json:"name"` }
-    if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
-        s.sendError(req.ID, -32602, "Invalid params")
-        return
-    }
-    for _, p := range s.prompts {
-        if p.Name == params.Name {
-            s.sendResult(req.ID, map[string]interface{}{"prompt": p})
-            return
-        }
-    }
-    s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+		s.sendError(req.ID, -32602, "Invalid params")
+		return
+	}
+	for _, p := range s.prompts {
+		if p.Name == params.Name {
+			s.sendResult(req.ID, map[string]interface{}{"prompt": p})
+			return
+		}
+	}
+	s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
 }
 
 // prompts/apply
 func (s *MCPServer) handlePromptsApply(req JSONRPCRequest) {
-    var params struct {
-        Name      string                 `json:"name"`
-        Arguments map[string]interface{} `json:"arguments"`
-    }
-    if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
-        s.sendError(req.ID, -32602, "Invalid params")
-        return
-    }
-    var prompt *PromptDefinition
-    for i := range s.prompts {
-        if s.prompts[i].Name == params.Name {
-            prompt = &s.prompts[i]
-            break
-        }
-    }
-    if prompt == nil {
-        s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
-        return
-    }
+	var params struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+		s.sendError(req.ID, -32602, "Invalid params")
+		return
+	}
+	var prompt *PromptDefinition
+	for i := range s.prompts {
+		if s.prompts[i].Name == params.Name {
+			prompt = &s.prompts[i]
+			break
+		}
+	}
+	if prompt == nil {
+		s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
+		return
+	}
 
-    // Apply simple {{var}} template substitution in text content
-    applied := make([]Message, 0, len(prompt.Messages))
-    for _, m := range prompt.Messages {
-        nm := Message{Role: m.Role}
-        for _, c := range m.Content {
-            if c.Type == "text" && c.Text != "" {
-                text := c.Text
-                for k, v := range params.Arguments {
-                    // Replace occurrences of {{key}} with value's string form
-                    placeholder := "{{" + k + "}}"
-                    var sval string
-                    switch t := v.(type) {
-                    case string:
-                        sval = t
-                    default:
-                        b, _ := json.Marshal(v)
-                        sval = string(b)
-                    }
-                    text = replaceAll(text, placeholder, sval)
-                }
-                nm.Content = append(nm.Content, Content{Type: "text", Text: text})
-            } else {
-                nm.Content = append(nm.Content, c)
-            }
-        }
-        applied = append(applied, nm)
-    }
-    s.sendResult(req.ID, map[string]interface{}{"messages": applied})
+	// Apply simple {{var}} template substitution in text content
+	applied := make([]Message, 0, len(prompt.Messages))
+	for _, m := range prompt.Messages {
+		nm := Message{Role: m.Role}
+		for _, c := range m.Content {
+			if c.Type == "text" && c.Text != "" {
+				text := c.Text
+				for k, v := range params.Arguments {
+					// Replace occurrences of {{key}} with value's string form
+					placeholder := "{{" + k + "}}"
+					var sval string
+					switch t := v.(type) {
+					case string:
+						sval = t
+					default:
+						b, _ := json.Marshal(v)
+						sval = string(b)
+					}
+					text = replaceAll(text, placeholder, sval)
+				}
+				nm.Content = append(nm.Content, Content{Type: "text", Text: text})
+			} else {
+				nm.Content = append(nm.Content, c)
+			}
+		}
+		applied = append(applied, nm)
+	}
+	s.sendResult(req.ID, map[string]interface{}{"messages": applied})
 }
 
 // tiny helper: strings.ReplaceAll without importing strings again at top-level
 func replaceAll(s, old, new string) string {
-    // Inline simple implementation to avoid new imports policy churn
-    // but we'll still use the standard library via fmt for safety if needed.
-    if old == "" || old == new {
-        return s
-    }
-    // Use bytes-based replace for efficiency
-    bs := []byte(s)
-    bo := []byte(old)
-    bn := []byte(new)
-    var out []byte
-    for {
-        i := indexOf(bs, bo)
-        if i < 0 {
-            out = append(out, bs...)
-            break
-        }
-        out = append(out, bs[:i]...)
-        out = append(out, bn...)
-        bs = bs[i+len(bo):]
-    }
-    return string(out)
+	// Inline simple implementation to avoid new imports policy churn
+	// but we'll still use the standard library via fmt for safety if needed.
+	if old == "" || old == new {
+		return s
+	}
+	// Use bytes-based replace for efficiency
+	bs := []byte(s)
+	bo := []byte(old)
+	bn := []byte(new)
+	var out []byte
+	for {
+		i := indexOf(bs, bo)
+		if i < 0 {
+			out = append(out, bs...)
+			break
+		}
+		out = append(out, bs[:i]...)
+		out = append(out, bn...)
+		bs = bs[i+len(bo):]
+	}
+	return string(out)
 }
 
 func indexOf(haystack, needle []byte) int {
-    if len(needle) == 0 {
-        return 0
-    }
-    // naive search is fine for small templates
-    for i := 0; i+len(needle) <= len(haystack); i++ {
-        match := true
-        for j := 0; j < len(needle); j++ {
-            if haystack[i+j] != needle[j] {
-                match = false
-                break
-            }
-        }
-        if match {
-            return i
-        }
-    }
-    return -1
+	if len(needle) == 0 {
+		return 0
+	}
+	// naive search is fine for small templates
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		match := true
+		for j := 0; j < len(needle); j++ {
+			if haystack[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
 }
