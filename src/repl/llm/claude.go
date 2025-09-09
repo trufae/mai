@@ -13,6 +13,7 @@ import (
 // ClaudeProvider implements the LLM provider interface for Claude
 type ClaudeProvider struct {
 	config *Config
+	apiKey string
 }
 
 // ClaudeModelsResponse is the response structure for Claude model list endpoint
@@ -30,6 +31,7 @@ type ClaudeModelsResponse struct {
 func NewClaudeProvider(config *Config) *ClaudeProvider {
 	return &ClaudeProvider{
 		config: config,
+		apiKey: GetAPIKey("CLAUDE_API_KEY", "~/.r2ai.anthropic-key"),
 	}
 }
 
@@ -55,7 +57,7 @@ func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
 	headers := map[string]string{
 		"Content-Type":      "application/json",
 		"anthropic-version": "2023-06-01",
-		"x-api-key":         p.config.ClaudeKey,
+		"x-api-key":         p.apiKey,
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -136,7 +138,7 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	headers := map[string]string{
 		"Content-Type":      "application/json",
 		"anthropic-version": "2023-06-01",
-		"x-api-key":         p.config.ClaudeKey,
+		"x-api-key":         p.apiKey,
 	}
 
 	// Use the configured base URL if available, otherwise use the default API URL

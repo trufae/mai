@@ -13,11 +13,13 @@ import (
 // GeminiProvider implements the LLM provider interface for Google's Gemini
 type GeminiProvider struct {
 	config *Config
+	apiKey string
 }
 
 func NewGeminiProvider(config *Config) *GeminiProvider {
 	return &GeminiProvider{
 		config: config,
+		apiKey: GetAPIKey("GEMINI_API_KEY", "~/.r2ai.gemini-key"),
 	}
 }
 
@@ -40,20 +42,20 @@ func defaultString(s, def string) string {
 }
 
 func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
-	if p.config.GeminiKey == "" {
+	if p.apiKey == "" {
 		return nil, fmt.Errorf("Missing key for gemini")
 	}
 
 	baseURL := defaultString(p.config.BaseURL, "https://generativelanguage.googleapis.com/v1beta")
-	apiURL := baseURL + "/models?key=" + p.config.GeminiKey
+	apiURL := baseURL + "/models?key=" + p.apiKey
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	if p.config.GeminiKey != "" && strings.HasPrefix(p.config.GeminiKey, "ya29.") {
-		headers["Authorization"] = "Bearer " + p.config.GeminiKey
-	} else if p.config.GeminiKey != "" {
+	if p.apiKey != "" && strings.HasPrefix(p.apiKey, "ya29.") {
+		headers["Authorization"] = "Bearer " + p.apiKey
+	} else if p.apiKey != "" {
 		// Some installs may prefer the x-goog-api-key header
-		headers["x-goog-api-key"] = p.config.GeminiKey
+		headers["x-goog-api-key"] = p.apiKey
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -155,11 +157,11 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// If the key looks like an OAuth2 access token, send it as a Bearer token.
-	if p.config.GeminiKey != "" && strings.HasPrefix(p.config.GeminiKey, "ya29.") {
-		headers["Authorization"] = "Bearer " + p.config.GeminiKey
-	} else if p.config.GeminiKey != "" {
+	if p.apiKey != "" && strings.HasPrefix(p.apiKey, "ya29.") {
+		headers["Authorization"] = "Bearer " + p.apiKey
+	} else if p.apiKey != "" {
 		// Send via x-goog-api-key header as well, some deployments prefer this
-		headers["x-goog-api-key"] = p.config.GeminiKey
+		headers["x-goog-api-key"] = p.apiKey
 	}
 
 	// Use the configured base URL if available, otherwise use the default API URL
@@ -172,7 +174,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		action = "streamGenerateContent"
 	}
 	baseURL := defaultString(p.config.BaseURL, "https://generativelanguage.googleapis.com/v1beta")
-	apiURL := fmt.Sprintf("%s/models/%s:%s?alt=sse&key=%s", baseURL, model, action, p.config.GeminiKey)
+	apiURL := fmt.Sprintf("%s/models/%s:%s?alt=sse&key=%s", baseURL, model, action, p.apiKey)
 
 	// If streaming requested, use the streaming helper which will call our parser
 	if stream {

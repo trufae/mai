@@ -14,6 +14,7 @@ import (
 // OpenAIProvider implements the LLM provider interface for OpenAI
 type OpenAIProvider struct {
 	config *Config
+	apiKey string
 }
 
 // OpenAIModelsResponse is the response structure for OpenAI model list endpoint
@@ -30,6 +31,7 @@ type OpenAIModelsResponse struct {
 func NewOpenAIProvider(config *Config) *OpenAIProvider {
 	return &OpenAIProvider{
 		config: config,
+		apiKey: GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key"),
 	}
 }
 
@@ -50,7 +52,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	headers := map[string]string{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.config.OpenAIKey,
+		"Authorization": "Bearer " + p.apiKey,
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -139,7 +141,7 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	headers := map[string]string{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.config.OpenAIKey,
+		"Authorization": "Bearer " + p.apiKey,
 	}
 
 	// Build chat completions endpoint URL

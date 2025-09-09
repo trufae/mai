@@ -12,11 +12,13 @@ import (
 // DeepSeekProvider implements the LLM provider interface for DeepSeek
 type DeepSeekProvider struct {
 	config *Config
+	apiKey string
 }
 
 func NewDeepSeekProvider(config *Config) *DeepSeekProvider {
 	return &DeepSeekProvider{
 		config: config,
+		apiKey: GetAPIKey("DEEPSEEK_API_KEY", "~/.r2ai.deepseek-key"),
 	}
 }
 
@@ -40,14 +42,14 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	headers := map[string]string{
-		"Authorization": "Bearer " + p.config.DeepSeekKey,
+		"Authorization": "Bearer " + p.apiKey,
 		"Content-Type":  "application/json",
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
 
 	// If API call fails or no key, fall back to hardcoded values
-	if err != nil || p.config.DeepSeekKey == "" {
+	if err != nil || p.apiKey == "" {
 		// DeepSeek doesn't have a well-documented model listing endpoint
 		// Return hardcoded list of common DeepSeek models
 		return []Model{
@@ -141,7 +143,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	}
 
 	headers := map[string]string{
-		"Authorization": "Bearer " + p.config.DeepSeekKey,
+		"Authorization": "Bearer " + p.apiKey,
 		"Content-Type":  "application/json",
 	}
 

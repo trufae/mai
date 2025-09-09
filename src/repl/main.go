@@ -61,61 +61,15 @@ func loadConfig() *llm.Config {
 		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
 		PROVIDER:      getEnvOrDefault("MAI_PROVIDER", "ollama"),
-		GeminiKey:     os.Getenv("GEMINI_API_KEY"),
-		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
-		ClaudeKey:     os.Getenv("CLAUDE_API_KEY"),
-		DeepSeekKey:   os.Getenv("DEEPSEEK_API_KEY"),
-		MistralKey:    os.Getenv("MISTRAL_API_KEY"),
-		BedrockKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
-		XAIKey:        os.Getenv("XAI_API_KEY"),
 		BaseURL:       getEnvOrDefault("MAI_BASEURL", ""),
 		UserAgent:     getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
 		NoStream:      false,
-		// options:       &llm.Config{}, // NewConfigOptions(), // Initialize configuration options
-		// configOptions:       NewConfigOptions(), // Initialize configuration options
 	}
 
 	// Backwards compatibility: if MAI_PROVIDER is not set, honor legacy API env var
 	if os.Getenv("MAI_PROVIDER") == "" {
 		if apiVal := os.Getenv("API"); apiVal != "" {
 			config.PROVIDER = apiVal
-		}
-	}
-
-	// Load API keys from files if environment variables are not set
-	if config.GeminiKey == "" {
-		if key := readKeyFile("~/.r2ai.gemini-key"); key != "" {
-			config.GeminiKey = key
-		}
-	}
-	if config.OpenAIKey == "" {
-		if key := readKeyFile("~/.r2ai.openai-key"); key != "" {
-			config.OpenAIKey = key
-		}
-	}
-	if config.ClaudeKey == "" {
-		if key := readKeyFile("~/.r2ai.anthropic-key"); key != "" {
-			config.ClaudeKey = key
-		}
-	}
-	if config.DeepSeekKey == "" {
-		if key := readKeyFile("~/.r2ai.deepseek-key"); key != "" {
-			config.DeepSeekKey = key
-		}
-	}
-	if config.MistralKey == "" {
-		if key := readKeyFile("~/.r2ai.mistral-key"); key != "" {
-			config.MistralKey = key
-		}
-	}
-	if config.BedrockKey == "" {
-		if key := readKeyFile("~/.r2ai.bedrock-key"); key != "" {
-			config.BedrockKey = key
-		}
-	}
-	if config.XAIKey == "" {
-		if key := readKeyFile("~/.r2ai.xai-key"); key != "" {
-			config.XAIKey = key
 		}
 	}
 
@@ -129,23 +83,6 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
-func readKeyFile(path string) string {
-	// Expand ~ to home directory
-	if strings.HasPrefix(path, "~") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		path = filepath.Join(homeDir, path[1:])
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
 func readInput(args []string) string {
 	var input strings.Builder
 
@@ -154,8 +91,6 @@ func readInput(args []string) string {
 		input.WriteString(strings.Join(args, " "))
 		input.WriteString("\n")
 	}
-
-	// input.WriteString("<INPUT>\n")
 
 	// Read from stdin
 	scanner := bufio.NewScanner(os.Stdin)

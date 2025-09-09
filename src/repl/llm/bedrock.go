@@ -12,11 +12,13 @@ import (
 // BedrockProvider implements the LLM provider interface for AWS Bedrock
 type BedrockProvider struct {
 	config *Config
+	apiKey string
 }
 
 func NewBedrockProvider(config *Config) *BedrockProvider {
 	return &BedrockProvider{
 		config: config,
+		apiKey: GetAPIKey("AWS_ACCESS_KEY_ID", "~/.r2ai.bedrock-key"),
 	}
 }
 
@@ -151,10 +153,9 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 
 	headers := map[string]string{
 		"Content-Type":       "application/json",
-		"X-Amz-Access-Token": p.config.BedrockKey,
+		"X-Amz-Access-Token": p.apiKey,
 	}
-	// fmt.Println(p.config.BedrockKey)
-	// fmt.Println(p.config.BedrockRegion)
+	// Note: proper AWS request signing is not implemented; using header token.
 
 	// Bedrock doesn't support streaming in our implementation yet
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)

@@ -1,5 +1,11 @@
 package llm
 
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
+
 // Message represents a chat message with a role and content.
 type Message struct {
 	Role    string      `json:"role"`
@@ -14,14 +20,7 @@ type Config struct {
 	OpenAPIPort   string
 	OllamaHost    string
 	OllamaPort    string
-	GeminiKey     string
-	OpenAIKey     string
-	ClaudeKey     string
-	DeepSeekKey   string
-	MistralKey    string
-	BedrockKey    string
 	BedrockRegion string
-	XAIKey        string
 	PROVIDER      string
 	Model         string
 	NoStream      bool
@@ -48,4 +47,33 @@ type Config struct {
 	ConversationFormat        string // "tokens", "labeled", or "plain"
 	ConversationUseLastUser   bool   // if true, only include the last user message (and system messages if enabled)
 
+}
+
+// GetAPIKey resolves an API key by checking an environment variable first,
+// then falling back to reading the first available file from the provided list.
+// Filenames may include a leading '~' which will be expanded to the user home.
+func GetAPIKey(envVar string, filenames ...string) string {
+	if v := os.Getenv(envVar); v != "" {
+		return strings.TrimSpace(v)
+	}
+	for _, fn := range filenames {
+		if fn == "" {
+			continue
+		}
+		// Expand ~ to home directory
+		if strings.HasPrefix(fn, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				fn = filepath.Join(home, fn[1:])
+			}
+		}
+		data, err := os.ReadFile(fn)
+		if err != nil {
+			continue
+		}
+		s := strings.TrimSpace(string(data))
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }

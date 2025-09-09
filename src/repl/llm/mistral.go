@@ -13,11 +13,13 @@ import (
 // MistralProvider implements the LLM provider interface for Mistral
 type MistralProvider struct {
 	config *Config
+	apiKey string
 }
 
 func NewMistralProvider(config *Config) *MistralProvider {
 	return &MistralProvider{
 		config: config,
+		apiKey: GetAPIKey("MISTRAL_API_KEY", "~/.r2ai.mistral-key"),
 	}
 }
 
@@ -41,7 +43,7 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}
 
 	headers := map[string]string{
-		"Authorization": "Bearer " + p.config.MistralKey,
+		"Authorization": "Bearer " + p.apiKey,
 		"Content-Type":  "application/json",
 	}
 
@@ -151,7 +153,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 	}
 
 	headers := map[string]string{
-		"Authorization": "Bearer " + p.config.MistralKey,
+		"Authorization": "Bearer " + p.apiKey,
 		"Content-Type":  "application/json",
 	}
 

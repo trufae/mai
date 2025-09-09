@@ -14,6 +14,7 @@ import (
 // XAIProvider implements the LLM provider interface for xAI
 type XAIProvider struct {
 	config *Config
+	apiKey string
 }
 
 // XAIModelsResponse is the response structure for xAI model list endpoint
@@ -30,6 +31,7 @@ type XAIModelsResponse struct {
 func NewXAIProvider(config *Config) *XAIProvider {
 	return &XAIProvider{
 		config: config,
+		apiKey: GetAPIKey("XAI_API_KEY", "~/.r2ai.xai-key"),
 	}
 }
 
@@ -50,7 +52,7 @@ func (p *XAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	headers := map[string]string{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.config.XAIKey,
+		"Authorization": "Bearer " + p.apiKey,
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -139,7 +141,7 @@ func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, strea
 
 	headers := map[string]string{
 		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.config.XAIKey,
+		"Authorization": "Bearer " + p.apiKey,
 	}
 
 	// Build chat completions endpoint URL
