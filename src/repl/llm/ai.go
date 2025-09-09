@@ -21,6 +21,7 @@ type Config struct {
 	MistralKey    string
 	BedrockKey    string
 	BedrockRegion string
+	XAIKey        string
 	PROVIDER      string
 	Model         string
 	NoStream      bool

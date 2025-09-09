@@ -104,6 +104,8 @@ func createProvider(config *Config) (LLMProvider, error) {
 		return NewDeepSeekProvider(config), nil
 	case "bedrock", "aws":
 		return NewBedrockProvider(config), nil
+	case "xai":
+		return NewXAIProvider(config), nil
 	case "openapi":
 		return NewOpenAPIProvider(config), nil
 	default:
