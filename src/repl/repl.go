@@ -1565,6 +1565,28 @@ func (r *REPL) generateAndSetTopic() (string, error) {
 	return full, nil
 }
 
+// getVDBContext executes mai-vdb with the configured directory and current message
+// Returns the context output to be used as <CONTEXT> for the LLM
+func (r *REPL) getVDBContext(message string) (string, error) {
+	vdbDir := r.configOptions.Get("vdbdir")
+	if vdbDir == "" {
+		return "", fmt.Errorf("vdbdir not configured")
+	}
+
+	// Execute mai-vdb command
+	vdbLimit := r.configOptions.Get("vdblimit")
+	if vdbLimit == "" {
+		vdbLimit = "5" // fallback to default
+	}
+	cmd := exec.Command("mai-vdb", "-s", vdbDir, "-n", vdbLimit, message)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to execute mai-vdb: %v", err)
+	}
+
+	return string(output), nil
+}
+
 // handleScriptCommand executes a script file containing REPL commands
 func (r *REPL) handleScriptCommand(scriptPath string) error {
 	// Expand ~ to home directory
@@ -1777,6 +1799,17 @@ func (r *REPL) sendToAI(input string) error {
 			if b, err := os.ReadFile(memFile); err == nil && len(b) > 0 {
 				messages = append(messages, llm.Message{Role: "system", Content: "MEMORY:\n" + string(b)})
 			}
+		}
+	}
+
+	// If vdb option is enabled, get context from vector database and include as system context
+	if r.configOptions.GetBool("vdb") {
+		vdbContext, err := r.getVDBContext(input)
+		if err == nil && vdbContext != "" {
+			messages = append(messages, llm.Message{Role: "system", Content: "<CONTEXT>\n" + vdbContext + "\n</CONTEXT>"})
+		} else if err != nil {
+			// Log error but don't fail the request
+			fmt.Fprintf(os.Stderr, "VDB context error: %v\n", err)
 		}
 	}
 

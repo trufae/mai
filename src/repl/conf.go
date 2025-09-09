@@ -82,6 +82,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
 	// Followup option: automatically run #followup after assistant replies
 	co.RegisterOption("followup", BooleanOption, "Automatically run #followup after assistant replies", "false")
+	// VDB option: use mai-vdb tool to get context from vector database
+	co.RegisterOption("vdb", BooleanOption, "Use mai-vdb tool to get context from vector database", "false")
+	co.RegisterOption("vdbdir", StringOption, "Directory to search for vector database sources", "")
+	co.RegisterOption("vdblimit", StringOption, "Limit of entries to be used when calling mai-vdb", "5")
 
 	// Conversation formatting options (used when building a single prompt from history)
 	co.RegisterOption("conversation_include_llm", BooleanOption, "Include assistant/LLM messages when building a single prompt", "false")
