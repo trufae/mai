@@ -142,14 +142,6 @@ func (sm *ServerManager) Start() error {
 
 	sm.status = ServerStarting
 
-	// Create LLM client
-	client, err := llm.NewLLMClient(sm.config)
-	if err != nil {
-		sm.status = ServerStopped
-		return fmt.Errorf("failed to create LLM client: %v", err)
-	}
-	sm.llmClient = client
-
 	// Create HTTP server
 	mux := http.NewServeMux()
 
@@ -174,9 +166,6 @@ func (sm *ServerManager) Start() error {
 	// Web interface API endpoints
 	mux.HandleFunc("/api/config", sm.handleGetConfig)
 	mux.HandleFunc("/api/config/set", sm.handleSetConfig)
-	mux.HandleFunc("/api/sessions", sm.handleGetSessions)
-	mux.HandleFunc("/api/session/load", sm.handleLoadSession)
-	mux.HandleFunc("/api/session/save", sm.handleSaveSession)
 	mux.HandleFunc("/api/models/", sm.handleGetProviderModels)
 
 	sm.server = &http.Server{
@@ -200,6 +189,103 @@ func (sm *ServerManager) Start() error {
 	}()
 
 	return nil
+}
+
+// getLLMClient returns the current REPL client if available, or creates one
+func (sm *ServerManager) getLLMClient() (*llm.LLMClient, error) {
+	if sm.repl != nil {
+		// Try to reuse the REPL's current client if set
+		sm.repl.mu.Lock()
+		cc := sm.repl.currentClient
+		sm.repl.mu.Unlock()
+		if cc != nil {
+			return cc, nil
+		}
+		// Otherwise, create a new client using REPL's config
+		return llm.NewLLMClient(sm.repl.buildLLMConfig())
+	}
+	// Fallback to server config if REPL is not present
+	return llm.NewLLMClient(sm.config)
+}
+
+// executeInputWithCapture runs a plain user input through the REPL and captures output
+func (sm *ServerManager) executeInputWithCapture(input string, stream bool, system string) (string, error) {
+	if sm.repl == nil {
+		return "", fmt.Errorf("REPL not available")
+	}
+
+	// Optionally override streaming and system prompt for this call
+	oldStream := sm.repl.configOptions.Get("stream")
+	oldSystem := sm.repl.configOptions.Get("systemprompt")
+	// Best-effort set; ignore validation errors (boolean requires true/false)
+	_ = sm.repl.configOptions.Set("stream", map[bool]string{true: "true", false: "false"}[stream])
+	if system != "" {
+		_ = sm.repl.configOptions.Set("systemprompt", system)
+	}
+
+	// Capture stdout/stderr while invoking REPL sendToAI
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		stdoutR.Close()
+		stdoutW.Close()
+		return "", fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
+	os.Stdout = stdoutW
+	os.Stderr = stderrW
+
+	// Run the input through the REPL pipeline
+	callErr := sm.repl.sendToAI(input, "", "")
+
+	// Restore streams
+	stdoutW.Close()
+	stderrW.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	// Read captured output
+	outBytes, rerr := io.ReadAll(stdoutR)
+	stdoutR.Close()
+	if rerr != nil {
+		return "", fmt.Errorf("failed to read stdout: %v", rerr)
+	}
+	errBytes, rerr := io.ReadAll(stderrR)
+	stderrR.Close()
+	if rerr != nil {
+		return "", fmt.Errorf("failed to read stderr: %v", rerr)
+	}
+
+	// Restore previous config
+	_ = sm.repl.configOptions.Set("stream", oldStream)
+	if system != "" || oldSystem != "" {
+		if oldSystem == "" {
+			sm.repl.configOptions.Unset("systemprompt")
+		} else {
+			_ = sm.repl.configOptions.Set("systemprompt", oldSystem)
+		}
+	}
+
+	var b strings.Builder
+	if len(outBytes) > 0 {
+		b.Write(outBytes)
+	}
+	if len(errBytes) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.Write(errBytes)
+	}
+
+	if callErr != nil {
+		return "", callErr
+	}
+
+	return strings.TrimRight(b.String(), "\n\r"), nil
 }
 
 // Stop stops the web server
@@ -323,8 +409,13 @@ func (sm *ServerManager) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get available models from the LLM client
-	models, err := sm.llmClient.ListModels()
+	// Get available models using REPL-configured client
+	client, err := sm.getLLMClient()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to init client: %v", err), http.StatusInternalServerError)
+		return
+	}
+	models, err := client.ListModels()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to list models: %v", err), http.StatusInternalServerError)
 		return
@@ -402,7 +493,12 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 	}
 
 	// For now, use non-streaming and simulate streaming
-	response, err := sm.llmClient.SendMessage(messages, false, nil)
+	client, err := sm.getLLMClient()
+	if err != nil {
+		fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
+		return
+	}
+	response, err := client.SendMessage(messages, false, nil)
 	if err != nil {
 		fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 		return
@@ -468,8 +564,13 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 
 // handleNonStreamingResponse handles non-streaming chat completions
 func (sm *ServerManager) handleNonStreamingResponse(w http.ResponseWriter, r *http.Request, messages []llm.Message, model string) {
-	// Send message to LLM
-	response, err := sm.llmClient.SendMessage(messages, false, nil)
+	// Send message using REPL-configured client
+	client, err := sm.getLLMClient()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("LLM init error: %v", err), http.StatusInternalServerError)
+		return
+	}
+	response, err := client.SendMessage(messages, false, nil)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusInternalServerError)
 		return
@@ -524,58 +625,26 @@ func (sm *ServerManager) handleSimpleChat(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check if wwwrepl is enabled and message starts with "/"
-	wwwReplEnabled := sm.repl.configOptions.GetBool("wwwrepl")
-	if wwwReplEnabled && strings.HasPrefix(req.Message, "/") {
-		// Route through REPL command system with output capture
-		commandOutput, err := sm.executeCommandWithCapture(req.Message)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(SimpleChatResponse{
-				Response: "",
-				Error:    fmt.Sprintf("Command error: %v", err),
-			})
-			return
-		}
-
-		// Return the captured command output
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(SimpleChatResponse{
-			Response: commandOutput,
-		})
-		return
+	// Route through REPL for both commands and normal inputs
+	var out string
+	var err error
+	if strings.HasPrefix(req.Message, "/") {
+		out, err = sm.executeCommandWithCapture(req.Message)
+	} else {
+		out, err = sm.executeInputWithCapture(req.Message, req.Stream, req.System)
 	}
-
-	// Build messages for normal LLM processing
-	var messages []llm.Message
-	if req.System != "" {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: req.System,
-		})
-	}
-	messages = append(messages, llm.Message{
-		Role:    "user",
-		Content: req.Message,
-	})
-
-	// Send to LLM
-	response, err := sm.llmClient.SendMessage(messages, false, nil)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(SimpleChatResponse{
 			Response: "",
-			Error:    fmt.Sprintf("LLM error: %v", err),
+			Error:    fmt.Sprintf("%v", err),
 		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SimpleChatResponse{
-		Response: response,
-	})
+	json.NewEncoder(w).Encode(SimpleChatResponse{Response: out})
 }
 
 // handleGenerate handles the /api/generate endpoint - simple text generation
@@ -596,35 +665,17 @@ func (sm *ServerManager) handleGenerate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Build messages
-	var messages []llm.Message
-	if req.System != "" {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: req.System,
-		})
-	}
-	messages = append(messages, llm.Message{
-		Role:    "user",
-		Content: req.Prompt,
-	})
-
-	// Send to LLM
-	response, err := sm.llmClient.SendMessage(messages, false, nil)
+	// Route through REPL input pipeline and capture output
+	out, err := sm.executeInputWithCapture(req.Prompt, req.Stream, req.System)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(GenerateResponse{
-			Text:  "",
-			Error: fmt.Sprintf("LLM error: %v", err),
-		})
+		json.NewEncoder(w).Encode(GenerateResponse{Text: "", Error: fmt.Sprintf("%v", err)})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(GenerateResponse{
-		Text: response,
-	})
+	json.NewEncoder(w).Encode(GenerateResponse{Text: out})
 }
 
 // handleGetConfig handles the /api/config endpoint - get current configuration
@@ -677,99 +728,6 @@ func (sm *ServerManager) handleSetConfig(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// handleGetSessions handles the /api/sessions endpoint - get available sessions
-func (sm *ServerManager) handleGetSessions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if sm.repl == nil {
-		http.Error(w, "REPL not available", http.StatusInternalServerError)
-		return
-	}
-
-	err := sm.repl.listSessions()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error listing sessions: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// For now, return a simple response - the actual session listing is printed to stdout
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-// handleLoadSession handles the /api/session/load endpoint - load a session
-func (sm *ServerManager) handleLoadSession(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if sm.repl == nil {
-		http.Error(w, "REPL not available", http.StatusInternalServerError)
-		return
-	}
-
-	var req struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Name == "" {
-		http.Error(w, "Session name is required", http.StatusBadRequest)
-		return
-	}
-
-	err := sm.repl.loadSession(req.Name)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error loading session: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-// handleSaveSession handles the /api/session/save endpoint - save current session
-func (sm *ServerManager) handleSaveSession(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if sm.repl == nil {
-		http.Error(w, "REPL not available", http.StatusInternalServerError)
-		return
-	}
-
-	var req struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	sessionName := req.Name
-	if sessionName == "" {
-		sessionName = fmt.Sprintf("%d", time.Now().Unix())
-	}
-
-	err := sm.repl.saveSession(sessionName)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": sessionName})
-}
-
 // handleGetProviderModels handles the /api/models/<provider> endpoint - get models for a specific provider
 func (sm *ServerManager) handleGetProviderModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -786,8 +744,9 @@ func (sm *ServerManager) handleGetProviderModels(w http.ResponseWriter, r *http.
 
 	provider := strings.ToLower(path)
 
-	// Create a temporary config with the requested provider
-	tempConfig := *sm.config
+	// Create a temporary config with the requested provider based on REPL settings
+	baseCfg := sm.repl.buildLLMConfig()
+	tempConfig := *baseCfg
 	tempConfig.PROVIDER = provider
 
 	// Create a temporary LLM client for the requested provider
