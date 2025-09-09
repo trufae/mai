@@ -264,7 +264,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			return "", err
 		}
 		if response.Error != "" {
-			return "", fmt.Errorf(response.Error)
+			return "", fmt.Errorf("%s", response.Error)
 		}
 		// Return raw content - newline conversion happens in the REPL
 		return response.Response, nil
@@ -350,7 +350,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		return "", err
 	}
 	if response.Error != "" {
-		return "", fmt.Errorf(response.Error)
+		return "", fmt.Errorf("%s", response.Error)
 	}
 	if p.config.Schema != nil {
 		return response.Response, nil

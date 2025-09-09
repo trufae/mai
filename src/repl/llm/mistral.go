@@ -190,7 +190,7 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 		return response.Choices[0].Message.Content, nil
 	}
 	if response.Message != "" {
-		return "", fmt.Errorf(response.Message)
+		return "", fmt.Errorf("%s", response.Message)
 	}
 	return "", fmt.Errorf("no content in response")
 }

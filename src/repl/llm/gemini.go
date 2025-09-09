@@ -207,7 +207,7 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 		return "", err
 	}
 	if response.Error.Message != "" {
-		return "", fmt.Errorf(response.Error.Message)
+		return "", fmt.Errorf("%s", response.Error.Message)
 	}
 
 	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
@@ -255,7 +255,7 @@ func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
 		if errObj, ok := obj["error"].(map[string]interface{}); ok {
 			if msg, ok := errObj["message"].(string); ok && msg != "" {
 				// Return any collected response along with the error message
-				return fullResponse.String(), fmt.Errorf(msg)
+				return fullResponse.String(), fmt.Errorf("%s", msg)
 			}
 		}
 

@@ -91,14 +91,18 @@ type MarkdownRenderer struct {
 	codeLanguage      string
 	isEscaping        bool
 	isInLineStart     bool
-	currentLineBuffer string
+    currentLineBuffer string
 	linkTextBuffer    string
 	linkURLBuffer     string
 	inLinkText        bool
 	inLinkURL         bool
 	boldMarker        rune // '*' or '_' for bold
 	italicMarker      rune // '*' or '_' for italic
-	nestingLevel      int  // For handling nested formatting
+    nestingLevel      int  // For handling nested formatting
+
+    // Streaming-specific pending state to handle cross-chunk emphasis markers
+    pendingEmphasis bool
+    pendingMarker   rune
 
 	// State flags
 	collectingHeader     bool
@@ -121,26 +125,77 @@ type MarkdownRenderer struct {
 
 // NewMarkdownRenderer creates a new markdown renderer
 func NewMarkdownRenderer(isStreaming bool) *MarkdownRenderer {
-	return &MarkdownRenderer{
-		buffer:         "",
-		isStreaming:    isStreaming,
-		isInLineStart:  true,
-		currentElement: MarkdownElement{Type: TextElement, Content: ""},
-		elements:       make([]MarkdownElement, 0),
-	}
+    return &MarkdownRenderer{
+        buffer:         "",
+        isStreaming:    isStreaming,
+        isInLineStart:  true,
+        currentElement: MarkdownElement{Type: TextElement, Content: ""},
+        elements:       make([]MarkdownElement, 0),
+    }
 }
 
 // Process handles a chunk of text (or the entire text in non-streaming mode)
 func (r *MarkdownRenderer) Process(chunk string) string {
-	// Replace Windows-style line endings with Unix-style
-	chunk = strings.ReplaceAll(chunk, "\r\n", "\n")
+    // Replace Windows-style line endings with Unix-style
+    chunk = strings.ReplaceAll(chunk, "\r\n", "\n")
 
-	var result strings.Builder
+    var result strings.Builder
 
-	// Process character by character, supporting multibyte UTF-8 runes
-	runes := []rune(chunk)
-	for i := 0; i < len(runes); i++ {
-		c := runes[i]
+    // In streaming mode, buffer by line and only render on newline
+    if r.isStreaming {
+        r.currentLineBuffer += chunk
+        for {
+            idx := strings.IndexRune(r.currentLineBuffer, '\n')
+            if idx == -1 {
+                break
+            }
+            line := r.currentLineBuffer[:idx]
+            r.currentLineBuffer = r.currentLineBuffer[idx+1:]
+            // Render a complete line with context (headers/lists) and code fence state
+            result.WriteString(r.renderStreamLine(line))
+            result.WriteString("\r\n")
+            r.isInLineStart = true
+        }
+        return result.String()
+    }
+
+    // Process character by character, supporting multibyte UTF-8 runes
+    runes := []rune(chunk)
+    for i := 0; i < len(runes); i++ {
+        c := runes[i]
+
+        // If we have a pending single emphasis marker from previous chunk,
+        // try to resolve it now with the current character.
+        if r.pendingEmphasis {
+            if c == r.pendingMarker {
+                // We have a pair across chunks (e.g., ** or __)
+                if r.collectingBold && c == r.boldMarker {
+                    // End of bold, add the element
+                    r.collectingBold = false
+                    result.WriteString(BoldColor + r.currentElement.Content + Reset)
+                    r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+                } else if !r.collectingBold && !r.collectingItalic {
+                    // Start of bold
+                    if r.currentElement.Content != "" {
+                        // Flush any existing content
+                        result.WriteString(r.currentElement.Content)
+                    }
+                    r.collectingBold = true
+                    r.boldMarker = c
+                    r.currentElement = MarkdownElement{Type: BoldElement, Content: ""}
+                } else {
+                    // Inside another formatting context, treat as literal
+                    r.currentElement.Content += string(r.pendingMarker) + string(c)
+                }
+                r.pendingEmphasis = false
+                continue
+            } else {
+                // No pair; flush the pending marker as literal and keep processing c
+                r.currentElement.Content += string(r.pendingMarker)
+                r.pendingEmphasis = false
+                // fallthrough to process c normally
+            }
+        }
 
 		// Handle escape character
 		if c == '\\' && !r.isEscaping {
@@ -287,53 +342,62 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			continue
 		}
 
-		// Handle bold formatting (** or __)
-		if (c == '*' || c == '_') && i+1 < len(runes) && runes[i+1] == c {
-			if r.collectingBold && c == r.boldMarker {
-				// End of bold, add the element
-				r.collectingBold = false
-				result.WriteString(BoldColor + r.currentElement.Content + Reset)
-				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
-				i++ // Skip the second * or _
-			} else if !r.collectingBold && !r.collectingItalic {
-				// Start of bold
-				if r.currentElement.Content != "" {
-					// Flush any existing content
-					result.WriteString(r.currentElement.Content)
-				}
-				r.collectingBold = true
-				r.boldMarker = c
-				r.currentElement = MarkdownElement{Type: BoldElement, Content: ""}
-				i++ // Skip the second * or _
-			} else {
-				// Just add the character if we're in another formatting context
-				r.currentElement.Content += string(c)
-			}
-			continue
-		}
-
-		// Handle italic formatting (* or _)
-		if (c == '*' || c == '_') && !r.collectingBold {
-			if r.collectingItalic && c == r.italicMarker {
-				// End of italic, add the element
-				r.collectingItalic = false
-				result.WriteString(ItalicColor + r.currentElement.Content + Reset)
-				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
-			} else if !r.collectingItalic {
-				// Start of italic
-				if r.currentElement.Content != "" {
-					// Flush any existing content
-					result.WriteString(r.currentElement.Content)
-				}
-				r.collectingItalic = true
-				r.italicMarker = c
-				r.currentElement = MarkdownElement{Type: ItalicElement, Content: ""}
-			} else {
-				// Just add the character if we're in another formatting context
-				r.currentElement.Content += string(c)
-			}
-			continue
-		}
+        // Handle emphasis markers (*, _) with support for cross-chunk bold pairs
+        if c == '*' || c == '_' {
+            // Bold pair within the same chunk
+            if i+1 < len(runes) && runes[i+1] == c {
+                if r.collectingBold && c == r.boldMarker {
+                    // End of bold, add the element
+                    r.collectingBold = false
+                    result.WriteString(BoldColor + r.currentElement.Content + Reset)
+                    r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+                    i++ // Skip the second * or _
+                } else if !r.collectingBold && !r.collectingItalic {
+                    // Start of bold
+                    if r.currentElement.Content != "" {
+                        // Flush any existing content
+                        result.WriteString(r.currentElement.Content)
+                    }
+                    r.collectingBold = true
+                    r.boldMarker = c
+                    r.currentElement = MarkdownElement{Type: BoldElement, Content: ""}
+                    i++ // Skip the second * or _
+                } else {
+                    // Just add the character if we're in another formatting context
+                    r.currentElement.Content += string(c)
+                }
+                continue
+            }
+            // No immediate pair. In streaming mode, defer decision to next chunk
+            if r.isStreaming {
+                r.pendingEmphasis = true
+                r.pendingMarker = c
+                continue
+            }
+            // Non-streaming: handle italics as before
+            if !r.collectingBold {
+                if r.collectingItalic && c == r.italicMarker {
+                    // End of italic, add the element
+                    r.collectingItalic = false
+                    result.WriteString(ItalicColor + r.currentElement.Content + Reset)
+                    r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+                    continue
+                } else if !r.collectingItalic {
+                    // Start of italic
+                    if r.currentElement.Content != "" {
+                        // Flush any existing content
+                        result.WriteString(r.currentElement.Content)
+                    }
+                    r.collectingItalic = true
+                    r.italicMarker = c
+                    r.currentElement = MarkdownElement{Type: ItalicElement, Content: ""}
+                    continue
+                }
+            }
+            // Fallback: treat as literal
+            r.currentElement.Content += string(c)
+            continue
+        }
 
 		// Handle link [text](url)
 		if c == '[' && !r.collectingLinkText && !r.collectingLinkURL && !r.collectingInlineCode {
@@ -481,20 +545,69 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 		r.collectingItalic = false
 		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 	}
+	// Note: collectingHeader, collectingListItem, and collectingBlockquote
+	// are left in their collecting state for streaming mode. They will be
+	// handled in Flush() if the stream ends.
 
 	return result.String()
+}
+
+// renderStreamLine formats a single line for streaming mode, keeping multi-line state like code fences.
+func (r *MarkdownRenderer) renderStreamLine(line string) string {
+    trimmed := strings.TrimSpace(line)
+    // Handle code fences in streaming mode
+    if strings.HasPrefix(trimmed, "```") {
+        fenceRest := strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+        if !r.inCodeFence {
+            // Opening fence: capture language (optional) and enter code block
+            r.inCodeFence = true
+            r.codeLanguage = fenceRest
+        } else {
+            // Closing fence
+            r.inCodeFence = false
+            r.codeLanguage = ""
+        }
+        // Do not render the fence line itself
+        return ""
+    }
+    if r.inCodeFence {
+        // Inside code block: render raw content with code color
+        if line == "" {
+            return ""
+        }
+        return CodeBlockColor + line + Reset
+    }
+
+    // For regular markdown lines, reuse the non-streaming renderer to format the full line.
+    // Append a newline so header/list parsing finalizes; then strip the CRLF we get back.
+    tmp := NewMarkdownRenderer(false)
+    out := tmp.Process(line + "\n")
+    out = strings.TrimSuffix(out, "\r\n")
+    return out
 }
 
 // Flush handles any remaining content in the buffer
 // This is used in streaming mode to finish processing
 func (r *MarkdownRenderer) Flush() string {
-	var result strings.Builder
+    var result strings.Builder
 
-	// Handle incomplete states first
-	if r.collectingLinkText {
-		result.WriteString("[" + r.linkTextBuffer)
-		r.collectingLinkText = false
-		r.linkTextBuffer = ""
+    // In streaming mode, flush any remaining partial line
+    if r.isStreaming && r.currentLineBuffer != "" {
+        result.WriteString(r.renderStreamLine(r.currentLineBuffer))
+        r.currentLineBuffer = ""
+    }
+
+    // If we had a pending emphasis marker, flush it as literal
+    if r.pendingEmphasis {
+        result.WriteString(string(r.pendingMarker))
+        r.pendingEmphasis = false
+    }
+
+    // Handle incomplete states first
+    if r.collectingLinkText {
+        result.WriteString("[" + r.linkTextBuffer)
+        r.collectingLinkText = false
+        r.linkTextBuffer = ""
 	} else if r.collectingLinkURL {
 		result.WriteString("[" + r.linkTextBuffer + "](" + r.currentElement.Content)
 		r.collectingLinkURL = false
@@ -511,6 +624,35 @@ func (r *MarkdownRenderer) Flush() string {
 	} else if r.collectingItalic {
 		result.WriteString(string(r.italicMarker) + r.currentElement.Content)
 		r.collectingItalic = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.collectingHeader {
+		// Incomplete header at end of stream - format as header
+		switch r.headerLevel {
+		case 1:
+			result.WriteString(H1Color + r.currentElement.Content + Reset)
+		case 2:
+			result.WriteString(H2Color + r.currentElement.Content + Reset)
+		case 3:
+			result.WriteString(H3Color + r.currentElement.Content + Reset)
+		case 4:
+			result.WriteString(H4Color + r.currentElement.Content + Reset)
+		case 5:
+			result.WriteString(H5Color + r.currentElement.Content + Reset)
+		case 6:
+			result.WriteString(H6Color + r.currentElement.Content + Reset)
+		}
+		r.collectingHeader = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+		r.headerLevel = 0
+	} else if r.collectingListItem {
+		// Incomplete list item at end of stream - format as list item
+		result.WriteString(ListItemColor + "• " + r.currentElement.Content + Reset)
+		r.collectingListItem = false
+		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+	} else if r.collectingBlockquote {
+		// Incomplete blockquote at end of stream - format as blockquote
+		result.WriteString(QuoteColor + r.currentElement.Content + Reset)
+		r.collectingBlockquote = false
 		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 	} else if r.currentElement.Content != "" {
 		// Format based on current element type
