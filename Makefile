@@ -19,6 +19,7 @@ install:
 	$(MAKE) -C src/repl install
 	$(MAKE) -C src/tool install
 	$(MAKE) -C src/mcps install
+	$(MAKE) -C src/vdb install
 
 run:
 	go run $(MAIN_FILE)
