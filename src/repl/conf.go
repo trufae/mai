@@ -89,6 +89,9 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("conversation_format", StringOption, "Conversation formatting: tokens, labeled, or plain", "plain")
 	co.RegisterOption("conversation_use_last_user", BooleanOption, "Only include the last user message when building a single prompt", "false")
 
+	// Server configuration
+	co.RegisterOption("listen", StringOption, "Listen address for the web server (host:port)", "0.0.0.0:9000")
+
 	co.initialized = true
 
 	// Set the global reference to this config

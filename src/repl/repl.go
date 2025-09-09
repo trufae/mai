@@ -2239,6 +2239,15 @@ func (r *REPL) initCommands() {
 		},
 	}
 
+	// Server management commands
+	r.commands["/serve"] = Command{
+		Name:        "/serve",
+		Description: "Manage the background web server (start, stop, status)",
+		Handler: func(r *REPL, args []string) error {
+			return r.handleServeCommand(args)
+		},
+	}
+
 	// System prompt shortcuts
 	r.commands["/prompt"] = Command{
 		Name:        "/prompt",
