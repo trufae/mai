@@ -218,6 +218,15 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		res, _ := extractJSONBlock(responseJson)
 		responseJson = res
 	}
+	if strings.HasPrefix(responseJson, "<|") {
+		pos := strings.LastIndex(responseJson, "|>")
+		if pos != -1 {
+			responseJson = responseJson[pos+2:]
+			fmt.Println("Responded JSON:\n" + responseJson)
+		} else {
+			fmt.Println("Invalid JSON:\n" + responseJson)
+		}
+	}
 	var response PlanResponse
 	// debug fmt.Println(responseJson)
 	if responseJson != "" {
@@ -228,6 +237,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 	}
 	return response, nil
 }
+
 func showPlan(step *PlanResponse) {
 	planString := "## Plan\n\n\r"
 	i := 0
