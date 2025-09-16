@@ -53,6 +53,7 @@ type MCPServer struct {
 	reader       *bufio.Scanner
 	writer       io.Writer
 	prompts      []PromptDefinition
+	logFile      io.Writer
 }
 
 // ToolHandler is a function that handles a tool call
@@ -69,12 +70,18 @@ type Tool struct {
 
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {
-	return &MCPServer{
+	s := &MCPServer{
 		tools:        tools,
 		toolHandlers: make(map[string]ToolHandler),
 		reader:       bufio.NewScanner(os.Stdin),
 		writer:       os.Stdout,
 	}
+	if logfile := os.Getenv("MCPLIB_LOGFILE"); logfile != "" {
+		if err := s.SetLogFile(logfile); err != nil {
+			log.Printf("Failed to set MCPLIB_LOGFILE: %v", err)
+		}
+	}
+	return s
 }
 
 // SetIO allows overriding the server's input/output streams.
@@ -87,6 +94,21 @@ func (s *MCPServer) SetIO(r io.Reader, w io.Writer) {
 	if w != nil {
 		s.writer = w
 	}
+}
+
+// SetLogFile sets the logfile for appending raw communications.
+// Pass an empty string to disable logging.
+func (s *MCPServer) SetLogFile(path string) error {
+	if path == "" {
+		s.logFile = nil
+		return nil
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	s.logFile = file
+	return nil
 }
 
 // ServeTCP listens on the provided TCP address (host:port), accepts a
@@ -119,6 +141,10 @@ func (s *MCPServer) RegisterTool(name string, handler ToolHandler) {
 func (s *MCPServer) Start() {
 	for s.reader.Scan() {
 		line := s.reader.Bytes()
+		if s.logFile != nil {
+			s.logFile.Write(line)
+			s.logFile.Write([]byte("\n"))
+		}
 		var req JSONRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
 			s.sendError(req.ID, -32700, "Parse error: invalid JSON")
@@ -194,6 +220,10 @@ func (s *MCPServer) handleCall(req JSONRPCRequest) {
 func (s *MCPServer) sendResult(id interface{}, result interface{}) {
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result}
 	data, _ := json.Marshal(resp)
+	if s.logFile != nil {
+		s.logFile.Write(data)
+		s.logFile.Write([]byte("\n"))
+	}
 	fmt.Fprintln(s.writer, string(data))
 }
 
@@ -202,6 +232,10 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 	errObj := RPCError{Code: code, Message: message}
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &errObj}
 	data, _ := json.Marshal(resp)
+	if s.logFile != nil {
+		s.logFile.Write(data)
+		s.logFile.Write([]byte("\n"))
+	}
 	fmt.Fprintln(s.writer, string(data))
 }
 
