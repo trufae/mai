@@ -352,6 +352,10 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
 	}
+	if strings.TrimSpace(toolList) == "" {
+		fmt.Println("No tools available, doing nothing")
+		return input, nil
+	}
 	var context = ""
 	var progress = ""
 	var stepCount = 0

@@ -292,6 +292,10 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
 	}
+	if strings.TrimSpace(toolList) == "" {
+		fmt.Println("No tools available, doing nothing")
+		return input, nil
+	}
 	context := ""
 	stepCount := 0
 	reasoning := ""
