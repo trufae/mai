@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // JSONRPCRequest represents a JSON-RPC 2.0 request
@@ -54,6 +56,8 @@ type MCPServer struct {
 	writer       io.Writer
 	prompts      []PromptDefinition
 	logFile      io.Writer
+	bufr         *bufio.Reader
+	useHeaders   bool
 }
 
 // ToolHandler is a function that handles a tool call
@@ -75,6 +79,7 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		toolHandlers: make(map[string]ToolHandler),
 		reader:       bufio.NewScanner(os.Stdin),
 		writer:       os.Stdout,
+		bufr:         bufio.NewReader(os.Stdin),
 	}
 	if logfile := os.Getenv("MCPLIB_LOGFILE"); logfile != "" {
 		if err := s.SetLogFile(logfile); err != nil {
@@ -90,6 +95,7 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 func (s *MCPServer) SetIO(r io.Reader, w io.Writer) {
 	if r != nil {
 		s.reader = bufio.NewScanner(r)
+		s.bufr = bufio.NewReader(r)
 	}
 	if w != nil {
 		s.writer = w
@@ -139,25 +145,52 @@ func (s *MCPServer) RegisterTool(name string, handler ToolHandler) {
 
 // Start starts the MCP server and begins processing requests
 func (s *MCPServer) Start() {
-	for s.reader.Scan() {
-		line := s.reader.Bytes()
-		if s.logFile != nil {
-			s.logFile.Write(line)
+	for {
+		payload, err := s.readNextMessage()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			// Cannot parse a request ID here; send generic parse error with null id
+			s.sendError(nil, -32700, "Parse error: "+err.Error())
+			continue
+		}
+		if s.logFile != nil && len(payload) > 0 {
+			s.logFile.Write(payload)
 			s.logFile.Write([]byte("\n"))
 		}
 		var req JSONRPCRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			s.sendError(req.ID, -32700, "Parse error: invalid JSON")
+		if err := json.Unmarshal(payload, &req); err != nil {
+			s.sendError(nil, -32700, "Parse error: invalid JSON")
 			continue
 		}
 
 		switch req.Method {
 		case "initialize":
+			// Try to echo client's protocolVersion if provided
+			var initParams struct {
+				ProtocolVersion string `json:"protocolVersion"`
+			}
+			_ = json.Unmarshal(req.Params, &initParams)
+			proto := initParams.ProtocolVersion
+			if proto == "" {
+				proto = "2024-11-05"
+			}
+			// Advertise capabilities for tools and prompts
+			caps := map[string]interface{}{"tools": map[string]interface{}{}}
+			if len(s.prompts) > 0 {
+				caps["prompts"] = map[string]interface{}{}
+			} else {
+				// Many clients still tolerate declaring prompts capability even if empty
+				caps["prompts"] = map[string]interface{}{}
+			}
 			s.sendResult(req.ID, map[string]interface{}{
-				"protocolVersion": "2024-11-05",
-				"capabilities": map[string]interface{}{
-					"tools":   map[string]interface{}{},
-					"prompts": map[string]interface{}{},
+				"protocolVersion": proto,
+				"capabilities":    caps,
+				// Some clients expect serverInfo; include for compatibility
+				"serverInfo": map[string]interface{}{
+					"name":    "nsmcp",
+					"version": "0.1.0",
 				},
 			})
 		case "notifications/initialized":
@@ -180,9 +213,71 @@ func (s *MCPServer) Start() {
 			s.sendError(req.ID, -32601, "Method not found: "+req.Method)
 		}
 	}
-	if err := s.reader.Err(); err != nil {
-		log.Fatalln("Error reading stdin:", err)
+}
+
+// readNextMessage reads the next JSON-RPC message body, supporting both
+// MCP/LSP-style header framing (Content-Length) and newline-delimited JSON.
+func (s *MCPServer) readNextMessage() ([]byte, error) {
+	if s.bufr == nil {
+		s.bufr = bufio.NewReader(os.Stdin)
 	}
+	// Read header lines if present (order-agnostic)
+	var headers []string
+	// Peek one line to decide framing
+	firstLine, err := s.bufr.ReadString('\n')
+	if err != nil {
+		if err == io.EOF && len(firstLine) == 0 {
+			return nil, io.EOF
+		}
+		// If we couldn't read a full line, propagate error
+		if err != nil {
+			return nil, err
+		}
+	}
+	tl := strings.TrimRight(firstLine, "\r\n")
+	lower := strings.ToLower(tl)
+	if strings.Contains(lower, ":") && (strings.HasPrefix(lower, "content-length:") || strings.HasPrefix(lower, "content-type:")) {
+		headers = append(headers, tl)
+		// Keep reading headers until blank line
+		for {
+			h, err := s.bufr.ReadString('\n')
+			if err != nil {
+				return nil, err
+			}
+			th := strings.TrimRight(h, "\r\n")
+			if strings.TrimSpace(th) == "" {
+				break
+			}
+			headers = append(headers, th)
+		}
+		// Find Content-Length (case-insensitive)
+		var n int = -1
+		for _, h := range headers {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			if strings.TrimSpace(strings.ToLower(parts[0])) == "content-length" {
+				v := strings.TrimSpace(parts[1])
+				nn, e := strconv.Atoi(v)
+				if e == nil && nn >= 0 {
+					n = nn
+					break
+				}
+			}
+		}
+		if n < 0 {
+			return nil, fmt.Errorf("missing Content-Length header")
+		}
+		s.useHeaders = true
+		body := make([]byte, n)
+		if _, err := io.ReadFull(s.bufr, body); err != nil {
+			return nil, err
+		}
+		return body, nil
+	}
+	// Not header-framed; treat first line as JSON payload (newline-delimited JSON)
+	return []byte(strings.TrimRight(firstLine, "\r\n")), nil
 }
 
 // handleCall handles a tools/call request
@@ -206,13 +301,26 @@ func (s *MCPServer) handleCall(req JSONRPCRequest) {
 	}
 
 	// Return proper MCP tools/call response format
+	var textOut string
+	switch v := result.(type) {
+	case string:
+		textOut = v
+	default:
+		// Stringify non-string results as JSON to keep 'text' a string
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			textOut = string(b)
+		} else {
+			textOut = fmt.Sprintf("%v", v)
+		}
+	}
 	s.sendResult(req.ID, map[string]interface{}{
 		"content": []interface{}{
 			map[string]interface{}{
 				"type": "text",
-				"text": result,
+				"text": textOut,
 			},
 		},
+		"isError": false,
 	})
 }
 
@@ -224,7 +332,7 @@ func (s *MCPServer) sendResult(id interface{}, result interface{}) {
 		s.logFile.Write(data)
 		s.logFile.Write([]byte("\n"))
 	}
-	fmt.Fprintln(s.writer, string(data))
+	s.writeFramed(data)
 }
 
 // sendError sends an error JSON-RPC response
@@ -236,6 +344,18 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 		s.logFile.Write(data)
 		s.logFile.Write([]byte("\n"))
 	}
+	s.writeFramed(data)
+}
+
+// writeFramed writes JSON payload using header framing if enabled, else newline JSON.
+func (s *MCPServer) writeFramed(data []byte) {
+	if s.useHeaders {
+		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
+		io.WriteString(s.writer, header)
+		s.writer.Write(data)
+		return
+	}
+	// newline-delimited fallback
 	fmt.Fprintln(s.writer, string(data))
 }
 
