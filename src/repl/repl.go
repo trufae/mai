@@ -3878,17 +3878,14 @@ func (r *REPL) handleCompactCommand() error {
 		return nil
 	}
 
-	// Try to find the compact prompt using resolvePromptPath
-	promptPath, err := r.resolvePromptPath("compact")
-	if err != nil {
-		return fmt.Errorf("failed to find compact prompt: %v", err)
-	}
+	// Use hardcoded compact prompt
+	compactPrompt := `You are a conversation compactor. Analyze the conversation messages that follow and produce a single top-level message text.
 
-	// Load the compact prompt from file
-	compactPrompt, err := os.ReadFile(promptPath)
-	if err != nil {
-		return fmt.Errorf("failed to read compact prompt: %v", err)
-	}
+Rules for extraction:
+- Provide a concise summary of the user's overall intent and goals.
+- Do NOT invent, paraphrase, expand, or add any questions, answers, or facts that are not literally present in the conversation.
+- Omit trivial or off-topic user utterances (e.g., "thanks", "ok") unless they contain substantive content.
+`
 
 	// Create a serialized version of the conversation for the AI
 	var conversationText strings.Builder
@@ -3899,17 +3896,14 @@ func (r *REPL) handleCompactCommand() error {
 		conversationText.WriteString(fmt.Sprintf("## %s %d:\n\n%s\n\n", role, i+1, msg.Content.(string)))
 	}
 
-	// Create a new message with the compact prompt and conversation history
+	// Create instruction message (system) containing the compact prompt
 	compactMessage := llm.Message{
-		Role:    "user",
-		Content: string(compactPrompt) + "\n\n" + conversationText.String(),
+		Role:    "system",
+		Content: compactPrompt,
 	}
 
 	// Save original messages for recovery if needed
 	originalMessages := r.messages
-
-	// Replace messages with just the compact message
-	r.messages = []llm.Message{compactMessage}
 
 	fmt.Print("Compacting conversation...\r\n")
 
@@ -3927,6 +3921,20 @@ func (r *REPL) handleCompactCommand() error {
 		apiMessages = append(apiMessages, llm.Message{Role: "system", Content: sp})
 	}
 	apiMessages = append(apiMessages, compactMessage)
+	// Append pruned conversation: include user messages deduped and assistant messages as-is
+	seen := map[string]bool{}
+	for _, m := range originalMessages {
+		if strings.ToLower(m.Role) == "user" {
+			content := m.Content.(string)
+			if seen[content] {
+				continue
+			}
+			seen[content] = true
+			apiMessages = append(apiMessages, llm.Message{Role: "user", Content: content})
+		} else {
+			apiMessages = append(apiMessages, llm.Message{Role: "assistant", Content: m.Content.(string)})
+		}
+	}
 
 	// Send the message to the AI (non-streaming mode for this operation)
 	response, err := client.SendMessage(apiMessages, false, nil)
@@ -3936,13 +3944,41 @@ func (r *REPL) handleCompactCommand() error {
 		return fmt.Errorf("failed to compact conversation: %v", err)
 	}
 
-	// Create the assistant response message
-	assistantMessage := llm.Message{Role: "assistant", Content: response}
-
-	// Replace the conversation with just the compact message and response
-	r.messages = []llm.Message{
-		llm.Message{Role: "user", Content: "Please provide a compact response to my questions and needs."},
-		assistantMessage,
+	userMarker := "User Summary:"
+	assistantMarker := "Assistant Summary:"
+	userStart := strings.Index(response, userMarker)
+	assistantStart := strings.Index(response, assistantMarker)
+	if userStart == -1 {
+		var compactedUser strings.Builder
+		seen := map[string]bool{}
+		for _, m := range originalMessages {
+			if strings.ToLower(m.Role) == "user" {
+				content := m.Content.(string)
+				if seen[content] {
+					continue
+				}
+				seen[content] = true
+				if compactedUser.Len() > 0 {
+					compactedUser.WriteString("\n")
+				}
+				compactedUser.WriteString(content)
+			}
+		}
+		r.messages = []llm.Message{llm.Message{Role: "user", Content: compactedUser.String()}}
+		r.messages = append(r.messages, llm.Message{Role: "assistant", Content: response})
+	} else {
+		var userContent string
+		if assistantStart == -1 {
+			userContent = strings.TrimSpace(response[userStart+len(userMarker):])
+			r.messages = []llm.Message{llm.Message{Role: "user", Content: userContent}}
+		} else {
+			userContent = strings.TrimSpace(response[userStart+len(userMarker) : assistantStart])
+			assistantContent := strings.TrimSpace(response[assistantStart+len(assistantMarker):])
+			r.messages = []llm.Message{
+				llm.Message{Role: "user", Content: userContent},
+				llm.Message{Role: "assistant", Content: assistantContent},
+			}
+		}
 	}
 
 	fmt.Print("Conversation compacted successfully.\r\n")
