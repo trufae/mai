@@ -235,6 +235,8 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	repl.autoDetectTemplateDir()
 	repl.autoDetectWwwRoot()
 
+	repl.loadAgentsFile()
+
 	return repl, nil
 }
 
@@ -292,6 +294,60 @@ func findMaiDir() (string, error) {
 		return "", fmt.Errorf("failed to get home directory: %v", err)
 	}
 	return filepath.Join(homeDir, ".mai"), nil
+}
+
+func findFileUpwards(filename string) (string, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %v", err)
+	}
+	for {
+		candidate := filepath.Join(currentDir, filename)
+		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(currentDir)
+		if parent == currentDir {
+			break
+		}
+		currentDir = parent
+	}
+	return "", nil
+}
+
+func (r *REPL) loadAgentsFile() error {
+	fname := r.configOptions.Get("agentsfile")
+	if fname == "" {
+		return nil
+	}
+	var path string
+	if filepath.IsAbs(fname) || strings.ContainsAny(fname, "/\\") {
+		if _, err := os.Stat(fname); err == nil {
+			path = fname
+		} else {
+			return nil
+		}
+	} else {
+		found, err := findFileUpwards(fname)
+		if err != nil || found == "" {
+			return nil
+		}
+		path = found
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading agents file %s: %v\n", path, err)
+		return err
+	}
+	content := string(b)
+	prefix := "These are the instructions to follow by the agent: "
+	combined := prefix + content
+	existing := r.currentSystemPrompt()
+	if existing != "" {
+		combined = combined + "\n\n" + existing
+	}
+	_ = r.configOptions.Set("systemprompt", combined)
+	return nil
 }
 
 func (r *REPL) Run() error {

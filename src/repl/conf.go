@@ -62,6 +62,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
 	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
 	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
+	co.RegisterOption("agentsfile", StringOption, "Filename to load agent instructions from current or parent directories (empty to disable)", "AGENTS.md")
 	co.RegisterOption("schema", StringOption, "Inline JSON schema to constrain model output", "")
 	co.RegisterOption("schemafile", StringOption, "Path to JSON schema file for formatted output", "")
 	co.RegisterOption("provider", StringOption, "AI provider to use", "")
