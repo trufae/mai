@@ -34,6 +34,9 @@ type Config struct {
 	Markdown      bool
 	Rawdog        bool
 
+	// DemoMode enables the simple waiting animation in the REPL when set.
+	DemoMode bool
+
 	// Optional structured output schema support
 	// When set, providers should constrain output to this JSON schema.
 	Schema map[string]interface{}

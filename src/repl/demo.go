@@ -1,4 +1,4 @@
-package repl
+package main
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ var (
 	running     bool
 	message     string
 	stopChannel chan struct{}
-	spinner     = []rune{'—', '\', '|', '/'}
+	spinner     = []rune{'—', '\\', '|', '/'}
 )
 
 // startLoop starts the waiting animation in a separate goroutine.
@@ -19,7 +19,7 @@ func startLoop(initialMessage string) {
 	mu.Lock()
 	if running {
 		mu.Unlock()
-		return // Already running
+		return
 	}
 	running = true
 	message = initialMessage
@@ -57,10 +57,10 @@ func stopLoop() {
 	mu.Lock()
 	if !running {
 		mu.Unlock()
-		return // Not running
+		return
 	}
 	running = false
-	close(stopChannel) // Signal the goroutine to stop
+	close(stopChannel)
 	mu.Unlock()
-	fmt.Println() // Ensure the last printed line is not overwritten
+	fmt.Println()
 }

@@ -24,7 +24,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/trufae/mai/src/repl/llm"
-	"mai/src/repl/demo" // Add this import
 )
 
 // Command represents a REPL command with its description and handler
@@ -1982,7 +1981,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	// Check if demo mode is enabled
 	if r.configOptions.GetBool("demo") {
-		demo.startLoop("Thinking...")
+		startLoop("Thinking...")
 	}
 
 	// Send message with streaming based on REPL settings, but disable if redirected
@@ -2006,7 +2005,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// Stop the animation after SendMessage returns (for non-streaming)
 	// For streaming, the animation will be stopped when the first token arrives.
 	if r.configOptions.GetBool("demo") && !streamEnabled {
-		demo.stopLoop()
+		stopLoop()
 	}
 
 	// Handle the assistant's response based on logging settings
