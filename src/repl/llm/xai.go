@@ -148,10 +148,10 @@ func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, strea
 	apiURL := buildURL("https://api.x.ai/v1/chat/completions", p.config.BaseURL, "", "", "/chat/completions")
 
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", apiURL,
-			headers, jsonData, func(r io.Reader) (string, error) {
-				return p.parseStream(r)
-			})
+		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL,
+			headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
+				return p.parseStreamWithCallback(r, stopCallback)
+			}, nil)
 	}
 
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
@@ -182,8 +182,13 @@ func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, strea
 }
 
 func (p *XAIProvider) parseStream(reader io.Reader) (string, error) {
+	return p.parseStreamWithCallback(reader, nil)
+}
+
+func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
+	firstTokenReceived := false
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -217,6 +222,14 @@ func (p *XAIProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+			// Stop demo animation on first token received
+			if !firstTokenReceived {
+				firstTokenReceived = true
+				if stopCallback != nil {
+					stopCallback()
+				}
+			}
+
 			content := response.Choices[0].Delta.Content
 
 			// Format the content using our streaming-friendly formatter

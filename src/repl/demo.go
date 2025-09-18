@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const DemoSpeed = 100
+
 var (
 	mu          sync.Mutex
 	running     bool
@@ -43,11 +45,7 @@ func startLoop(initialMessage string) {
 	mu.Unlock()
 
 	go func() {
-		// Attempt to get terminal width from stderr (so animation doesn't
-		// interfere with stdout prompts). Fall back to 80.
-		width := getTerminalWidth(os.Stderr.Fd()) - 5
-
-		tick := time.NewTicker(100 * time.Millisecond)
+		tick := time.NewTicker(DemoSpeed * time.Millisecond)
 		defer tick.Stop()
 
 		frame := 0
@@ -55,14 +53,21 @@ func startLoop(initialMessage string) {
 		for {
 			select {
 			case <-stopChannel:
-				// Clear line and signal done
-				fmt.Fprint(os.Stderr, "\r")
-				// overwrite with spaces then return carriage
-				fmt.Fprint(os.Stderr, string(make([]byte, width)))
-				fmt.Fprint(os.Stderr, "\r")
+				// Clear line immediately and signal done using ANSI escape code
+				fmt.Fprint(os.Stderr, "\r\x1b[2K")
 				close(doneChannel)
 				return
 			case <-tick.C:
+				select {
+				case <-stopChannel:
+					// Check for stop signal again to avoid race condition
+					fmt.Fprint(os.Stderr, "\r\x1b[2K")
+					close(doneChannel)
+					return
+				default:
+					// Continue with animation
+				}
+
 				mu.Lock()
 				// Build rainbow banner from message
 				banner := make([]byte, 0, len(message)*8)
