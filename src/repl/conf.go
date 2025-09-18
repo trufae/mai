@@ -79,6 +79,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
 	co.RegisterOption("newtools", BooleanOption, "Process user input using newtools functions (overrides usetools)", "false")
 	co.RegisterOption("mcpprompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "false")
+	co.RegisterOption("demo", BooleanOption, "Enable demo mode with waiting animation", "false")
 	// Memory option: load consolidated memory from ~/.mai/memory.txt into conversation context
 	co.RegisterOption("memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
 	// Followup option: automatically run #followup after assistant replies

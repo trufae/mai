@@ -67,6 +67,8 @@ func (r *REPL) buildLLMConfig() *llm.Config {
 	applyConfigOptionsToLLMConfig(cfg, &r.configOptions)
 	// Respect REPL streaming option
 	cfg.NoStream = !r.configOptions.GetBool("stream")
+	// Set demo mode option
+	cfg.DemoMode = r.configOptions.GetBool("demo")
 	return cfg
 }
 
@@ -1977,6 +1979,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		messages = append(messages, userMessage)
 	}
 
+	// Check if demo mode is enabled
+	if r.configOptions.GetBool("demo") {
+		demo.startLoop("Thinking...")
+	}
+
 	// Send message with streaming based on REPL settings, but disable if redirected
 	streamEnabled := r.configOptions.GetBool("stream") && redirectType == ""
 
@@ -1994,6 +2001,12 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	response, err := client.SendMessage(messages, streamEnabled, images)
+
+	// Stop the animation after SendMessage returns (for non-streaming)
+	// For streaming, the animation will be stopped when the first token arrives.
+	if r.configOptions.GetBool("demo") && !streamEnabled {
+		demo.stopLoop()
+	}
 
 	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
