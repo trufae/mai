@@ -24,6 +24,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/trufae/mai/src/repl/llm"
+	"mai/src/repl/demo" // Add this import
 )
 
 // Command represents a REPL command with its description and handler
