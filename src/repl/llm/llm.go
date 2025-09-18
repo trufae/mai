@@ -55,6 +55,8 @@ type LLMClient struct {
 	config         *Config
 	provider       LLMProvider
 	responseCancel func() // Function to cancel the current response
+	// Optional callback to notify when the first streaming token arrives
+	responseStopCallback func()
 }
 
 // ListModelsResult contains the list of available models with optional error
@@ -71,15 +73,27 @@ func NewLLMClient(config *Config) (*LLMClient, error) {
 	}
 
 	return &LLMClient{
-		config:         config,
-		provider:       provider,
-		responseCancel: func() {}, // Initialize with no-op function
+		config:               config,
+		provider:             provider,
+		responseCancel:       func() {}, // Initialize with no-op function
+		responseStopCallback: nil,
 	}, nil
+}
+
+// SetResponseStopCallback sets an optional callback that will be embedded into
+// contexts used for streaming requests. When the first token from the provider
+// is received, streaming parsers may invoke this callback (if present) to
+// perform UI updates such as stopping a demo animation.
+func (c *LLMClient) SetResponseStopCallback(cb func()) {
+	c.responseStopCallback = cb
 }
 
 // newContext returns a cancellable context carrying the client config.
 func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 	ctx := context.WithValue(context.Background(), "config", c.config)
+	// Include optional stop callback in the context so streaming helpers can
+	// invoke it when the first token is received.
+	ctx = context.WithValue(ctx, "stop_callback", c.responseStopCallback)
 	ctx, cancel := context.WithCancel(ctx)
 	c.responseCancel = cancel
 	return ctx, cancel
@@ -283,6 +297,26 @@ func llmMakeStreamingRequest(ctx context.Context, method, url string, headers ma
 	}
 	defer resp.Body.Close()
 	return parser(resp.Body)
+}
+
+// llmMakeStreamingRequestWithCallback is a utility function for making streaming HTTP requests with a callback
+func llmMakeStreamingRequestWithCallback(ctx context.Context, method, url string, headers map[string]string,
+	body []byte, parser func(io.Reader, func()) (string, error), stopCallback func()) (string, error) {
+	resp, err := httpDo(ctx, method, url, headers, body, true)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	// If no explicit stopCallback was provided by the caller, try to read one
+	// from the context (set by the LLM client). This allows higher-level
+	// callers (like the REPL) to be notified as soon as the first token
+	// arrives without requiring changes to every provider signature.
+	if stopCallback == nil && ctx != nil {
+		if cb, ok := ctx.Value("stop_callback").(func()); ok && cb != nil {
+			stopCallback = cb
+		}
+	}
+	return parser(resp.Body, stopCallback)
 }
 
 // buildURL constructs a full URL using baseURL override, defaultURL, or host/port and path suffix

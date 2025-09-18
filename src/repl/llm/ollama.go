@@ -172,7 +172,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		if stream {
-			return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
+			return llmMakeStreamingRequestWithCallback(ctx, "POST", url, headers, jsonData, p.parseStreamWithCallback, nil)
 		}
 
 		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
@@ -244,7 +244,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 
 		// stream-mode
 		if stream {
-			return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
+			return llmMakeStreamingRequestWithCallback(ctx, "POST", url, headers, jsonData, p.parseStreamWithCallback, nil)
 		}
 
 		// non-stream
@@ -330,7 +330,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", url, headers, jsonData, p.parseStream)
+		return llmMakeStreamingRequestWithCallback(ctx, "POST", url, headers, jsonData, p.parseStreamWithCallback, nil)
 	}
 
 	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
@@ -361,8 +361,13 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 }
 
 func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
+	return p.parseStreamWithCallback(reader, nil)
+}
+
+func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
+	firstTokenReceived := false
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -410,6 +415,14 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 				raw = response.Message.Content
 			}
 			isDone = response.Done
+		}
+
+		// Stop demo animation on first token received
+		if !firstTokenReceived && raw != "" {
+			firstTokenReceived = true
+			if stopCallback != nil {
+				stopCallback()
+			}
 		}
 
 		// Format for printing only, keep raw for storage

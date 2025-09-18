@@ -56,6 +56,8 @@ type REPL struct {
 	unsavedTopic    string             // Topic for unsaved session before saving to disk
 	// Guard to avoid recursive followup execution
 	followupInProgress bool
+	// Callback to stop demo animation when first token is received
+	stopDemoCallback func()
 }
 
 // buildLLMConfig constructs a provider config from environment defaults and current options.
@@ -67,6 +69,8 @@ func (r *REPL) buildLLMConfig() *llm.Config {
 	applyConfigOptionsToLLMConfig(cfg, &r.configOptions)
 	// Respect REPL streaming option
 	cfg.NoStream = !r.configOptions.GetBool("stream")
+	// Set demo mode option
+	cfg.DemoMode = r.configOptions.GetBool("demo")
 	return cfg
 }
 
@@ -184,6 +188,13 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	}
 	if repl.configOptions.Get("useragent") == "" && envCfg.UserAgent != "" {
 		repl.configOptions.Set("useragent", envCfg.UserAgent)
+	}
+
+	// Set the stop demo callback to stop the animation when first token is received
+	repl.stopDemoCallback = func() {
+		if repl.configOptions.GetBool("demo") {
+			stopLoop()
+		}
 	}
 
 	// Do not cache system prompt here; it will be read dynamically from configOptions (or file)
@@ -1977,6 +1988,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		messages = append(messages, userMessage)
 	}
 
+	// Check if demo mode is enabled
+	if r.configOptions.GetBool("demo") {
+		startLoop("Thinking...")
+	}
+
 	// Send message with streaming based on REPL settings, but disable if redirected
 	streamEnabled := r.configOptions.GetBool("stream") && redirectType == ""
 
@@ -1993,7 +2009,21 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		}
 	}
 
+	// If demo mode is active, let the LLM client notify the demo stop callback
+	// as soon as the first streaming token arrives. We set the callback on the
+	// client so it will be embedded into the request context used by providers.
+	if r.configOptions.GetBool("demo") && client != nil {
+		client.SetResponseStopCallback(r.stopDemoCallback)
+		defer client.SetResponseStopCallback(nil)
+	}
+
 	response, err := client.SendMessage(messages, streamEnabled, images)
+
+	// Stop the animation after SendMessage returns (for non-streaming)
+	// For streaming, the animation will be stopped when the first token arrives.
+	if r.configOptions.GetBool("demo") && !streamEnabled {
+		stopLoop()
+	}
 
 	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
@@ -2061,7 +2091,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		}
 	}
 
-	fmt.Print("\r\n")
+	// Ensure the demo animation is stopped before returning to the readline prompt
+	stopLoop()
+
+	// Use carriage return only so we don't create an extra blank line
+	fmt.Print("\r")
 	return err
 }
 
@@ -2512,8 +2546,45 @@ func (r *REPL) makeStreamingRequest(method, url string, headers map[string]strin
 	return parser(resp.Body)
 }
 
+func (r *REPL) makeStreamingRequestWithCallback(method, url string, headers map[string]string,
+	request interface{}, parser func(io.Reader, func()) error, stopCallback func()) error {
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(r.ctx, method, url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	client := &http.Client{Timeout: 0} // No timeout for streaming
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	return parser(resp.Body, stopCallback)
+}
+
 func (r *REPL) parseOllamaStream(reader io.Reader) error {
+	return r.parseOllamaStreamWithCallback(reader, r.stopDemoCallback)
+}
+
+func (r *REPL) parseOllamaStreamWithCallback(reader io.Reader, stopCallback func()) error {
 	scanner := bufio.NewScanner(reader)
+	firstTokenReceived := false
 
 	for scanner.Scan() {
 		select {
@@ -2544,6 +2615,14 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 			continue
 		}
 
+		// Stop demo animation on first token received
+		if !firstTokenReceived && response.Message.Content != "" {
+			firstTokenReceived = true
+			if stopCallback != nil {
+				stopCallback()
+			}
+		}
+
 		// Format the content based on markdown setting
 		content := response.Message.Content
 		if r.configOptions.GetBool("markdown") {
@@ -2563,7 +2642,12 @@ func (r *REPL) parseOllamaStream(reader io.Reader) error {
 }
 
 func (r *REPL) parseOpenAIStream(reader io.Reader) error {
+	return r.parseOpenAIStreamWithCallback(reader, r.stopDemoCallback)
+}
+
+func (r *REPL) parseOpenAIStreamWithCallback(reader io.Reader, stopCallback func()) error {
 	scanner := bufio.NewScanner(reader)
+	firstTokenReceived := false
 
 	for scanner.Scan() {
 		select {
@@ -2600,7 +2684,15 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 			continue
 		}
 
-		if len(response.Choices) > 0 {
+		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+			// Stop demo animation on first token received
+			if !firstTokenReceived {
+				firstTokenReceived = true
+				if stopCallback != nil {
+					stopCallback()
+				}
+			}
+
 			// Format the content based on markdown setting
 			content := response.Choices[0].Delta.Content
 			if r.configOptions.GetBool("markdown") {
@@ -2617,7 +2709,12 @@ func (r *REPL) parseOpenAIStream(reader io.Reader) error {
 }
 
 func (r *REPL) parseClaudeStream(reader io.Reader) error {
+	return r.parseClaudeStreamWithCallback(reader, r.stopDemoCallback)
+}
+
+func (r *REPL) parseClaudeStreamWithCallback(reader io.Reader, stopCallback func()) error {
 	scanner := bufio.NewScanner(reader)
+	firstTokenReceived := false
 
 	for scanner.Scan() {
 		select {
@@ -2653,7 +2750,15 @@ func (r *REPL) parseClaudeStream(reader io.Reader) error {
 			continue
 		}
 
-		if response.Type == "content_block_delta" {
+		if response.Type == "content_block_delta" && response.Delta.Text != "" {
+			// Stop demo animation on first token received
+			if !firstTokenReceived {
+				firstTokenReceived = true
+				if stopCallback != nil {
+					stopCallback()
+				}
+			}
+
 			// Format the content based on markdown setting
 			content := response.Delta.Text
 			if r.configOptions.GetBool("markdown") {

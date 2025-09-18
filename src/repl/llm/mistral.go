@@ -165,7 +165,9 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 
 	// Handle streaming if requested
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", apiURL, headers, jsonData, p.parseStream)
+		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
+			return p.parseStreamWithCallback(r, stopCallback)
+		}, nil)
 	}
 
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
@@ -198,8 +200,13 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 }
 
 func (p *MistralProvider) parseStream(reader io.Reader) (string, error) {
+	return p.parseStreamWithCallback(reader, nil)
+}
+
+func (p *MistralProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
+	firstTokenReceived := false
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -234,6 +241,14 @@ func (p *MistralProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+			// Stop demo animation on first token received
+			if !firstTokenReceived {
+				firstTokenReceived = true
+				if stopCallback != nil {
+					stopCallback()
+				}
+			}
+
 			content := response.Choices[0].Delta.Content
 
 			// Format the content using our streaming-friendly formatter

@@ -178,9 +178,9 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	// If streaming requested, use the streaming helper which will call our parser
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader) (string, error) {
-			return p.parseStream(r)
-		})
+		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
+			return p.parseStreamWithCallback(r, stopCallback)
+		}, nil)
 	}
 
 	// non-streaming fallback
@@ -222,8 +222,13 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 }
 
 func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
+	return p.parseStreamWithCallback(reader, nil)
+}
+
+func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
+	firstTokenReceived := false
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -296,6 +301,14 @@ func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
 		if chunk == "" {
 			// Nothing extracted from this event
 			continue
+		}
+
+		// Stop demo animation on first token received
+		if !firstTokenReceived && chunk != "" {
+			firstTokenReceived = true
+			if stopCallback != nil {
+				stopCallback()
+			}
 		}
 
 		// Format the content using our streaming-friendly formatter

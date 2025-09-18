@@ -148,10 +148,10 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if stream {
-		return llmMakeStreamingRequest(ctx, "POST", apiURL,
-			headers, jsonData, func(r io.Reader) (string, error) {
-				return p.parseStream(r)
-			})
+		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL,
+			headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
+				return p.parseStreamWithCallback(r, stopCallback)
+			}, nil)
 	}
 
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
@@ -198,8 +198,13 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 }
 
 func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
+	return p.parseStreamWithCallback(reader, nil)
+}
+
+func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
+	firstTokenReceived := false
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -232,6 +237,14 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 		}
 
 		if response.Type == "content_block_delta" && response.Delta.Text != "" {
+			// Stop demo animation on first token received
+			if !firstTokenReceived {
+				firstTokenReceived = true
+				if stopCallback != nil {
+					stopCallback()
+				}
+			}
+
 			content := response.Delta.Text
 
 			// Format the content using our streaming-friendly formatter
