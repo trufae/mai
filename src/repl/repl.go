@@ -2074,7 +2074,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		}
 	}
 
-	fmt.Print("\r\n")
+	// Ensure the demo animation is stopped before returning to the readline prompt
+	stopLoop()
+
+	// Use carriage return only so we don't create an extra blank line
+	fmt.Print("\r")
 	return err
 }
 
