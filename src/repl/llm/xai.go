@@ -245,8 +245,6 @@ func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback fun
 		}
 	}
 
-	fmt.Println()
-
 	// Flush any remaining content in the stream renderer buffer
 	if markdownEnabled {
 		renderer := GetStreamRenderer()
@@ -263,6 +261,8 @@ func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback fun
 			}
 		}
 	}
+
+	fmt.Println()
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err

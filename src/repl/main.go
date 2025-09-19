@@ -412,7 +412,6 @@ func main() {
 		}
 
 		// TODO: use MAI_COLORS ?
-		repl.configOptions.Set("markdown", "false")
 		if err := repl.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 			os.Exit(1)

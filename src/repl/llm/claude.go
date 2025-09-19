@@ -260,8 +260,6 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		}
 	}
 
-	fmt.Println()
-
 	// Flush any remaining content in the stream renderer buffer
 	if markdownEnabled {
 		renderer := GetStreamRenderer()
@@ -278,6 +276,8 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 			}
 		}
 	}
+
+	fmt.Println()
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err

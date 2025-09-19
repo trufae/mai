@@ -102,7 +102,7 @@ func EmitDemoTokens(text string) {
 		demoInThink = true
 		// Notify phase callback that a thinking region started
 		if demoPhaseCallback != nil {
-			demoPhaseCallback("Reasoning")
+			demoPhaseCallback("Reasoning..")
 		}
 		// Loop to find closing tag in subsequent iterations
 	}
