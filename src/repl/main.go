@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -154,8 +155,9 @@ func showHelp() {
 	-n               do not load rc file and disable REPL history
 -p <provider>    select the provider to use
 -q               quit after running given actions
--s <string>      send string directly to AI (can be used multiple times)
--t               enable tools processing
+ -s <string>      send string directly to AI (can be used multiple times)
+ -t               enable tools processing
+ -U               update project by running git pull ; make in project directory
 .mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
 .mai/history.json (project or ~/.mai) : REPL command history file (JSON array)
 .mai/chat (project or ~/.mai)         : storage for chat session files
@@ -348,6 +350,18 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -s requires a string argument\n")
 				os.Exit(1)
 			}
+		case "-U":
+			// Update project by running git pull ; make in project directory
+			projectDir, err := resolveProjectDirectory()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error resolving project directory: %v\n", err)
+				os.Exit(1)
+			}
+			if err := updateProject(projectDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error updating project: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 
@@ -407,4 +421,79 @@ func main() {
 		config.IsStdinMode = true
 		runStdinMode(config, args)
 	}
+}
+
+// resolveProjectDirectory resolves the project directory by following the symlink of argv0
+// similar to how it's done for doc/ and prompts/ directories
+func resolveProjectDirectory() (string, error) {
+	// Get the executable path (argv0)
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("could not determine executable path: %v", err)
+	}
+
+	// Follow symlink if the executable is a symlink
+	realPath, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		// Fall back to the original path if symlink evaluation fails
+		realPath = execPath
+	}
+
+	// Get the directory containing the executable
+	execDir := filepath.Dir(realPath)
+
+	// Start searching from the executable directory and go up to find a git repository
+	currentDir := execDir
+	for {
+		// Check if this directory contains a .git folder (indicating a git repository)
+		gitDir := filepath.Join(currentDir, ".git")
+		if _, err := os.Stat(gitDir); err == nil {
+			// Found a git repository, return this directory
+			return currentDir, nil
+		}
+
+		// Move up one directory
+		parentDir := filepath.Dir(currentDir)
+
+		// Stop if we've reached the root directory
+		if parentDir == currentDir {
+			break
+		}
+
+		// Continue with the parent directory
+		currentDir = parentDir
+	}
+
+	return "", fmt.Errorf("no git repository found in executable path hierarchy")
+}
+
+// updateProject runs "git pull ; make" in the specified project directory
+func updateProject(projectDir string) error {
+	// Change to the project directory
+	if err := os.Chdir(projectDir); err != nil {
+		return fmt.Errorf("failed to change to project directory %s: %v", projectDir, err)
+	}
+
+	fmt.Printf("Updating project in %s...\n", projectDir)
+
+	// Run git pull
+	fmt.Println("Running git pull...")
+	gitCmd := exec.Command("git", "pull")
+	gitCmd.Stdout = os.Stdout
+	gitCmd.Stderr = os.Stderr
+	if err := gitCmd.Run(); err != nil {
+		return fmt.Errorf("git pull failed: %v", err)
+	}
+
+	// Run make
+	fmt.Println("Running make...")
+	makeCmd := exec.Command("make")
+	makeCmd.Stdout = os.Stdout
+	makeCmd.Stderr = os.Stderr
+	if err := makeCmd.Run(); err != nil {
+		return fmt.Errorf("make failed: %v", err)
+	}
+
+	fmt.Println("Project updated successfully!")
+	return nil
 }
