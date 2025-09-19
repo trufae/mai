@@ -204,7 +204,7 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	firstTokenReceived := false
+	sd := NewStreamDemo(stopCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -214,6 +214,7 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	if markdownEnabled {
 		ResetStreamRenderer()
 	}
+	printed := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
@@ -237,21 +238,25 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		}
 
 		if response.Type == "content_block_delta" && response.Delta.Text != "" {
-			// Stop demo animation on first token received
-			if !firstTokenReceived {
-				firstTokenReceived = true
-				if stopCallback != nil {
-					stopCallback()
-				}
+			raw := response.Delta.Text
+			// Centralized demo handling
+			sd.OnToken(raw)
+			// Filter out <think> regions from printed output in demo mode
+			toPrint := raw
+			if p.config.DemoMode {
+				toPrint = FilterOutThinkForOutput(toPrint)
 			}
-
-			content := response.Delta.Text
-
+			// Trim leading whitespace/newlines on first visible output in demo mode
+			if p.config.DemoMode && !printed {
+				toPrint = strings.TrimLeft(toPrint, " \t\r\n")
+			}
 			// Format the content using our streaming-friendly formatter
-			content = FormatStreamingChunk(content, markdownEnabled)
-
+			content := FormatStreamingChunk(toPrint, markdownEnabled)
 			fmt.Print(content)
-			fullResponse.WriteString(response.Delta.Text)
+			if toPrint != "" {
+				printed = true
+			}
+			fullResponse.WriteString(raw)
 		}
 	}
 
@@ -261,7 +266,16 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	if markdownEnabled {
 		renderer := GetStreamRenderer()
 		if final := renderer.Flush(); final != "" {
-			fmt.Print(final)
+			EmitDemoTokens(final)
+			if p.config.DemoMode {
+				trimmed := FilterOutThinkForOutput(final)
+				if !printed {
+					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
+				}
+				fmt.Print(trimmed)
+			} else {
+				fmt.Print(final)
+			}
 		}
 	}
 

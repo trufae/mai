@@ -3,127 +3,337 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/term"
 )
 
-const DemoSpeed = 100
+const DemoSpeed = 60 // ms per frame
+// Dynamic timing bounds (ms). The loop speeds up when backlog grows.
+const (
+	minFrameMS           = 15  // fastest when lots of queued characters
+	maxFrameMS           = 140 // slowest when no backlog
+	fastBacklogThreshold = 200 // characters to reach minFrameMS
+	rainbowStepMS        = 120 // time per rainbow phase step (constant speed)
+)
 
 var (
 	mu          sync.Mutex
-	running     bool
-	message     string
+	demoRunning bool
+	demoAction  string // Action label, e.g. "Thinking..."
+	demoBuffer  strings.Builder
 	stopChannel chan struct{}
 	doneChannel chan struct{}
 
-	// Simple ANSI color codes used for the rainbow
-	palette = []string{
-		"\x1b[31m", // red
-		"\x1b[33m", // yellow
-		"\x1b[32m", // green
-		"\x1b[36m", // cyan
-		"\x1b[34m", // blue
-		"\x1b[35m", // magenta
-	}
-	resetColor = "\x1b[0m"
+	// Gradient slice will be populated at init with a smoother greyscale
+	gradient []string
+	// rainbowColors used to color the action/prefix (e.g. "Thinking..")
+	rainbowColors []string
+	resetColor    = "\x1b[0m"
 )
 
-// startLoop starts the waiting animation in a separate goroutine.
-// startLoop starts an animated colored demo writing to stderr so it doesn't
-// interfere with prompts written to stdout. It displays a rainbow banner and
-// a bouncing "laser" that traverses the terminal width.
+// startLoop kept for backward compatibility; it simply sets the action
+// and ensures the demo loop is running.
 func startLoop(initialMessage string) {
+	SetAction(initialMessage)
+}
+
+// SetAction sets/updates the action label shown before the scrolling text.
+// It ensures the demo loop is running.
+func SetAction(action string) {
 	mu.Lock()
-	if running {
-		mu.Unlock()
+	if !demoRunning {
+		stopChannel = make(chan struct{})
+		doneChannel = make(chan struct{})
+		demoRunning = true
+		go demoLoop()
+	}
+	demoAction = action
+	mu.Unlock()
+}
+
+// FeedText appends text into the scrolling feeder. Newlines are normalized
+// to spaces; existing spaces are preserved.
+func FeedText(text string) {
+	// Normalize common newline sequences to spaces, but keep other spaces
+	text = strings.ReplaceAll(text, "\r\n", " ")
+	text = strings.ReplaceAll(text, "\r", " ")
+	text = strings.ReplaceAll(text, "\n", " ")
+	if text == "" {
 		return
 	}
-	running = true
-	message = initialMessage
-	stopChannel = make(chan struct{})
-	doneChannel = make(chan struct{})
-	mu.Unlock()
-
-	go func() {
-		tick := time.NewTicker(DemoSpeed * time.Millisecond)
-		defer tick.Stop()
-
-		frame := 0
-		spinners := []string{"|", "/", "-", "\\"}
-		for {
-			select {
-			case <-stopChannel:
-				// Clear line immediately and signal done using ANSI escape code
-				fmt.Fprint(os.Stderr, "\r\x1b[2K")
-				close(doneChannel)
-				return
-			case <-tick.C:
-				select {
-				case <-stopChannel:
-					// Check for stop signal again to avoid race condition
-					fmt.Fprint(os.Stderr, "\r\x1b[2K")
-					close(doneChannel)
-					return
-				default:
-					// Continue with animation
-				}
-
-				mu.Lock()
-				// Build rainbow banner from message
-				banner := make([]byte, 0, len(message)*8)
-				for i, ch := range message {
-					color := palette[(i+frame)%len(palette)]
-					banner = append(banner, []byte(color)...)
-					banner = append(banner, []byte(string(ch))...)
-				}
-				banner = append(banner, []byte(resetColor)...)
-
-				// Compose the display: spinner + banner
-				spinner := spinners[frame%len(spinners)]
-				display := fmt.Sprintf("%s %s", spinner, banner)
-
-				// Print carriage return then the composed line to stderr
-				fmt.Fprint(os.Stderr, "\r")
-				fmt.Fprint(os.Stderr, display)
-
-				mu.Unlock()
-
-				frame++
-			}
-		}
-	}()
-}
-
-// addMoreText appends text to the current waiting message.
-func addMoreText(text string) {
 	mu.Lock()
-	message += text
+	demoBuffer.WriteString(text)
 	mu.Unlock()
 }
 
-// stopLoop stops the waiting animation goroutine.
+// addMoreText preserved for backward compatibility
+func addMoreText(text string) { FeedText(text) }
+
+// stopLoop stops the demo loop
 func stopLoop() {
 	mu.Lock()
-	if !running {
+	if !demoRunning {
 		mu.Unlock()
 		return
 	}
-	running = false
+	demoRunning = false
 	close(stopChannel)
-	// copy doneChannel so we can wait outside the lock
 	done := doneChannel
 	mu.Unlock()
 
-	// Wait briefly for the goroutine to finish clearing the line.
-	// Protect against a stuck goroutine by timing out after 1s.
 	select {
 	case <-done:
 	case <-time.After(1 * time.Second):
 	}
 }
 
-// getTerminalWidth returns the number of columns for the terminal attached to fd.
-// Falls back to 80 if the call fails.
+// getTerminalWidth returns a conservative default width.
 func getTerminalWidth(fd uintptr) int {
+	if w, _, err := term.GetSize(int(fd)); err == nil && w > 0 {
+		return w
+	}
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		return w
+	}
 	return 80
+}
+
+// demoLoop runs the scrolling display. It prints the action label followed
+// by a horizontally-scrolling window of the demoBuffer. The window scrolls
+// character-by-character and pulls new data from FeedText when available.
+func demoLoop() {
+	// Hide cursor while the slider is active
+	fmt.Fprint(os.Stderr, "\x1b[?25l")
+	defer func() {
+		// Clear line on exit
+		fmt.Fprint(os.Stderr, "\r\x1b[2K")
+		// Show cursor back
+		fmt.Fprint(os.Stderr, "\x1b[?25h")
+		close(doneChannel)
+	}()
+
+	offset := 0
+	rainbowPhase := 0
+	lastRainbow := time.Now()
+	for {
+		// Non-blocking stop check before doing work
+		select {
+		case <-stopChannel:
+			return
+		default:
+		}
+		mu.Lock()
+		action := demoAction
+		buf := demoBuffer.String()
+		mu.Unlock()
+
+		// Determine available width after action and a separating space
+		width := getTerminalWidth(os.Stderr.Fd())
+		prefix := action
+		if prefix != "" {
+			prefix = prefix + " "
+		}
+		avail := width - len(stripANSI(prefix))
+		if avail <= 0 {
+			avail = 10
+		}
+
+		// Build window slice
+		runes := []rune(buf)
+		if offset > len(runes) {
+			offset = len(runes)
+		}
+		end := offset + avail
+		var window []rune
+		if offset < len(runes) {
+			if end <= len(runes) {
+				window = runes[offset:end]
+			} else {
+				window = runes[offset:]
+				// pad with spaces
+				pad := make([]rune, end-len(runes))
+				for i := range pad {
+					pad[i] = ' '
+				}
+				window = append(window, pad...)
+			}
+		} else {
+			// Nothing to show yet; display spaces
+			window = make([]rune, avail)
+			for i := range window {
+				window[i] = ' '
+			}
+		}
+
+		// Update rainbow phase based on wall-clock time to keep a constant speed
+		if len(rainbowColors) > 0 {
+			elapsed := time.Since(lastRainbow)
+			step := time.Duration(rainbowStepMS) * time.Millisecond
+			if elapsed >= step {
+				steps := int(elapsed / step)
+				rainbowPhase = (rainbowPhase + steps) % len(rainbowColors)
+				lastRainbow = lastRainbow.Add(time.Duration(steps) * step)
+			}
+		}
+
+		// Build colored string: rainbow for the action/prefix, then grey gradient
+		var b strings.Builder
+		// color the prefix (action) with the rainbow but keep spaces plain
+		if prefix != "" {
+			var pb strings.Builder
+			prunes := []rune(prefix)
+			for j, rc := range prunes {
+				if rc == ' ' {
+					pb.WriteRune(' ')
+					continue
+				}
+				// offset rainbow by current phase so colors rotate per-frame
+				color := rainbowColors[(j+rainbowPhase)%len(rainbowColors)]
+				pb.WriteString(color)
+				pb.WriteRune(rc)
+				pb.WriteString(resetColor)
+			}
+			b.WriteString(pb.String())
+		}
+		// displayPos tracks visible columns written (spaces count, control chars ignored)
+		displayPos := 0
+		for _, r := range window {
+			// ignore control characters that would break layout when used in
+			// "thinking" chunks: newlines, carriage returns, tabs
+			if r == '\n' || r == '\r' || r == '\t' {
+				// skip entirely (do not advance display position)
+				continue
+			}
+			// don't color plain spaces — keep them as plain spaces for
+			// consistent readability and to avoid invisible/dim gaps
+			if r == ' ' {
+				b.WriteRune(' ')
+				displayPos++
+				continue
+			}
+			// pick gradient index based on visible column so the fade maps to
+			// screen position rather than raw buffer index
+			gi := (displayPos * len(gradient)) / (avail + 1)
+			if gi < 0 {
+				gi = 0
+			}
+			if gi >= len(gradient) {
+				gi = len(gradient) - 1
+			}
+			b.WriteString(gradient[gi])
+			b.WriteRune(r)
+			displayPos++
+		}
+		b.WriteString(resetColor)
+
+		// Print line (clear and redraw) to avoid artifacts
+		fmt.Fprint(os.Stderr, "\r\x1b[2K")
+		fmt.Fprint(os.Stderr, b.String())
+
+		// Advance offset for scrolling; if we've displayed to the end and
+		// there's no more data, don't advance past buffer length (stay until
+		// new data arrives)
+		mu.Lock()
+		bufLen := len([]rune(demoBuffer.String()))
+		mu.Unlock()
+		if offset+1+avail <= bufLen {
+			offset++
+		} else if offset < bufLen {
+			offset++
+		}
+
+		// rainbow phase advancement happens based on time above
+
+		// Determine next delay based on backlog of queued characters
+		// Backlog is how many runes are beyond the end of the visible window
+		mu.Lock()
+		currentLen := len([]rune(demoBuffer.String()))
+		mu.Unlock()
+		backlog := currentLen - (offset + avail)
+		if backlog < 0 {
+			backlog = 0
+		}
+		nextMS := maxFrameMS
+		if backlog > 0 {
+			if backlog > fastBacklogThreshold {
+				backlog = fastBacklogThreshold
+			}
+			span := float64(maxFrameMS - minFrameMS)
+			factor := float64(fastBacklogThreshold-backlog) / float64(fastBacklogThreshold)
+			nextMS = minFrameMS + int(span*factor+0.5)
+		}
+
+		// Wait for next frame or stop
+		select {
+		case <-stopChannel:
+			return
+		case <-time.After(time.Duration(nextMS) * time.Millisecond):
+		}
+	}
+}
+
+// stripANSI removes simple ANSI color codes used in prefixes when measuring length
+func stripANSI(s string) string {
+	// Very small helper: strip ESC sequences of the form \x1b[...m
+	res := ""
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' || s[i] == 27 {
+			// skip until 'm' or end
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			if i < len(s) && s[i] == 'm' {
+				i++
+			}
+			continue
+		}
+		res += string(s[i])
+		i++
+	}
+	return res
+}
+
+// init populates a smoother greyscale gradient used for scrolling text.
+func init() {
+	// choose a moderate number of steps for a smooth fade
+	gradient = makeGreyGradient(14)
+	rainbowColors = makeRainbowColors()
+}
+
+// makeGreyGradient returns `count` ANSI 256-color greyscale color codes
+// spanning the grey ramp (232..255). These map to progressively lighter
+// greys and give a smooth left->right fade for the scrolling text.
+func makeGreyGradient(count int) []string {
+	if count <= 0 {
+		count = 1
+	}
+	// avoid extremely dark greys which are hard to read on many terminals;
+	// start from a lighter greyscale index
+	start, end := 240, 255
+	if count == 1 {
+		return []string{fmt.Sprintf("\x1b[38;5;%dm", end)}
+	}
+	out := make([]string, count)
+	for i := 0; i < count; i++ {
+		val := start + (i*(end-start))/(count-1)
+		out[i] = fmt.Sprintf("\x1b[38;5;%dm", val)
+	}
+	return out
+}
+
+// makeRainbowColors returns a short sequence of ANSI 256-color codes that
+// approximate a rainbow. These are used to color the action label (prefix).
+func makeRainbowColors() []string {
+	// Softer pastel-like 256-color palette (red→orange→yellow→green→cyan→blue→magenta)
+	// Chosen from the xterm 256-color cube to be less saturated/bright
+	cols := []int{181, 186, 191, 151, 116, 110, 183}
+	out := make([]string, len(cols))
+	for i, v := range cols {
+		out[i] = fmt.Sprintf("\x1b[38;5;%dm", v)
+	}
+	return out
 }

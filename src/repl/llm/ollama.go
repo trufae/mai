@@ -367,7 +367,7 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	firstTokenReceived := false
+	sd := NewStreamDemo(stopCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -377,6 +377,7 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	if markdownEnabled {
 		ResetStreamRenderer()
 	}
+	printed := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -417,17 +418,23 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 			isDone = response.Done
 		}
 
-		// Stop demo animation on first token received
-		if !firstTokenReceived && raw != "" {
-			firstTokenReceived = true
-			if stopCallback != nil {
-				stopCallback()
-			}
+		// Centralized demo handling
+		sd.OnToken(raw)
+		// Filter out <think> regions from printed output in demo mode
+		toPrint := raw
+		if p.config.DemoMode {
+			toPrint = FilterOutThinkForOutput(toPrint)
 		}
-
+		// Trim leading whitespace/newlines on first visible output in demo mode
+		if p.config.DemoMode && !printed {
+			toPrint = strings.TrimLeft(toPrint, " \t\r\n")
+		}
 		// Format for printing only, keep raw for storage
-		formatted := FormatStreamingChunk(raw, markdownEnabled)
+		formatted := FormatStreamingChunk(toPrint, markdownEnabled)
 		fmt.Print(formatted)
+		if toPrint != "" {
+			printed = true
+		}
 		fullResponse.WriteString(raw)
 
 		if isDone {
@@ -441,7 +448,16 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	if markdownEnabled {
 		renderer := GetStreamRenderer()
 		if final := renderer.Flush(); final != "" {
-			fmt.Print(final)
+			EmitDemoTokens(final)
+			if p.config.DemoMode {
+				trimmed := FilterOutThinkForOutput(final)
+				if !printed {
+					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
+				}
+				fmt.Print(trimmed)
+			} else {
+				fmt.Print(final)
+			}
 		}
 	}
 

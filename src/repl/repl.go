@@ -190,9 +190,17 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		repl.configOptions.Set("useragent", envCfg.UserAgent)
 	}
 
-	// Set the stop demo callback to stop the animation when first token is received
+	// Set the stop demo callback to transition out of the "thinking" action
+	// when the first token is received. Previously this stopped the demo loop
+	// entirely which caused subsequent streaming tokens to be buffered but
+	// not rendered until the next prompt restarted the loop. Instead, clear
+	// the action label so the demo loop continues running and will display
+	// tokens as they arrive.
 	repl.stopDemoCallback = func() {
 		if repl.configOptions.GetBool("demo") {
+			// Stop the demo entirely. We only call this callback when the
+			// first token from the model is not a <think> tag, so the
+			// greyscaled scroller should be stopped.
 			stopLoop()
 		}
 	}
@@ -1988,10 +1996,10 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		messages = append(messages, userMessage)
 	}
 
-	// Check if demo mode is enabled
-	if r.configOptions.GetBool("demo") {
-		startLoop("Thinking...")
-	}
+	// Do not start the demo animation here. The animation will be started
+	// only when a streaming provider emits a <think> tag. This avoids
+	// creating the scroller for responses that do not contain internal
+	// reasoning blocks.
 
 	// Send message with streaming based on REPL settings, but disable if redirected
 	streamEnabled := r.configOptions.GetBool("stream") && redirectType == ""
@@ -2015,6 +2023,42 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	if r.configOptions.GetBool("demo") && client != nil {
 		client.SetResponseStopCallback(r.stopDemoCallback)
 		defer client.SetResponseStopCallback(nil)
+
+		// Also set demo callbacks so streaming parsers can emit tokens and phase
+		// updates. The llm package exposes SetDemoPhaseCallback and
+		// SetDemoTokenCallback which we can use here.
+		llm.SetDemoPhaseCallback(func(phase string) {
+			if !r.configOptions.GetBool("demo") {
+				return
+			}
+			// If phase is empty the llm package is signalling that the
+			// thinking region has ended; stop the demo animation. When
+			// a non-empty phase is provided, start (or update) the
+			// action label and ensure the scroller is running.
+			if phase == "" {
+				stopLoop()
+			} else {
+				startLoop(phase)
+			}
+		})
+		defer llm.SetDemoPhaseCallback(nil)
+
+		llm.SetDemoTokenCallback(func(phase string, token string) {
+			if !r.configOptions.GetBool("demo") {
+				return
+			}
+			// Feed text into the demo scroller; filtering/newline removal is
+			// handled by llm.EmitDemoTokens
+			addMoreText(token)
+		})
+		defer llm.SetDemoTokenCallback(nil)
+	}
+
+	// Start the demo animation immediately; it will remain visible until
+	// the first token arrives. If the first token is not a <think> tag the
+	// streaming parser will invoke the stop callback to stop the animation.
+	if r.configOptions.GetBool("demo") && client != nil {
+		startLoop("Thinking...")
 	}
 
 	response, err := client.SendMessage(messages, streamEnabled, images)
@@ -2047,12 +2091,18 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		} else {
 			// Normal output
 			if !streamEnabled {
+				// Optionally strip <think> regions from printed output in demo mode
+				out := response
+				if r.configOptions.GetBool("demo") {
+					out = llm.FilterOutThinkForOutput(out)
+					out = strings.TrimLeft(out, " \t\r\n")
+				}
 				if r.configOptions.GetBool("markdown") {
 					// Use markdown formatting
-					fmt.Print(llm.RenderMarkdown(response))
+					fmt.Print(llm.RenderMarkdown(out))
 				} else {
 					// Use standard formatting
-					fmt.Println(strings.ReplaceAll(response, "\n", "\r\n"))
+					fmt.Println(strings.ReplaceAll(out, "\n", "\r\n"))
 				}
 			}
 		}
@@ -2618,8 +2668,14 @@ func (r *REPL) parseOllamaStreamWithCallback(reader io.Reader, stopCallback func
 		// Stop demo animation on first token received
 		if !firstTokenReceived && response.Message.Content != "" {
 			firstTokenReceived = true
-			if stopCallback != nil {
-				stopCallback()
+			// If the first token begins with a <think> tag, do not stop the
+			// animation — the content between <think>...</think> will be fed
+			// to the greyscaled scroller. Otherwise, stop the animation.
+			trim := strings.TrimSpace(response.Message.Content)
+			if !strings.HasPrefix(trim, "<think>") {
+				if stopCallback != nil {
+					stopCallback()
+				}
 			}
 		}
 
@@ -2685,11 +2741,15 @@ func (r *REPL) parseOpenAIStreamWithCallback(reader io.Reader, stopCallback func
 		}
 
 		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
-			// Stop demo animation on first token received
+			// Stop demo animation on first token received unless it starts
+			// with a <think> tag.
 			if !firstTokenReceived {
 				firstTokenReceived = true
-				if stopCallback != nil {
-					stopCallback()
+				trim := strings.TrimSpace(response.Choices[0].Delta.Content)
+				if !strings.HasPrefix(trim, "<think>") {
+					if stopCallback != nil {
+						stopCallback()
+					}
 				}
 			}
 
@@ -2751,11 +2811,15 @@ func (r *REPL) parseClaudeStreamWithCallback(reader io.Reader, stopCallback func
 		}
 
 		if response.Type == "content_block_delta" && response.Delta.Text != "" {
-			// Stop demo animation on first token received
+			// Stop demo animation on first token received unless it starts
+			// with a <think> tag.
 			if !firstTokenReceived {
 				firstTokenReceived = true
-				if stopCallback != nil {
-					stopCallback()
+				trim := strings.TrimSpace(response.Delta.Text)
+				if !strings.HasPrefix(trim, "<think>") {
+					if stopCallback != nil {
+						stopCallback()
+					}
 				}
 			}
 

@@ -13,6 +13,183 @@ import (
 	"time"
 )
 
+// Demo callbacks used by the REPL/demo UI. These are package-level so that
+// provider streaming parsers can emit tokens as they arrive without changing
+// every provider signature. Callbacks are nil by default.
+var (
+	demoPhaseCallback func(string) // e.g. "Thinking", "Processing"
+	demoTokenCallback func(phase string, token string)
+	demoInThink       bool
+	// thinkFilterInThink tracks whether we're inside a <think> region
+	// when filtering provider output for display (so we don't print
+	// internal reasoning or the tags when demo mode is enabled).
+	thinkFilterInThink bool
+	// after closing </think>, some models emit leading newlines/spaces
+	// before visible content. When this is set, trim leading whitespace
+	// at the start of the next chunk before printing.
+	thinkJustClosed bool
+)
+
+// SetDemoPhaseCallback sets a callback that receives phase/action updates.
+func SetDemoPhaseCallback(cb func(string)) {
+	demoPhaseCallback = cb
+}
+
+// SetDemoTokenCallback sets a callback that receives streaming tokens.
+// phase will be either "thinking" or "message" (or other phases as needed).
+func SetDemoTokenCallback(cb func(phase string, token string)) {
+	demoTokenCallback = cb
+}
+
+// EmitDemoTokens is a small helper used by streaming parsers to push
+// incoming text to the demo token callback. It understands simple
+// <think>...</think> tags and preserves an internal state so tags that
+// cross chunk boundaries still work.
+func EmitDemoTokens(text string) {
+	if demoTokenCallback == nil {
+		return
+	}
+
+	// Normalize newlines into spaces to avoid breaking terminal layout
+	text = strings.ReplaceAll(text, "\n", " ")
+
+	// Iterate through the text and split on <think> tags. Only content
+	// inside <think>...</think> will be sent to the demo token callback.
+	// When an opening tag is seen we notify the phase callback so the UI
+	// can start the greyscale scroller; when the closing tag is seen we
+	// notify the phase callback with an empty string to indicate the
+	// animation should stop.
+	for {
+		if demoInThink {
+			// We are inside a thinking region; look for closing tag
+			idx := strings.Index(text, "</think>")
+			if idx == -1 {
+				// Entire chunk is thinking — emit character by character
+				for _, r := range text {
+					demoTokenCallback("thinking", string(r))
+				}
+				return
+			}
+			// Emit up to closing tag as thinking, character by character
+			if idx > 0 {
+				for _, r := range text[:idx] {
+					demoTokenCallback("thinking", string(r))
+				}
+			}
+			// Advance past the closing tag
+			text = text[idx+len("</think>"):]
+			demoInThink = false
+			// Notify phase callback that thinking region ended (stop animation)
+			if demoPhaseCallback != nil {
+				demoPhaseCallback("")
+			}
+			// Continue loop to handle remaining text (but do not stream message parts)
+			continue
+		}
+
+		// Not in think; look for opening tag
+		idx := strings.Index(text, "<think>")
+		if idx == -1 {
+			// No opening tag: do not forward non-thinking text to the demo
+			// API (the greyscaled scroller should only show internal
+			// reasoning). Return since there's nothing to stream.
+			return
+		}
+		// Found opening tag. If there is non-thinking prefix before the
+		// tag, we intentionally do not stream it to the demo.
+		// Advance past the opening tag and mark we are inside think
+		text = text[idx+len("<think>"):]
+		demoInThink = true
+		// Notify phase callback that a thinking region started
+		if demoPhaseCallback != nil {
+			demoPhaseCallback("Reasoning")
+		}
+		// Loop to find closing tag in subsequent iterations
+	}
+}
+
+// FilterOutThinkForOutput removes <think>...</think> sections and the tags
+// from a streaming chunk for display when demo mode is enabled. It maintains
+// a small package-level state so tags that cross chunk boundaries are handled.
+func FilterOutThinkForOutput(chunk string) string {
+	if chunk == "" {
+		return ""
+	}
+	var out strings.Builder
+	s := chunk
+	// If we just closed a think block in a prior chunk, trim any
+	// leading whitespace/newlines at the start of this chunk.
+	if thinkJustClosed {
+		s = strings.TrimLeft(s, " \t\r\n")
+		thinkJustClosed = false
+	}
+	for len(s) > 0 {
+		if thinkFilterInThink {
+			// Look for closing tag
+			if idx := strings.Index(s, "</think>"); idx >= 0 {
+				// Skip content up to and including closing tag
+				s = s[idx+len("</think>"):]
+				thinkFilterInThink = false
+				// Trim any immediate whitespace/newlines following the think block
+				s = strings.TrimLeft(s, " \t\r\n")
+				// Also signal that next chunk (if any) should trim leading whitespace too
+				thinkJustClosed = true
+				continue
+			}
+			// Entire remainder is within think; drop it
+			return out.String()
+		}
+		// Not in think: look for opening tag
+		if idx := strings.Index(s, "<think>"); idx >= 0 {
+			// Emit prefix before the opening tag
+			out.WriteString(s[:idx])
+			// Enter think region and skip the opening tag
+			s = s[idx+len("<think>"):]
+			thinkFilterInThink = true
+			continue
+		}
+		// No opening tag in remainder: emit all and finish
+		out.WriteString(s)
+		break
+	}
+	return out.String()
+}
+
+// StreamDemo centralizes demo/animation notifications for streaming flows.
+// Create one per streaming request and call OnToken with each raw token.
+// It will:
+//   - On first non-empty token: stop the demo animation if it doesn't start
+//     with a <think> tag by invoking the provided stop callback.
+//   - Feed all tokens to EmitDemoTokens so <think> regions get rendered in
+//     the demo scroller and </think> closes the animation cleanly.
+type StreamDemo struct {
+	firstHandled bool
+	stop         func()
+}
+
+// NewStreamDemo returns a helper bound to a stop callback.
+func NewStreamDemo(stop func()) *StreamDemo {
+	return &StreamDemo{stop: stop}
+}
+
+// OnToken processes a raw token from the provider stream.
+func (sd *StreamDemo) OnToken(raw string) {
+	if sd == nil {
+		return
+	}
+	// Handle first non-empty token: stop demo unless it begins with <think>
+	if !sd.firstHandled {
+		if strings.TrimSpace(raw) != "" {
+			sd.firstHandled = true
+			if !strings.HasPrefix(strings.TrimSpace(raw), "<think>") && sd.stop != nil {
+				sd.stop()
+			}
+		}
+	}
+	// Always emit tokens so <think>...</think> is handled centrally
+	EmitDemoTokens(raw)
+}
+
 // LLMProvider is a generic interface for all LLM providers
 type LLMProvider interface {
 	// SendMessage sends a message to the LLM and returns the response

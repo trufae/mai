@@ -228,7 +228,7 @@ func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
 func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	firstTokenReceived := false
+	sd := NewStreamDemo(stopCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -239,6 +239,7 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		ResetStreamRenderer()
 	}
 
+	printed := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -303,16 +304,20 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 			continue
 		}
 
-		// Stop demo animation on first token received
-		if !firstTokenReceived && chunk != "" {
-			firstTokenReceived = true
-			if stopCallback != nil {
-				stopCallback()
-			}
+		// Centralized demo handling and then format/print the content
+		sd.OnToken(chunk)
+		toPrint := chunk
+		if p.config.DemoMode {
+			toPrint = FilterOutThinkForOutput(toPrint)
 		}
-
-		// Format the content using our streaming-friendly formatter
-		fmt.Print(FormatStreamingChunk(chunk, markdownEnabled))
+		// Trim leading whitespace/newlines on first visible output in demo mode
+		if p.config.DemoMode && !printed {
+			toPrint = strings.TrimLeft(toPrint, " \t\r\n")
+		}
+		fmt.Print(FormatStreamingChunk(toPrint, markdownEnabled))
+		if toPrint != "" {
+			printed = true
+		}
 		fullResponse.WriteString(chunk)
 	}
 
@@ -322,7 +327,16 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	if markdownEnabled {
 		renderer := GetStreamRenderer()
 		if final := renderer.Flush(); final != "" {
-			fmt.Print(final)
+			EmitDemoTokens(final)
+			if p.config.DemoMode {
+				trimmed := FilterOutThinkForOutput(final)
+				if !printed {
+					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
+				}
+				fmt.Print(trimmed)
+			} else {
+				fmt.Print(final)
+			}
 		}
 	}
 
