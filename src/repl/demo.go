@@ -79,6 +79,7 @@ func stopLoop() {
 		mu.Unlock()
 		return
 	}
+	demoBuffer.Reset()
 	demoRunning = false
 	close(stopChannel)
 	done := doneChannel
