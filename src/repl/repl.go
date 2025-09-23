@@ -1666,7 +1666,7 @@ func (r *REPL) generateAndSetTopic() (string, error) {
 }
 
 // getVDBContext executes mai-vdb with the configured directory and current message
-// Returns the context output to be used as <CONTEXT> for the LLM
+// Returns the context output to be used as [CONTEXT] for the LLM
 func (r *REPL) getVDBContext(message string) (string, error) {
 	vdbDir := r.configOptions.Get("vdbdir")
 	if vdbDir == "" {
@@ -1909,10 +1909,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	if r.configOptions.GetBool("vdb") {
 		vdbContext, vdbErr = r.getVDBContext(input)
 		if vdbErr == nil && vdbContext != "" {
-			if r.configOptions.GetBool("debug") {
-				fmt.Fprintf(os.Stderr, "VDB context results:\n%s\n", vdbContext)
-			}
-			messages = append(messages, llm.Message{Role: "system", Content: "<CONTEXT>\n" + vdbContext + "\n</CONTEXT>"})
+			messages = append(messages, llm.Message{Role: "user", Content: "[CONTEXT]\n" + vdbContext + "\n[/CONTEXT]"})
 		} else if vdbErr != nil {
 			fmt.Fprintf(os.Stderr, "VDB context error: %v\n", vdbErr)
 		}

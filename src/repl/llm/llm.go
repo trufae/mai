@@ -308,6 +308,43 @@ func createProvider(config *Config) (LLMProvider, error) {
 
 // SendMessage sends a message to the LLM and handles the response
 func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+	// If debug is enabled in the config, print the raw messages about to be sent
+	if c.config != nil && c.config.Debug {
+		fmt.Fprintf(os.Stderr, "DEBUG: Messages sent to provider (%s):\n", c.config.PROVIDER)
+		for i, m := range messages {
+			// Attempt to pretty-print the content
+			var contentStr string
+			switch v := m.Content.(type) {
+			case string:
+				contentStr = v
+			default:
+				if b, err := MarshalNoEscape(v); err == nil {
+					contentStr = string(b)
+				} else {
+					contentStr = fmt.Sprintf("<unprintable content: %T>", v)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "  - [%d] role=%s\n", i, m.Role)
+			// When not using rawdog, show a user/content split if present
+			if !c.config.Rawdog && m.Role == "user" {
+				// Try to detect a structured user+content format inside the string
+				// e.g., some callers may send JSON-like objects. If contentStr is JSON
+				// attempt to unmarshal and show top-level keys.
+				var parsed interface{}
+				if json.Unmarshal([]byte(contentStr), &parsed) == nil {
+					if b, err := MarshalNoEscape(parsed); err == nil {
+						fmt.Fprintf(os.Stderr, "    content: %s\n", string(b))
+						continue
+					}
+				}
+			}
+			// Default: print the content as-is (possibly large)
+			for _, line := range strings.Split(contentStr, "\n") {
+				fmt.Fprintf(os.Stderr, "    %s\n", line)
+			}
+		}
+	}
+
 	ctx, cancel := c.newContext()
 	defer cancel()
 
@@ -355,7 +392,7 @@ func ExtractSystemPrompt(input string) (string, string) {
 }
 
 // PrepareMessages creates a message array with optional system prompt
-func PrepareMessages(input string) []Message {
+func PrepareMessages(input string, cfg *Config) []Message {
 	// First, expand any @filename mentions in the input so callers that
 	// pass file-includes via @file get the file contents inlined (stdin mode
 	// and simple API paths rely on this behavior).
@@ -368,12 +405,33 @@ func PrepareMessages(input string) []Message {
 
 	messages := []Message{}
 
-	if systemPrompt == "" {
+	// Preference order:
+	// 1) inline <system>...</system> in the input
+	// 2) explicit config SystemPrompt (cfg.SystemPrompt)
+	// 3) explicit config SystemPromptFile (cfg.SystemPromptFile)
+	// 4) repository or home `.mai/systemprompt.md` (loadDefaultSystemPrompt)
+	if systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	} else if cfg != nil && cfg.SystemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: cfg.SystemPrompt})
+	} else if cfg != nil && cfg.SystemPromptFile != "" {
+		if b, err := os.ReadFile(cfg.SystemPromptFile); err == nil {
+			messages = append(messages, Message{Role: "system", Content: processIncludes(string(b), filepath.Dir(cfg.SystemPromptFile))})
+		}
+	} else {
 		if sp := loadDefaultSystemPrompt(); sp != "" {
 			messages = append(messages, Message{Role: "system", Content: sp})
 		}
-	} else {
-		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	}
+
+	// If a prompt file is provided via config, include its content at the
+	// start of the user message (this mirrors the REPL behavior for
+	// `#promptname` which injects prompt file content into the user level).
+	if cfg != nil && cfg.PromptFile != "" {
+		if b, err := os.ReadFile(cfg.PromptFile); err == nil {
+			// Prepend prompt file content, separated by blank lines
+			userPrompt = string(b) + "\n\n" + userPrompt
+		}
 	}
 
 	// Add user message (use userPrompt which preserves user-provided <system> removal)

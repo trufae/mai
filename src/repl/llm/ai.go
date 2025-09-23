@@ -41,6 +41,19 @@ type Config struct {
 	// When set, providers should constrain output to this JSON schema.
 	Schema map[string]interface{}
 
+	// Optional system prompt overrides. When set, providers and callers
+	// should prefer these over the repository or home `.mai/systemprompt.md`.
+	SystemPrompt     string
+	SystemPromptFile string
+
+	// PromptFile is a user-level prompt that should be included into the
+	// user message (equivalent to using `#promptname` in the REPL).
+	PromptFile string
+
+	// Debug enables printing of raw messages sent to the provider for
+	// troubleshooting and visibility into what the model actually receives.
+	Debug bool
+
 	// Conversation formatting options for providers that need a single prompt
 	// when using structured output schemas. These allow constructing a single
 	// prompt from the conversation history instead of taking a single message.

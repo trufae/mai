@@ -28,7 +28,7 @@ func runStdinMode(config *llm.Config, args []string) {
 	}
 
 	// Prepare messages from input
-	messages := llm.PrepareMessages(input)
+	messages := llm.PrepareMessages(input, config)
 
 	// Prepare image if specified
 	var images []string
@@ -187,6 +187,29 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	if v := opts.Get("useragent"); v != "" {
 		config.UserAgent = v
 	}
+
+	// System prompt options
+	if v := opts.Get("systemprompt"); v != "" {
+		config.SystemPrompt = v
+	}
+	if v := opts.Get("systempromptfile"); v != "" {
+		// Expand ~ if present
+		if strings.HasPrefix(v, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				v = filepath.Join(home, v[1:])
+			}
+		}
+		config.SystemPromptFile = v
+	}
+
+	if v := opts.Get("promptfile"); v != "" {
+		if strings.HasPrefix(v, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				v = filepath.Join(home, v[1:])
+			}
+		}
+		config.PromptFile = v
+	}
 	// Behavior toggles used by providers
 	if opts.Get("markdown") != "" {
 		config.Markdown = opts.GetBool("markdown")
@@ -196,6 +219,11 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	}
 	if opts.Get("rawdog") != "" {
 		config.Rawdog = opts.GetBool("rawdog")
+	}
+
+	// Debug flag: when enabled, show raw messages sent to providers
+	if opts.Get("debug") != "" {
+		config.Debug = opts.GetBool("debug")
 	}
 	// Structured output schema: prefer schemafile if provided, else inline schema
 	if path := opts.Get("schemafile"); path != "" {
@@ -384,7 +412,7 @@ func main() {
 			fmt.Printf("Sending to AI: %s\n", scriptString)
 
 			// Prepare messages from the string
-			messages := llm.PrepareMessages(scriptString)
+			messages := llm.PrepareMessages(scriptString, config)
 
 			// Send to LLM without streaming
 			res, err := client.SendMessage(messages, false, nil)
