@@ -143,7 +143,11 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 		}
 
 		// Prompt the user with the text from inside the brackets
-		fmt.Printf("%s\n\r>>> ", question)
+		prompt := r.configOptions.Get("prompt")
+		if prompt == "" {
+			prompt = ">>>"
+		}
+		fmt.Printf("%s\n\r%s ", question, prompt)
 
 		p := r.readline.defaultPrompt
 		r.readline.defaultPrompt = "?"

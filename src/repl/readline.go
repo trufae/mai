@@ -578,6 +578,7 @@ func (r *ReadLine) SetPrompt(prompt string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.prompt = prompt
+	r.defaultPrompt = prompt
 
 	// Update width based on new prompt length
 	width, _, err := term.GetSize(int(os.Stdin.Fd()))

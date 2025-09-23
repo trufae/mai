@@ -312,7 +312,11 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 			continue
 		}
 		if clearScreen {
-			fmt.Print("\033[2J\033[H\033[33m>>> " + input + "\r\n")
+			prompt := r.configOptions.Get("prompt")
+			if prompt == "" {
+				prompt = ">>>"
+			}
+			fmt.Print("\033[2J\033[H\033[33m" + prompt + " " + input + "\r\n")
 			cl := len(context)
 			if cl > 0 {
 				fmt.Printf("Context: %d bytes\r\n", cl)
