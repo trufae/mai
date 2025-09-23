@@ -1903,17 +1903,18 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		}
 	}
 
+	var vdbContext string
+	var vdbErr error
 	// If vdb option is enabled, get context from vector database and include as system context
 	if r.configOptions.GetBool("vdb") {
-		vdbContext, err := r.getVDBContext(input)
-		if err == nil && vdbContext != "" {
+		vdbContext, vdbErr = r.getVDBContext(input)
+		if vdbErr == nil && vdbContext != "" {
 			if r.configOptions.GetBool("debug") {
 				fmt.Fprintf(os.Stderr, "VDB context results:\n%s\n", vdbContext)
 			}
 			messages = append(messages, llm.Message{Role: "system", Content: "<CONTEXT>\n" + vdbContext + "\n</CONTEXT>"})
-		} else if err != nil {
-			// Log error but don't fail the request
-			fmt.Fprintf(os.Stderr, "VDB context error: %v\n", err)
+		} else if vdbErr != nil {
+			fmt.Fprintf(os.Stderr, "VDB context error: %v\n", vdbErr)
 		}
 	}
 
@@ -1967,10 +1968,14 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	// Handle conversation history based on logging settings
 	if r.configOptions.GetBool("logging") {
-		// Save the user message to conversation history when logging is enabled
+		// Save the user message to conversation history when logging is enabled.
+		// NOTE: VDB context (when enabled) is included in the API call below
+		// but must NOT be stored in the persistent chat log. Do not append
+		// vdbContext to r.messages so it remains out of the saved conversation.
 		r.messages = append(r.messages, userMessage)
 	} else {
-		// When logging is disabled, replace the entire history with just this message
+		// When logging is disabled, keep just the current user message in memory.
+		// VDB context is still sent to the LLM but not stored in r.messages.
 		r.messages = []llm.Message{userMessage}
 	}
 

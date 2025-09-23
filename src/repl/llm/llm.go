@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -355,19 +356,135 @@ func ExtractSystemPrompt(input string) (string, string) {
 
 // PrepareMessages creates a message array with optional system prompt
 func PrepareMessages(input string) []Message {
-	systemPrompt, userPrompt := ExtractSystemPrompt(input)
+	// First, expand any @filename mentions in the input so callers that
+	// pass file-includes via @file get the file contents inlined (stdin mode
+	// and simple API paths rely on this behavior).
+	expanded := expandAtMentions(input)
+
+	// Next, allow a default system prompt file to be loaded when no explicit
+	// inline <system>...</system> prompt is present. This mirrors the REPL's
+	// behavior where .mai/systemprompt.md (project or $HOME/.mai) is used.
+	systemPrompt, userPrompt := ExtractSystemPrompt(expanded)
 
 	messages := []Message{}
 
-	// Add system message if present
-	if systemPrompt != "" {
+	if systemPrompt == "" {
+		if sp := loadDefaultSystemPrompt(); sp != "" {
+			messages = append(messages, Message{Role: "system", Content: sp})
+		}
+	} else {
 		messages = append(messages, Message{Role: "system", Content: systemPrompt})
 	}
 
-	// Add user message
+	// Add user message (use userPrompt which preserves user-provided <system> removal)
 	messages = append(messages, Message{Role: "user", Content: userPrompt})
 
 	return messages
+}
+
+// expandAtMentions searches the input for simple @filename mentions and
+// inlines existing file contents. This is a lightweight adaptation of the
+// REPL's @-mention processing so stdin/API callers get the same behavior.
+func expandAtMentions(input string) string {
+	var out strings.Builder
+	// Split on whitespace but preserve newlines so multi-line @-lines work
+	tokens := strings.FieldsFunc(input, func(r rune) bool { return r == ' ' || r == '\t' })
+	// Simple approach: if a token starts with '@' and the file exists, read it
+	// and append a markdown-formatted code block representing the file content.
+	// Otherwise, leave the token as-is. Reconstruct using spaces (we keep newlines
+	// from the original input by replacing tokens in order into the original).
+
+	// Build a map of token->replacement to allow simple reconstruction
+	repl := make(map[string]string)
+	for _, t := range tokens {
+		if len(t) > 1 && t[0] == '@' {
+			path := t[1:]
+			// Try to read file as-is
+			if b, err := os.ReadFile(path); err == nil {
+				// Format as markdown snippet so LLM sees filename and content
+				repl[t] = "\n\n## File: " + path + "\n\n```\n" + string(b) + "\n```\n\n"
+				continue
+			}
+		}
+		// default: identity
+		repl[t] = t
+	}
+
+	// Reconstruct the original input preserving newlines
+	// This is a conservative reconstruction: iterate over original runes
+	// and replace tokens when encountering whitespace boundaries.
+	var tokenBuf strings.Builder
+	for _, r := range input {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			if tokenBuf.Len() > 0 {
+				tk := tokenBuf.String()
+				if v, ok := repl[tk]; ok {
+					out.WriteString(v)
+				} else {
+					out.WriteString(tk)
+				}
+				tokenBuf.Reset()
+			}
+			out.WriteRune(r)
+		} else {
+			tokenBuf.WriteRune(r)
+		}
+	}
+	if tokenBuf.Len() > 0 {
+		tk := tokenBuf.String()
+		if v, ok := repl[tk]; ok {
+			out.WriteString(v)
+		} else {
+			out.WriteString(tk)
+		}
+	}
+	return out.String()
+}
+
+// loadDefaultSystemPrompt attempts to load a system prompt from the
+// repository-local `.mai/systemprompt.md` or the user's `$HOME/.mai/systemprompt.md`.
+// Lines starting with '@' are treated as include directives and are replaced
+// with the contents of the referenced file (path is resolved relative to the
+// system prompt file's directory).
+func loadDefaultSystemPrompt() string {
+	// Check current directory .mai/systemprompt.md first
+	cand := ".mai/systemprompt.md"
+	if b, err := os.ReadFile(cand); err == nil {
+		return processIncludes(string(b), ".mai")
+	}
+	// Fallback to home
+	if home, err := os.UserHomeDir(); err == nil {
+		cand2 := filepath.Join(home, ".mai", "systemprompt.md")
+		if b, err := os.ReadFile(cand2); err == nil {
+			return processIncludes(string(b), filepath.Join(home, ".mai"))
+		}
+	}
+	return ""
+}
+
+// processIncludes replaces lines starting with '@' with the contents of the referenced file.
+func processIncludes(content, baseDir string) string {
+	var out []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "@") {
+			incPath := strings.TrimSpace(trimmed[1:])
+			target := incPath
+			if !filepath.IsAbs(incPath) && baseDir != "" {
+				target = filepath.Join(baseDir, incPath)
+			}
+			if data, err := os.ReadFile(target); err != nil {
+				// If include fails, keep the original line so the prompt author
+				// can see the problem rather than silently dropping it.
+				out = append(out, line)
+			} else {
+				out = append(out, string(data))
+			}
+		} else {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // httpDo prepares and executes an HTTP request, shared by streaming and non-streaming.
