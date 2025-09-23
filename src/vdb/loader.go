@@ -10,7 +10,7 @@ import (
 
 // LoadData loads data from the given path into the provided callback function.
 // The callback is called for each piece of data (line or parsed section).
-func LoadData(path string, callback func(string)) error {
+func LoadData(path string, minChars int, callback func(string)) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -22,17 +22,17 @@ func LoadData(path string, callback func(string)) error {
 				return err
 			}
 			if !info.IsDir() {
-				return loadFile(p, callback)
+				return loadFile(p, minChars, callback)
 			}
 			return nil
 		})
 	} else {
-		return loadFile(path, callback)
+		return loadFile(path, minChars, callback)
 	}
 }
 
 // loadFile loads a single file based on its extension.
-func loadFile(path string, callback func(string)) error {
+func loadFile(path string, minChars int, callback func(string)) error {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".txt", ".csv":

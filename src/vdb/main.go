@@ -24,10 +24,12 @@ func main() {
 	var sources stringSlice
 	var jsonOutput bool
 	var numResults int
+	var minChars int
 
 	flag.Var(&sources, "s", "source file or directory (can be used multiple times)")
 	flag.BoolVar(&jsonOutput, "j", false, "output in JSON format")
 	flag.IntVar(&numResults, "n", 5, "number of results to return")
+	flag.IntVar(&minChars, "m", 10, "minimum characters per line/section")
 	flag.Parse()
 
 	args := flag.Args()
