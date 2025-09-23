@@ -46,7 +46,7 @@ func main() {
 
 	// Load data from sources
 	for _, source := range sources {
-		err := LoadData(source, func(text string) {
+		err := LoadData(source, minChars, func(text string) {
 			db.Insert(text)
 		})
 		if err != nil {

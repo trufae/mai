@@ -36,9 +36,9 @@ func loadFile(path string, minChars int, callback func(string)) error {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".txt", ".csv":
-		return loadTextFile(path, callback)
+		return loadTextFile(path, minChars, callback)
 	case ".md":
-		return loadMarkdownFile(path, callback)
+		return loadMarkdownFile(path, minChars, callback)
 	default:
 		// Skip unknown extensions
 		return nil
@@ -46,7 +46,7 @@ func loadFile(path string, minChars int, callback func(string)) error {
 }
 
 // loadTextFile reads each line from .txt or .csv files.
-func loadTextFile(path string, callback func(string)) error {
+func loadTextFile(path string, minChars int, callback func(string)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -56,7 +56,7 @@ func loadTextFile(path string, callback func(string)) error {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
+		if line != "" && len(line) >= minChars {
 			callback(line)
 		}
 	}
@@ -64,7 +64,7 @@ func loadTextFile(path string, callback func(string)) error {
 }
 
 // loadMarkdownFile parses .md files and extracts sections.
-func loadMarkdownFile(path string, callback func(string)) error {
+func loadMarkdownFile(path string, minChars int, callback func(string)) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -83,7 +83,10 @@ func loadMarkdownFile(path string, callback func(string)) error {
 		if strings.HasPrefix(trimmed, "# ") {
 			// New title
 			if inSection {
-				callback(buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String()))
+				sectionStr := buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String())
+				if len(sectionStr) >= minChars {
+					callback(sectionStr)
+				}
 				sectionText.Reset()
 			}
 			currentTitle = strings.TrimPrefix(trimmed, "# ")
@@ -93,7 +96,10 @@ func loadMarkdownFile(path string, callback func(string)) error {
 		} else if strings.HasPrefix(trimmed, "## ") {
 			// New section
 			if inSection {
-				callback(buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String()))
+				sectionStr := buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String())
+				if len(sectionStr) >= minChars {
+					callback(sectionStr)
+				}
 				sectionText.Reset()
 			}
 			currentSection = strings.TrimPrefix(trimmed, "## ")
@@ -102,7 +108,10 @@ func loadMarkdownFile(path string, callback func(string)) error {
 		} else if strings.HasPrefix(trimmed, "### ") {
 			// New subsection
 			if inSection {
-				callback(buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String()))
+				sectionStr := buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String())
+				if len(sectionStr) >= minChars {
+					callback(sectionStr)
+				}
 				sectionText.Reset()
 			}
 			currentSubsection = strings.TrimPrefix(trimmed, "### ")
@@ -122,7 +131,10 @@ func loadMarkdownFile(path string, callback func(string)) error {
 
 	// Last section
 	if inSection {
-		callback(buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String()))
+		sectionStr := buildSectionString(currentTitle, currentSection, currentSubsection, sectionText.String())
+		if len(sectionStr) >= minChars {
+			callback(sectionStr)
+		}
 	}
 
 	return scanner.Err()

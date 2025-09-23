@@ -1674,10 +1674,11 @@ func (r *REPL) getVDBContext(message string) (string, error) {
 	}
 
 	// Execute mai-vdb command
-	vdbLimit := r.configOptions.Get("vdblimit")
-	if vdbLimit == "" {
-		vdbLimit = "5" // fallback to default
+	vdbLimitNum, err := r.configOptions.GetNumber("vdblimit")
+	if err != nil {
+		vdbLimitNum = 5 // fallback to default
 	}
+	vdbLimit := fmt.Sprintf("%.0f", vdbLimitNum)
 	cmd := exec.Command("mai-vdb", "-s", vdbDir, "-n", vdbLimit, message)
 	output, err := cmd.Output()
 	if err != nil {

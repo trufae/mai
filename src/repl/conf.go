@@ -87,7 +87,7 @@ func NewConfigOptions() *ConfigOptions {
 	// VDB option: use mai-vdb tool to get context from vector database
 	co.RegisterOption("vdb", BooleanOption, "Use mai-vdb tool to get context from vector database", "false")
 	co.RegisterOption("vdbdir", StringOption, "Directory to search for vector database sources", "")
-	co.RegisterOption("vdblimit", StringOption, "Limit of entries to be used when calling mai-vdb", "5")
+	co.RegisterOption("vdblimit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
 
 	// Conversation formatting options (used when building a single prompt from history)
 	co.RegisterOption("chat_replies", BooleanOption, "Include chat replies when building a single prompt", "false")
