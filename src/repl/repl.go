@@ -1907,6 +1907,9 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	if r.configOptions.GetBool("vdb") {
 		vdbContext, err := r.getVDBContext(input)
 		if err == nil && vdbContext != "" {
+			if r.configOptions.GetBool("debug") {
+				fmt.Fprintf(os.Stderr, "VDB context results:\n%s\n", vdbContext)
+			}
 			messages = append(messages, llm.Message{Role: "system", Content: "<CONTEXT>\n" + vdbContext + "\n</CONTEXT>"})
 		} else if err != nil {
 			// Log error but don't fail the request
