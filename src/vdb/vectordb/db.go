@@ -18,10 +18,11 @@ type VectorDB struct {
 	Tokens    []Token
 	TotalDocs int
 	Size      int
+	Inserted  map[string]bool
 }
 
 func NewVectorDB(dimension int) *VectorDB {
-	return &VectorDB{Dimension: dimension}
+	return &VectorDB{Dimension: dimension, Inserted: make(map[string]bool)}
 }
 
 func (db *VectorDB) isValidToken(token string) bool {
@@ -83,9 +84,10 @@ func (db *VectorDB) computeEmbedding(text string) []float32 {
 }
 
 func (db *VectorDB) Insert(text string) {
-	if text == "" {
+	if text == "" || db.Inserted[text] {
 		return
 	}
+	db.Inserted[text] = true
 	embedding := db.computeEmbedding(text)
 	db.Root = insertRecursive(db.Root, embedding, text, 0, db.Dimension)
 	db.Size++
@@ -97,11 +99,18 @@ func (db *VectorDB) Query(text string, k int) []string {
 	}
 
 	queryVec := db.computeEmbedding(text)
-	results := knnSearch(db.Root, queryVec, k, db.Dimension)
+	results := knnSearch(db.Root, queryVec, k*2, db.Dimension) // get more to account for duplicates
 
+	seen := make(map[string]bool)
 	var out []string
 	for _, r := range results {
-		out = append(out, r.Node.Text)
+		if !seen[r.Node.Text] {
+			seen[r.Node.Text] = true
+			out = append(out, r.Node.Text)
+			if len(out) == k {
+				break
+			}
+		}
 	}
 	return out
 }
