@@ -615,6 +615,8 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 	resultChan := make(chan scanResult, 1)
 	go func() {
 		scanner := bufio.NewScanner(server.Stdout)
+		buf := make([]byte, 10*1024*1024) // 10MB buffer
+		scanner.Buffer(buf, 10*1024*1024)
 		ok := scanner.Scan()
 		var err error
 		var bytes []byte
