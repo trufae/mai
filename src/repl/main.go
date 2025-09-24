@@ -57,7 +57,7 @@ func runStdinMode(config *llm.Config, args []string) {
 func loadConfig() *llm.Config {
 	config := &llm.Config{
 		OpenAPIHost:   getEnvOrDefault("OPENAPI_HOST", "localhost"),
-		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8080"),
+		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8989"),
 		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
 		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),

@@ -1290,7 +1290,7 @@ func showHelp() {
 	fmt.Println("Options:")
 	fmt.Println("  -v\tShow version information")
 	fmt.Println("  -h\tShow this help message")
-	fmt.Println("  -p PORT\tPort to listen on (default: 8080)")
+	fmt.Println("  -p PORT\tPort to listen on (default: 8989)")
 	fmt.Println("  -y\tYolo mode (skip tool confirmations)")
 	fmt.Println("  -o FILE\tOutput report to FILE")
 	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
@@ -1313,7 +1313,7 @@ func debugLog(debug bool, format string, args ...interface{}) {
 
 func main() {
 	// Parse command line flags
-	port := "8080"
+	port := "8989"
 	yoloMode := false
 	outputReport := ""
 	debugMode := false
@@ -1489,17 +1489,17 @@ Prompts endpoints:
 - POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
 - POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
 
-Examples:
-- curl http://localhost:8080/tools
-- curl http://localhost:8080/tools/json
-- curl http://localhost:8080/tools/quiet
-- curl http://localhost:8080/tools/markdown
-- curl http://localhost:8080/tools/server1/mytool?arg1=value1
- - curl -X POST http://localhost:8080/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
- - curl http://localhost:8080/prompts
- - curl http://localhost:8080/prompts/json
- - curl http://localhost:8080/prompts/server1/myPrompt?topic=xyz
- - curl -X POST http://localhost:8080/prompts/server1/myPrompt -H "Content-Type: application/json" -d '{"topic":"xyz"}'
+ Examples:
+ - curl http://localhost:8989/tools
+ - curl http://localhost:8989/tools/json
+ - curl http://localhost:8989/tools/quiet
+ - curl http://localhost:8989/tools/markdown
+ - curl http://localhost:8989/tools/server1/mytool?arg1=value1
+  - curl -X POST http://localhost:8989/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
+  - curl http://localhost:8989/prompts
+  - curl http://localhost:8989/prompts/json
+  - curl http://localhost:8989/prompts/server1/myPrompt?topic=xyz
+  - curl -X POST http://localhost:8989/prompts/server1/myPrompt -H "Content-Type: application/json" -d '{"topic":"xyz"}'
 `
 		w.Write([]byte(usage))
 	}).Methods("GET")

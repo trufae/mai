@@ -23,7 +23,7 @@ mcpcli [options] <command>
 
 Options:
   -h <host>  Host where mcpd is running (default: localhost)
-  -p <port>  Port where mcpd is running (default: 8080)
+  -p <port>  Port where mcpd is running (default: 8989)
   -j         Output in JSON format
   -m         Wrap markdown output in code blocks
 

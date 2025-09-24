@@ -196,7 +196,7 @@ func main() {
 
 func parseFlags() Config {
 	host := flag.String("host", "localhost", "Host where mcpd is running")
-	port := flag.String("p", "8080", "Port where mcpd is running")
+	port := flag.String("p", "8989", "Port where mcpd is running")
 	jsonOutput := flag.Bool("j", false, "Output in JSON format")
 	markdownCode := flag.Bool("m", false, "Wrap markdown output in code blocks")
 	quiet := flag.Bool("q", false, "Suppress non-essential output")
@@ -224,7 +224,7 @@ func printUsage() {
 	fmt.Println("Usage: mai-tool [options] <command>")
 	fmt.Println("\nOptions:")
 	fmt.Println("  --host <host>  Host where mcpd is running (default: localhost)")
-	fmt.Println("  -p <port>     Port where mcpd is running (default: 8080)")
+	fmt.Println("  -p <port>     Port where mcpd is running (default: 8989)")
 	fmt.Println("  -j            Output in JSON format")
 	fmt.Println("  -m            Wrap markdown output in code blocks")
 	fmt.Println("  -q            Suppress non-essential output")

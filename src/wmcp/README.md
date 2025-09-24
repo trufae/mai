@@ -2,7 +2,7 @@
 
 ## Environment Variables
 
-- `PORT`: HTTP server port (default: 8080)
+- `PORT`: HTTP server port (default: 8989)
 
 ## API Endpoints
 
@@ -60,16 +60,16 @@ Retrieves a prompt’s rendered messages from a specific server, or uses auto-di
 
 ```bash
 # List all tools and their descriptions
-curl http://localhost:8080/tools
+curl http://localhost:8989/tools
 
 # Check service status
-curl http://localhost:8080/status
+curl http://localhost:8989/status
 
 # List all prompts
-curl http://localhost:8080/prompts
+curl http://localhost:8989/prompts
 
 # Get a specific prompt
-curl "http://localhost:8080/prompts/server1/welcome?topic=onboarding"
+curl "http://localhost:8989/prompts/server1/welcome?topic=onboarding"
 ```
 
 ### 2. Radare2 MCP Examples (r2mcp)
@@ -78,27 +78,27 @@ Assuming you have r2mcp running as one of your servers:
 
 ```bash
 # Open a binary file for analysis
-curl -X POST "http://localhost:8080/tools/server1/openFile" \
+curl -X POST "http://localhost:8989/tools/server1/openFile" \
   -H "Content-Type: application/json" \
   -d '{"filePath": "/path/to/binary"}'
 
 # List all functions in the binary
-curl "http://localhost:8080/tools/server1/listFunctions"
+curl "http://localhost:8989/tools/server1/listFunctions"
 
 # Disassemble a function at a specific address
-curl "http://localhost:8080/tools/server1/disassembleFunction?address=0x1000"
+curl "http://localhost:8989/tools/server1/disassembleFunction?address=0x1000"
 
 # Decompile a function
-curl "http://localhost:8080/tools/server1/decompileFunction?address=0x1000"
+curl "http://localhost:8989/tools/server1/decompileFunction?address=0x1000"
 
 # Search for strings in the binary
-curl "http://localhost:8080/tools/server1/listStrings?regexpFilter=password"
+curl "http://localhost:8989/tools/server1/listStrings?regexpFilter=password"
 
 # Get cross-references to an address
-curl "http://localhost:8080/tools/server1/xrefsTo?address=0x1000"
+curl "http://localhost:8989/tools/server1/xrefsTo?address=0x1000"
 
 # Add a comment to an address
-curl -X POST "http://localhost:8080/tools/server1/setComment" \
+curl -X POST "http://localhost:8989/tools/server1/setComment" \
   -H "Content-Type: application/json" \
   -d '{"address": "0x1000", "message": "This is the main function"}'
 ```
@@ -109,19 +109,19 @@ You can also use form data instead of JSON:
 
 ```bash
 # Using form data
-curl -X POST "http://localhost:8080/tools/server1/disassemble" \
+curl -X POST "http://localhost:8989/tools/server1/disassemble" \
   -d "address=0x1000" \
   -d "numInstructions=20"
 
 # Using query parameters
-curl "http://localhost:8080/tools/server1/analyze?level=2&verbose=true"
+curl "http://localhost:8989/tools/server1/analyze?level=2&verbose=true"
 ```
 
 ### 6. Complex JSON Payloads
 
 ```bash
 # Search with complex criteria
-curl -X POST "http://localhost:8080/tools/server1/search" \
+curl -X POST "http://localhost:8989/tools/server1/search" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "main",
@@ -131,7 +131,7 @@ curl -X POST "http://localhost:8080/tools/server1/search" \
   }'
 
 # Batch operations
-curl -X POST "http://localhost:8080/tools/server1/batchAnalyze" \
+curl -X POST "http://localhost:8989/tools/server1/batchAnalyze" \
   -H "Content-Type: application/json" \
   -d '{
     "files": ["/path/to/file1", "/path/to/file2"],
@@ -172,15 +172,15 @@ The service provides clear error messages:
 
 ```bash
 # Server not found
-curl "http://localhost:8080/tools/nonexistent/tool"
+curl "http://localhost:8989/tools/nonexistent/tool"
 # HTTP 404: Server 'nonexistent' not found
 
 # Tool not found
-curl "http://localhost:8080/tools/server1/nonexistent"
+curl "http://localhost:8989/tools/server1/nonexistent"
 # HTTP 400: Tool call failed: method not found
 
 # Invalid parameters
-curl -X POST "http://localhost:8080/tools/server1/openFile" \
+curl -X POST "http://localhost:8989/tools/server1/openFile" \
   -H "Content-Type: application/json" \
   -d '{"invalid": "parameter"}'
 # HTTP 400: Tool call failed: missing required parameter 'filePath'

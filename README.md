@@ -46,7 +46,7 @@ Start multiple MCP servers in a single line of shell.
 1. Start each MCP server as a subprocess
 2. Perform the MCP handshake with each server via stdio
 3. Discover available tools from each server
-4. Start the HTTP server on port 8080 (or $PORT environment variable)
+4. Start the HTTP server on port 8989 (or $PORT environment variable)
 
 ```bash
 ./mai-wmcp "r2pm -r r2mcp" "src/mcps/wttr/mai-mcp-wttr"
@@ -54,7 +54,7 @@ Start multiple MCP servers in a single line of shell.
 
 Claude/VScode config files are supported, and use any MCP with **Mai**.
 
-* Curl `localhost:8080` or use the `mai-tool` client for quiet, json or markdown output.
+* Curl `localhost:8989` or use the `mai-tool` client for quiet, json or markdown output.
 
 ```bash
 # List all available tools
