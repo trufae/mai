@@ -1958,6 +1958,20 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		StopTimer()
 	}
 
+	// Before adding the user message, optionally auto-compact the conversation
+	// when the `autocompact` option is enabled and the chat history is large.
+	// If `autocompact` is non-zero and there are more than 5 messages, run
+	// the compact operation which will replace the conversation with a
+	// compact summary produced by the AI.
+	if ac, err := r.configOptions.GetNumber("autocompact"); err == nil {
+		if ac != 0 && len(r.messages) > 5 {
+			if err := r.handleCompactCommand(); err != nil {
+				// Log compact errors but continue sending the message
+				fmt.Fprintf(os.Stderr, "Auto-compact failed: %v\n", err)
+			}
+		}
+	}
+
 	// Add user message with enhanced input
 	// Store the original input (with commands) for display in message history,
 	// but use the processed input (with command output) for sending to the AI

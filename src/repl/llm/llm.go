@@ -308,10 +308,19 @@ func createProvider(config *Config) (LLMProvider, error) {
 
 // SendMessage sends a message to the LLM and handles the response
 func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+	// Apply conversation message limit if configured: only keep the last N messages
+	messagesToSend := messages
+	if c.config != nil && c.config.ConversationMessageLimit > 0 {
+		limit := c.config.ConversationMessageLimit
+		if len(messages) > limit {
+			messagesToSend = messages[len(messages)-limit:]
+		}
+	}
+
 	// If debug is enabled in the config, print the raw messages about to be sent
 	if c.config != nil && c.config.Debug {
 		fmt.Fprintf(os.Stderr, "DEBUG: Messages sent to provider (%s):\n", c.config.PROVIDER)
-		for i, m := range messages {
+		for i, m := range messagesToSend {
 			// Attempt to pretty-print the content
 			var contentStr string
 			switch v := m.Content.(type) {
@@ -349,7 +358,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	defer cancel()
 
 	// Single entry point for all providers; providers handle images support.
-	return c.provider.SendMessage(ctx, messages, stream && !c.config.NoStream, images)
+	return c.provider.SendMessage(ctx, messagesToSend, stream && !c.config.NoStream, images)
 }
 
 // ListModels returns a list of available models for the current provider

@@ -93,6 +93,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat_replies", BooleanOption, "Include chat replies when building a single prompt", "false")
 	co.RegisterOption("chat_system", BooleanOption, "Include chat system messages when building a single prompt", "true")
 	co.RegisterOption("chat_format", StringOption, "Chat formatting: tokens, labeled, or plain", "plain")
+	// Number of most recent messages to include when sending to the LLM (0 = all)
+	co.RegisterOption("history_messages", NumberOption, "Number of most recent messages to include when sending to the LLM (0=all)", "0")
+	// Auto-compact: when non-zero and conversation is large, run /chat compact
+	co.RegisterOption("autocompact", NumberOption, "Auto-compact conversation when history exceeds threshold (0=off)", "0")
 
 	// Server configuration
 	co.RegisterOption("listen", StringOption, "Listen address for the web server (host:port)", "0.0.0.0:9000")

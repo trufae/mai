@@ -62,7 +62,9 @@ type Config struct {
 	ConversationIncludeSystem bool   // include system messages when building the prompt
 	ConversationFormat        string // "tokens", "labeled", or "plain"
 	ConversationUseLastUser   bool   // if true, only include the last user message (and system messages if enabled)
-
+	// ConversationMessageLimit controls how many recent messages are sent to the LLM.
+	// If zero, all messages are sent. If >0, only the last N messages are included.
+	ConversationMessageLimit int
 }
 
 // GetAPIKey resolves an API key by checking an environment variable first,

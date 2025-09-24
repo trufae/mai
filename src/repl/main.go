@@ -225,6 +225,18 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	if opts.Get("debug") != "" {
 		config.Debug = opts.GetBool("debug")
 	}
+
+	// Conversation message limit: number of recent messages to include when sending
+	if v := opts.Get("history_messages"); v != "" {
+		if num, err := opts.GetNumber("history_messages"); err == nil {
+			config.ConversationMessageLimit = int(num)
+		}
+	}
+
+	// Auto-compact option is handled at REPL level; mirror into options for visibility
+	if v := opts.Get("autocompact"); v != "" {
+		// no direct mapping into llm.Config required; REPL reads configOptions
+	}
 	// Structured output schema: prefer schemafile if provided, else inline schema
 	if path := opts.Get("schemafile"); path != "" {
 		if strings.HasPrefix(path, "~") {
