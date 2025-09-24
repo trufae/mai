@@ -1,0 +1,11 @@
+  {
+    "token": "",
+    "program": ["/usr/local/bin/mai", "you are r2clippy, a helpful assistant for radare2, you must respond with only one sentence"],
+    "_program": ["/usr/local/bin/r2", "-q", "-c", "{input}", "-ecfg.fortunes=false", "-ecfg.sandbox=true", "-escr.color=0", "malloc://1024"],
+    "input_method": "argument",
+      "max_length": 2000,
+    "split_messages": false,
+    "capture_stderr":true,
+    "logfile": "queries.log",
+    "log_to_stdout": true
+  }
