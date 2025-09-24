@@ -582,22 +582,73 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
+	// Check if server process is still running
+	if server.Process.ProcessState != nil {
+		log.Printf("ERROR: Server %s process has exited with state: %v", server.Name, server.Process.ProcessState)
+		return nil, fmt.Errorf("server process has exited")
+	}
+	if server.Process.Process != nil {
+		debugLog(s.debugMode, "Server %s process PID: %d", server.Name, server.Process.Process.Pid)
+	}
+
+	debugLog(s.debugMode, "Sending JSONRPC request to server %s: %s", server.Name, string(reqBytes))
+
 	// Send request
 	if _, err := server.Stdin.Write(reqBytes); err != nil {
+		log.Printf("ERROR: Failed to write request to server %s stdin: %v", server.Name, err)
 		return nil, fmt.Errorf("failed to write request: %v", err)
 	}
 	if _, err := server.Stdin.Write([]byte("\n")); err != nil {
+		log.Printf("ERROR: Failed to write newline to server %s stdin: %v", server.Name, err)
 		return nil, fmt.Errorf("failed to write newline: %v", err)
 	}
 
-	// Read response
-	scanner := bufio.NewScanner(server.Stdout)
-	if !scanner.Scan() {
+	debugLog(s.debugMode, "Request sent to server %s, waiting for response", server.Name)
+
+	// Read response with timeout
+	type scanResult struct {
+		ok    bool
+		bytes []byte
+		err   error
+	}
+
+	resultChan := make(chan scanResult, 1)
+	go func() {
+		scanner := bufio.NewScanner(server.Stdout)
+		ok := scanner.Scan()
+		var err error
+		var bytes []byte
+		if ok {
+			bytes = scanner.Bytes()
+		} else {
+			err = scanner.Err()
+		}
+		resultChan <- scanResult{ok: ok, bytes: bytes, err: err}
+	}()
+
+	timeout := 30 * time.Second
+	var result scanResult
+	select {
+	case result = <-resultChan:
+		// Got result
+	case <-time.After(timeout):
+		log.Printf("ERROR: Timeout waiting for response from server %s after %v", server.Name, timeout)
+		return nil, fmt.Errorf("timeout waiting for response")
+	}
+
+	if !result.ok {
+		if result.err != nil {
+			log.Printf("ERROR: Scanner error while reading response from server %s: %v", server.Name, result.err)
+		} else {
+			log.Printf("ERROR: No response received from server %s (EOF or empty)", server.Name)
+		}
 		return nil, fmt.Errorf("failed to read response")
 	}
 
 	// Get the response bytes
-	responseBytes := scanner.Bytes()
+	responseBytes := result.bytes
+
+	debugLog(s.debugMode, "Received raw response from server %s: %s", server.Name, string(responseBytes))
 
 	// Debug logging for JSONRPC response
 	if s.debugMode {
@@ -613,6 +664,7 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 
 	var response JSONRPCResponse
 	if err := json.Unmarshal(responseBytes, &response); err != nil {
+		log.Printf("ERROR: Failed to unmarshal response from server %s: %v, raw response: %s", server.Name, err, string(responseBytes))
 		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
 	}
 
@@ -1150,6 +1202,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse arguments
 	arguments := make(map[string]interface{})
+	debugLog(s.debugMode, "Parsing arguments for tool call")
 
 	if r.Method == "POST" {
 		contentType := r.Header.Get("Content-Type")
@@ -1157,19 +1210,25 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 			// Parse JSON body
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
+				log.Printf("ERROR: Failed to read request body for tool %s/%s: %v", serverName, toolName, err)
 				http.Error(w, "Failed to read request body", http.StatusBadRequest)
 				return
 			}
 
 			if len(body) > 0 {
 				if err := json.Unmarshal(body, &arguments); err != nil {
+					log.Printf("ERROR: Failed to parse JSON body for tool %s/%s: %v", serverName, toolName, err)
 					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
 					return
 				}
 			}
 		} else {
 			// Parse form data
-			r.ParseForm()
+			if err := r.ParseForm(); err != nil {
+				log.Printf("ERROR: Failed to parse form data for tool %s/%s: %v", serverName, toolName, err)
+				http.Error(w, "Failed to parse form data", http.StatusBadRequest)
+				return
+			}
 			arguments = make(map[string]interface{})
 			for key, values := range r.Form {
 				if len(values) == 1 {
@@ -1206,6 +1265,8 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	debugLog(s.debugMode, "Parsed arguments: %v", arguments)
+
 	// Create tool call request
 	toolRequest := JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -1217,13 +1278,17 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		ID: time.Now().UnixNano(),
 	}
 
+	debugLog(s.debugMode, "Calling tool %s on server %s with arguments: %v", toolName, serverName, arguments)
+
 	response, err := s.sendRequest(server, toolRequest)
 	if err != nil {
+		log.Printf("ERROR: Failed to send request to server %s for tool %s: %v", serverName, toolName, err)
 		http.Error(w, fmt.Sprintf("Failed to call tool: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	if response.Error != nil {
+		log.Printf("ERROR: Tool call to %s/%s failed with RPC error: %v", serverName, toolName, response.Error)
 		http.Error(w, fmt.Sprintf("Tool call failed: %v", response.Error), http.StatusBadRequest)
 		return
 	}
@@ -1240,6 +1305,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if toolResult.Error != nil {
 		emsg := "ERROR: " + toolResult.Error.Message
+		log.Printf("ERROR: Tool %s/%s returned error: %s", serverName, toolName, toolResult.Error.Message)
 		w.Write([]byte(emsg))
 		debugLog(s.debugMode, emsg)
 		return
@@ -1256,6 +1322,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 
 	debugLog(s.debugMode, "Response content: %s", output.String())
 
+	log.Printf("SUCCESS: Tool %s/%s completed successfully", serverName, toolName)
 	w.Write([]byte(output.String()))
 }
 
