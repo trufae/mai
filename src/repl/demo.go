@@ -137,7 +137,7 @@ func demoLoop() {
 		if prefix != "" {
 			prefix = prefix + " "
 		}
-		avail := width - len(stripANSI(prefix))
+		avail := width - displayWidth(stripANSI(prefix))
 		if avail <= 0 {
 			avail = 10
 		}
@@ -147,26 +147,30 @@ func demoLoop() {
 		if offset > len(runes) {
 			offset = len(runes)
 		}
-		end := offset + avail
+		cumulative := 0
+		end := offset
+		for end < len(runes) {
+			w := runeWidth(runes[end])
+			if cumulative+w > avail {
+				break
+			}
+			cumulative += w
+			end++
+		}
 		var window []rune
-		if offset < len(runes) {
-			if end <= len(runes) {
-				window = runes[offset:end]
-			} else {
-				window = runes[offset:]
-				// pad with spaces
-				pad := make([]rune, end-len(runes))
-				for i := range pad {
-					pad[i] = ' '
-				}
-				window = append(window, pad...)
-			}
+		if offset < end {
+			window = runes[offset:end]
 		} else {
-			// Nothing to show yet; display spaces
-			window = make([]rune, avail)
-			for i := range window {
-				window[i] = ' '
+			window = []rune{}
+		}
+		// pad with spaces to reach avail columns
+		padLen := avail - cumulative
+		if padLen > 0 {
+			pad := make([]rune, padLen)
+			for i := range pad {
+				pad[i] = ' '
 			}
+			window = append(window, pad...)
 		}
 
 		// Update rainbow phase based on wall-clock time to keep a constant speed
@@ -226,7 +230,7 @@ func demoLoop() {
 			}
 			b.WriteString(gradient[gi])
 			b.WriteRune(r)
-			displayPos++
+			displayPos += runeWidth(r)
 		}
 		b.WriteString(resetColor)
 
@@ -296,6 +300,27 @@ func stripANSI(s string) string {
 		i++
 	}
 	return res
+}
+
+// displayWidth calculates the display width of a string, assuming ASCII is 1 column, others 2
+func displayWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		if r < 128 {
+			w++
+		} else {
+			w += 2
+		}
+	}
+	return w
+}
+
+// runeWidth returns the display width of a rune
+func runeWidth(r rune) int {
+	if r < 128 {
+		return 1
+	}
+	return 2
 }
 
 // init populates a smoother greyscale gradient used for scrolling text.
