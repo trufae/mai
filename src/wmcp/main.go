@@ -1121,9 +1121,6 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	serverName := vars["server"]
 	toolName := vars["tool"]
 
-	// Always log HTTP requests regardless of debug mode
-	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
-
 	s.mutex.RLock()
 	server, exists := s.servers[serverName]
 	s.mutex.RUnlock()
@@ -1142,6 +1139,9 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Always log HTTP requests regardless of debug mode
+	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
 
 	if !exists {
 		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
