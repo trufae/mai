@@ -373,12 +373,20 @@ type Message struct {
 	Content []Content `json:"content"`
 }
 
+// PromptArgument represents an argument for a prompt
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
 // PromptDefinition represents a prompt template the server exposes.
 type PromptDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Arguments   map[string]interface{} `json:"arguments,omitempty"`
-	Messages    []Message              `json:"messages,omitempty"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+	Messages    []Message        `json:"messages,omitempty"`
 }
 
 // SetPrompts configures the server's available prompts.
@@ -390,9 +398,9 @@ func (s *MCPServer) SetPrompts(prompts []PromptDefinition) {
 func (s *MCPServer) handlePromptsList(req JSONRPCRequest) {
 	// Return only metadata (name, description, arguments) without message bodies
 	type promptMeta struct {
-		Name        string                 `json:"name"`
-		Description string                 `json:"description,omitempty"`
-		Arguments   map[string]interface{} `json:"arguments,omitempty"`
+		Name        string           `json:"name"`
+		Description string           `json:"description,omitempty"`
+		Arguments   []PromptArgument `json:"arguments,omitempty"`
 	}
 	list := make([]promptMeta, 0, len(s.prompts))
 	for _, p := range s.prompts {
@@ -404,7 +412,8 @@ func (s *MCPServer) handlePromptsList(req JSONRPCRequest) {
 // prompts/get
 func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) {
 	var params struct {
-		Name string `json:"name"`
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
 	}
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
 		s.sendError(req.ID, -32602, "Invalid params")
@@ -412,7 +421,15 @@ func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) {
 	}
 	for _, p := range s.prompts {
 		if p.Name == params.Name {
-			s.sendResult(req.ID, map[string]interface{}{"prompt": p})
+			messages, err := ApplyPromptDefinition(p, params.Arguments)
+			if err != nil {
+				s.sendError(req.ID, -32603, "failed to render prompt: "+err.Error())
+				return
+			}
+			s.sendResult(req.ID, map[string]interface{}{
+				"description": p.Description,
+				"messages":    messages,
+			})
 			return
 		}
 	}
@@ -423,95 +440,25 @@ func (s *MCPServer) handlePromptsGet(req JSONRPCRequest) {
 func (s *MCPServer) handlePromptsApply(req JSONRPCRequest) {
 	var params struct {
 		Name      string                 `json:"name"`
-		Arguments map[string]interface{} `json:"arguments"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
 	}
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
 		s.sendError(req.ID, -32602, "Invalid params")
 		return
 	}
-	var prompt *PromptDefinition
-	for i := range s.prompts {
-		if s.prompts[i].Name == params.Name {
-			prompt = &s.prompts[i]
-			break
-		}
-	}
-	if prompt == nil {
-		s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
-		return
-	}
-
-	// Apply simple {{var}} template substitution in text content
-	applied := make([]Message, 0, len(prompt.Messages))
-	for _, m := range prompt.Messages {
-		nm := Message{Role: m.Role}
-		for _, c := range m.Content {
-			if c.Type == "text" && c.Text != "" {
-				text := c.Text
-				for k, v := range params.Arguments {
-					// Replace occurrences of {{key}} with value's string form
-					placeholder := "{{" + k + "}}"
-					var sval string
-					switch t := v.(type) {
-					case string:
-						sval = t
-					default:
-						b, _ := json.Marshal(v)
-						sval = string(b)
-					}
-					text = replaceAll(text, placeholder, sval)
-				}
-				nm.Content = append(nm.Content, Content{Type: "text", Text: text})
-			} else {
-				nm.Content = append(nm.Content, c)
+	for _, p := range s.prompts {
+		if p.Name == params.Name {
+			messages, err := ApplyPromptDefinition(p, params.Arguments)
+			if err != nil {
+				s.sendError(req.ID, -32603, "failed to render prompt: "+err.Error())
+				return
 			}
-		}
-		applied = append(applied, nm)
-	}
-	s.sendResult(req.ID, map[string]interface{}{"messages": applied})
-}
-
-// tiny helper: strings.ReplaceAll without importing strings again at top-level
-func replaceAll(s, old, new string) string {
-	// Inline simple implementation to avoid new imports policy churn
-	// but we'll still use the standard library via fmt for safety if needed.
-	if old == "" || old == new {
-		return s
-	}
-	// Use bytes-based replace for efficiency
-	bs := []byte(s)
-	bo := []byte(old)
-	bn := []byte(new)
-	var out []byte
-	for {
-		i := indexOf(bs, bo)
-		if i < 0 {
-			out = append(out, bs...)
-			break
-		}
-		out = append(out, bs[:i]...)
-		out = append(out, bn...)
-		bs = bs[i+len(bo):]
-	}
-	return string(out)
-}
-
-func indexOf(haystack, needle []byte) int {
-	if len(needle) == 0 {
-		return 0
-	}
-	// naive search is fine for small templates
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		match := true
-		for j := 0; j < len(needle); j++ {
-			if haystack[i+j] != needle[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return i
+			s.sendResult(req.ID, map[string]interface{}{
+				"description": p.Description,
+				"messages":    messages,
+			})
+			return
 		}
 	}
-	return -1
+	s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
 }

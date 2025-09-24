@@ -8,13 +8,9 @@ func getSamplePrompts() []mcplib.PromptDefinition {
 		{
 			Name:        "refactor_file",
 			Description: "Refactor a file to improve readability, structure, and idioms without changing behavior.",
-			Arguments: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file_path": map[string]any{"type": "string", "description": "Absolute path to the file to refactor."},
-					"goals":     map[string]any{"type": "string", "description": "Specific refactoring goals or constraints."},
-				},
-				"required": []string{"file_path"},
+			Arguments: []mcplib.PromptArgument{
+				{Name: "file_path", Type: "string", Description: "Absolute path to the file to refactor.", Required: true},
+				{Name: "goals", Type: "string", Description: "Specific refactoring goals or constraints.", Required: false},
 			},
 			Messages: []mcplib.Message{
 				{
@@ -30,14 +26,10 @@ func getSamplePrompts() []mcplib.PromptDefinition {
 		{
 			Name:        "write_tests",
 			Description: "Write unit tests for a file/function using the specified framework.",
-			Arguments: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file_path": map[string]any{"type": "string", "description": "Target file to create tests for."},
-					"framework": map[string]any{"type": "string", "description": "Test framework to use (e.g., go test, jest, pytest)."},
-					"focus":     map[string]any{"type": "string", "description": "Functions or behaviors to prioritize."},
-				},
-				"required": []string{"file_path"},
+			Arguments: []mcplib.PromptArgument{
+				{Name: "file_path", Type: "string", Description: "Target file to create tests for.", Required: true},
+				{Name: "framework", Type: "string", Description: "Test framework to use (e.g., go test, jest, pytest).", Required: false},
+				{Name: "focus", Type: "string", Description: "Functions or behaviors to prioritize.", Required: false},
 			},
 			Messages: []mcplib.Message{
 				{
@@ -53,13 +45,9 @@ func getSamplePrompts() []mcplib.PromptDefinition {
 		{
 			Name:        "explain_code",
 			Description: "Explain how a piece of code works and answer a question about it.",
-			Arguments: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file_path": map[string]any{"type": "string", "description": "File to explain."},
-					"question":  map[string]any{"type": "string", "description": "Specific question to address."},
-				},
-				"required": []string{"file_path"},
+			Arguments: []mcplib.PromptArgument{
+				{Name: "file_path", Type: "string", Description: "File to explain.", Required: true},
+				{Name: "question", Type: "string", Description: "Specific question to address.", Required: false},
 			},
 			Messages: []mcplib.Message{
 				{
@@ -75,13 +63,9 @@ func getSamplePrompts() []mcplib.PromptDefinition {
 		{
 			Name:        "fix_bug",
 			Description: "Propose and implement a fix for a bug observed in logs or error output.",
-			Arguments: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"error":   map[string]any{"type": "string", "description": "Observed error message or log excerpt."},
-					"context": map[string]any{"type": "string", "description": "Additional context like steps to reproduce or file hints."},
-				},
-				"required": []string{"error"},
+			Arguments: []mcplib.PromptArgument{
+				{Name: "error", Type: "string", Description: "Observed error message or log excerpt.", Required: true},
+				{Name: "context", Type: "string", Description: "Additional context like steps to reproduce or file hints.", Required: false},
 			},
 			Messages: []mcplib.Message{
 				{
