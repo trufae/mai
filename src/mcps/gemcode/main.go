@@ -2,14 +2,37 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
+	"os"
 
 	"mcplib"
 )
 
 func main() {
 	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
+	workdirFlag := flag.String("workdir", "", "(optional) working directory for repository operations (or set GEMCODE_WORKDIR)")
+	sandboxFlag := flag.String("sandboxdir", "", "(optional) sandbox directory for ephemeral files (or set GEMCODE_SANDBOXDIR)")
 	flag.Parse()
+
+	// Determine effective directories: flags override env vars
+	workdir := *workdirFlag
+	if workdir == "" {
+		if env := os.Getenv("GEMCODE_WORKDIR"); env != "" {
+			workdir = env
+		}
+	}
+	sandbox := *sandboxFlag
+	if sandbox == "" {
+		if env := os.Getenv("GEMCODE_SANDBOXDIR"); env != "" {
+			sandbox = env
+		}
+	}
+
+	if err := InitSandbox(workdir, sandbox); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize sandbox: %v\n", err)
+		os.Exit(2)
+	}
 
 	gemcodeService := NewGemCodeService()
 

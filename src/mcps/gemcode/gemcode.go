@@ -326,7 +326,12 @@ func (s *GemCodeService) handleListDirectory(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("path is required")
 	}
 
-	files, err := ioutil.ReadDir(path)
+	abs, err := AllowedPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := ioutil.ReadDir(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory: %v", err)
 	}
@@ -383,14 +388,19 @@ func (s *GemCodeService) handleReadFile(args map[string]any) (any, error) {
 		offset = int(o)
 	}
 
-	file, err := os.Open(absolute_path)
+	abs, err := AllowedPath(absolute_path)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %v", err)
 	}
 	defer file.Close()
 
 	if limit == -1 && offset == 0 {
-		content, err := ioutil.ReadFile(absolute_path)
+		content, err := ioutil.ReadFile(abs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %v", err)
 		}
@@ -429,7 +439,12 @@ func (s *GemCodeService) handleSearchFileContent(args map[string]any) (any, erro
 
 	path := "."
 	if p, ok := args["path"].(string); ok && p != "" {
-		path = p
+		// ensure provided path is allowed
+		if abs, err := AllowedPath(p); err == nil {
+			path = abs
+		} else {
+			return nil, err
+		}
 	}
 
 	var cmdArgs []string
@@ -550,7 +565,10 @@ func (s *GemCodeService) handleGlob(args map[string]any) (any, error) {
 		matches = []string{}
 	}
 
-	return map[string]any{"files": matches}, nil
+	// filter matches to allowed locations
+	allowed := FilterAllowed(matches)
+
+	return map[string]any{"files": allowed}, nil
 }
 
 func (s *GemCodeService) handleReplace(args map[string]any) (any, error) {
@@ -567,7 +585,12 @@ func (s *GemCodeService) handleReplace(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("new_string is required")
 	}
 
-	content, err := ioutil.ReadFile(filePath)
+	// ensure file path is within allowed directories
+	abs, err := AllowedPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+	content, err := ioutil.ReadFile(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -587,7 +610,12 @@ func (s *GemCodeService) handleReplace(args map[string]any) (any, error) {
 
 	newContent := strings.Replace(fileContent, oldString, newString, replacements)
 
-	err = ioutil.WriteFile(filePath, []byte(newContent), 0644)
+	// ensure write path is allowed
+	absW, err := AllowedPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+	err = ioutil.WriteFile(absW, []byte(newContent), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -606,7 +634,11 @@ func (s *GemCodeService) handleWriteFile(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("content is required")
 	}
 
-	err := ioutil.WriteFile(filePath, []byte(content), 0644)
+	abs, err := AllowedPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+	err = ioutil.WriteFile(abs, []byte(content), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -674,6 +706,11 @@ func (s *GemCodeService) handleReadManyFiles(args map[string]any) (any, error) {
 		}
 
 		for _, match := range matches {
+			// skip matches outside allowed directories
+			if _, err := AllowedPath(match); err != nil {
+				fmt.Fprintf(&contentBuilder, "--- Skipping disallowed file %s ---\\n", match)
+				continue
+			}
 			content, err := ioutil.ReadFile(match)
 			if err != nil {
 				fmt.Fprintf(&contentBuilder, "--- Error reading file %s: %v ---\\n", match, err)
@@ -704,7 +741,11 @@ func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error)
 	}
 
 	if dir, ok := args["directory"].(string); ok && dir != "" {
-		cmd.Dir = dir
+		if abs, err := AllowedPath(dir); err == nil {
+			cmd.Dir = abs
+		} else {
+			return nil, err
+		}
 	}
 
 	var stdout, stderr bytes.Buffer
