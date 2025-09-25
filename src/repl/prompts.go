@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -70,4 +71,38 @@ func (r *REPL) listPrompts() ([]string, error) {
 	}
 
 	return mdFiles, nil
+}
+
+// currentSystemPrompt resolves the active system prompt from config options.
+// Priority: explicit text (systemprompt) > promptfile > systempromptfile > default .mai/systemprompt.md
+func (r *REPL) currentSystemPrompt() string {
+	// 1. Inline system prompt text
+	if sp := r.configOptions.Get("systemprompt"); sp != "" {
+		return sp
+	}
+	// 2. Prompt file path
+	var path string
+	if p := r.configOptions.Get("promptfile"); p != "" {
+		path = p
+	} else if p := r.configOptions.Get("systempromptfile"); p != "" {
+		path = p
+	} else {
+		// 3. Default .mai/systemprompt.md
+		if d, err := findMaiDir(); err == nil {
+			candidate := filepath.Join(d, "systemprompt.md")
+			if _, err := os.Stat(candidate); err == nil {
+				path = candidate
+				_ = r.configOptions.Set("systempromptfile", path)
+			}
+		}
+	}
+	if path == "" {
+		return ""
+	}
+	if content, err := os.ReadFile(path); err == nil {
+		text := string(content)
+		text = r.processIncludeStatements(text, filepath.Dir(path))
+		return text
+	}
+	return ""
 }
