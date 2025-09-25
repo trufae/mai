@@ -2909,7 +2909,16 @@ func (r *REPL) handlePromptCommand(input string) error {
 	promptName := parts[0][1:] // Remove the # prefix
 
 	if promptName == "" {
-		return r.listPrompts()
+		prompts, err := r.listPrompts()
+		if err != nil {
+			fmt.Printf("%v\r\n", err)
+			return nil
+		}
+		fmt.Printf("Available prompts (use # followed by name):\r\n")
+		for _, name := range prompts {
+			fmt.Printf("  %s\r\n", name)
+		}
+		return nil
 	}
 
 	// Load the prompt file content and send to AI
@@ -2917,7 +2926,11 @@ func (r *REPL) handlePromptCommand(input string) error {
 	if len(parts) > 1 {
 		extra = parts[1]
 	}
-	expandedInput := r.loadPrompt(promptName, extra)
+	expandedInput, err := r.loadPrompt(promptName, extra)
+	if err != nil {
+		fmt.Printf("Error: %v\r\n", err)
+		return nil
+	}
 	return r.sendToAI(expandedInput, "", "")
 }
 

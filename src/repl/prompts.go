@@ -3,19 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
-func (r *REPL) loadPrompt(promptName, extra string) error {
+func (r *REPL) loadPrompt(promptName, extra string) (string, error) {
 	promptPath, err := r.resolvePromptPath(promptName)
 	if err != nil {
-		fmt.Printf("Error: %v\r\n", err)
-		return nil
+		return "", err
 	}
 
 	promptContent, err := os.ReadFile(promptPath)
 	if err != nil {
-		fmt.Printf("Error: %v\r\n", err)
-		return nil
+		return "", err
 	}
 
 	expandedInput := string(promptContent)
@@ -23,12 +22,11 @@ func (r *REPL) loadPrompt(promptName, extra string) error {
 		expandedInput += "\n\n" + extra
 	}
 
-	return expandedInput
+	return expandedInput, nil
 }
 
 // listPrompts lists all .md files in the promptdir
-// AITODO: return an array of strings with the available prompts. update all the callers accordingly
-func (r *REPL) listPrompts() error {
+func (r *REPL) listPrompts() ([]string, error) {
 	// Get the prompt directory from config
 	promptDir := r.configOptions.Get("promptdir")
 	if promptDir == "" {
@@ -48,16 +46,14 @@ func (r *REPL) listPrompts() error {
 		}
 
 		if !found {
-			fmt.Print("No prompt directory found. Set one with /set promptdir <path>\r\n")
-			return nil
+			return nil, fmt.Errorf("No prompt directory found. Set one with /set promptdir <path>")
 		}
 	}
 
 	// List all .md files in the directory
 	files, err := os.ReadDir(promptDir)
 	if err != nil {
-		fmt.Printf("Error reading prompt directory: %v\r\n", err)
-		return nil
+		return nil, fmt.Errorf("Error reading prompt directory: %w", err)
 	}
 
 	// Filter for .md files and display
@@ -70,14 +66,8 @@ func (r *REPL) listPrompts() error {
 	}
 
 	if len(mdFiles) == 0 {
-		fmt.Printf("No prompt files (.md) found in %s\r\n", promptDir)
-		return nil
+		return nil, fmt.Errorf("No prompt files (.md) found in %s", promptDir)
 	}
 
-	fmt.Printf("Available prompts (use # followed by name):\r\n")
-	for _, file := range mdFiles {
-		fmt.Printf("  %s\r\n", file)
-	}
-
-	return nil
+	return mdFiles, nil
 }
