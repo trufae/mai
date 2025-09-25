@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // GemCodeService handles all code-related operations
@@ -103,6 +104,23 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 				"required": []string{"absolute_path"},
 			},
 			Handler: s.handleReadFile,
+		},
+		// hexdump tool
+		{
+			Name:        "hexdump",
+			Description: "Dumps hex and ASCII for a file region. Use offset+length for bytes or start_line+end_line for text mode.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"absolute_path": map[string]any{"type": "string"},
+					"offset":        map[string]any{"type": "number"},
+					"length":        map[string]any{"type": "number"},
+					"start_line":    map[string]any{"type": "number"},
+					"end_line":      map[string]any{"type": "number"},
+				},
+				"required": []string{"absolute_path"},
+			},
+			Handler: s.handleHexDump,
 		},
 		// 3. search_file_content
 		{
@@ -682,6 +700,122 @@ func (s *GemCodeService) handleWebFetch(args map[string]any) (any, error) {
 	return map[string]any{
 		"content": strings.Join(contents, "\n\n---\n\n"),
 	}, nil
+}
+
+func (s *GemCodeService) handleHexDump(args map[string]any) (any, error) {
+	absolute_path, ok := args["absolute_path"].(string)
+	if !ok || absolute_path == "" {
+		return nil, fmt.Errorf("absolute_path is required")
+	}
+
+	off := int64(0)
+	if o, ok := args["offset"].(float64); ok {
+		off = int64(o)
+	}
+	length := int64(-1)
+	if l, ok := args["length"].(float64); ok {
+		length = int64(l)
+	}
+	startLine := -1
+	endLine := -1
+	if sL, ok := args["start_line"].(float64); ok {
+		startLine = int(sL)
+	}
+	if eL, ok := args["end_line"].(float64); ok {
+		endLine = int(eL)
+	}
+
+	abs, err := AllowedPath(absolute_path)
+	if err != nil {
+		return nil, err
+	}
+
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %v", err)
+	}
+
+	var data []byte
+	if startLine >= 0 || endLine >= 0 {
+		if fi.Size() > 5*1024*1024 {
+			return nil, fmt.Errorf("file too large for line mode")
+		}
+		b, err := ioutil.ReadFile(abs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %v", err)
+		}
+		if !utf8.Valid(b) {
+			return nil, fmt.Errorf("file does not appear to be valid UTF-8 text")
+		}
+		lines := strings.Split(string(b), "\n")
+		if startLine < 0 {
+			startLine = 0
+		}
+		if endLine < 0 || endLine >= len(lines) {
+			endLine = len(lines) - 1
+		}
+		if startLine > endLine {
+			return nil, fmt.Errorf("start_line must be <= end_line")
+		}
+		selected := strings.Join(lines[startLine:endLine+1], "\n")
+		data = []byte(selected)
+	} else {
+		f, err := os.Open(abs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file: %v", err)
+		}
+		defer f.Close()
+		if off < 0 || off > fi.Size() {
+			return nil, fmt.Errorf("invalid offset")
+		}
+		if length < 0 || off+length > fi.Size() {
+			length = fi.Size() - off
+		}
+		if length == 0 {
+			data = []byte{}
+		} else {
+			buf := make([]byte, length)
+			_, err := f.ReadAt(buf, off)
+			if err != nil && err != io.EOF {
+				return nil, fmt.Errorf("failed to read file region: %v", err)
+			}
+			data = buf
+		}
+	}
+
+	var out strings.Builder
+	base := off
+	for i := 0; i < len(data); i += 16 {
+		end := i + 16
+		if end > len(data) {
+			end = len(data)
+		}
+		line := data[i:end]
+		hexParts := make([]string, len(line))
+		for j, b := range line {
+			hexParts[j] = fmt.Sprintf("%02x", b)
+		}
+		hexStr := strings.Join(hexParts, " ")
+		if len(line) < 16 {
+			pad := (16 - len(line)) * 3
+			hexStr = hexStr + strings.Repeat(" ", pad)
+		}
+		// add extra gap after 8 bytes
+		if len(line) > 8 {
+			hexStr = hexStr[:8*3-1] + "  " + hexStr[8*3-1:]
+		}
+		ascii := make([]rune, 0, len(line))
+		for _, b := range line {
+			if b >= 32 && b <= 126 {
+				ascii = append(ascii, rune(b))
+			} else {
+				ascii = append(ascii, '.')
+			}
+		}
+		fmt.Fprintf(&out, "%08x  %s  |%s|\n", base+int64(i), hexStr, string(ascii))
+	}
+
+	return map[string]any{"hexdump": out.String()}, nil
 }
 
 func (s *GemCodeService) handleReadManyFiles(args map[string]any) (any, error) {
