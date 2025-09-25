@@ -89,6 +89,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("vdbdir", StringOption, "Directory to search for vector database sources", "")
 	co.RegisterOption("vdblimit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
 
+	// User details options
+	co.RegisterOption("userdetails", BooleanOption, "Include user details (CWD, username, OS, language, time) in conversation context", "false")
+	co.RegisterOption("lang", StringOption, "Language preference for user details (defaults to LANG environment variable)", "")
+
 	// Conversation formatting options (used when building a single prompt from history)
 	co.RegisterOption("chat_replies", BooleanOption, "Include chat replies when building a single prompt", "false")
 	co.RegisterOption("chat_system", BooleanOption, "Include chat system messages when building a single prompt", "true")

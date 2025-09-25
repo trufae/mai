@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1859,6 +1860,42 @@ func (r *REPL) substituteInput(input string) (string, error) {
 	return input, nil
 }
 
+// buildUserDetails creates a string with user context information
+func (r *REPL) buildUserDetails() string {
+	if !r.configOptions.GetBool("userdetails") {
+		return ""
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "unknown"
+	}
+
+	username := os.Getenv("USER")
+	if username == "" {
+		username = os.Getenv("USERNAME")
+	}
+	if username == "" {
+		username = "unknown"
+	}
+
+	osName := runtime.GOOS
+
+	lang := r.configOptions.Get("lang")
+	if lang == "" {
+		lang = os.Getenv("LANG")
+	}
+	if lang == "" {
+		lang = "unknown"
+	}
+
+	now := time.Now()
+	timeStr := now.Format("2006-01-02 15:04:05 MST")
+
+	return fmt.Sprintf("Current Working Directory: %s\nUsername: %s\nOperating System: %s\nLanguage: %s\nCurrent Time/Date/Timezone: %s",
+		cwd, username, osName, lang, timeStr)
+}
+
 func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string) error {
 	r.mu.Lock()
 	r.isStreaming = redirectType == ""
@@ -1890,6 +1927,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	messages := []llm.Message{}
 	if sp := r.currentSystemPrompt(); sp != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: sp})
+	}
+
+	// Add user details if enabled
+	if userDetails := r.buildUserDetails(); userDetails != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: "USER CONTEXT:\n" + userDetails})
 	}
 
 	// If memory option is enabled, load consolidated memory and include as system context
