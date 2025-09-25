@@ -227,6 +227,7 @@ func (c *ConfigOptions) GetKeys() []string {
 }
 
 // Global reference to the configOptions for static functions
+// AITODO: refactor the code to avoid the need of having this global variable
 var globalConfig *ConfigOptions
 
 // GetAvailableOptions returns a list of all available configuration options

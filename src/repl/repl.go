@@ -158,10 +158,6 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		fmt.Fprintf(os.Stderr, "Error loading history: %v\n", err)
 	}
 
-	// stream option already registered in NewConfigOptions; defaults handled in main flags
-
-	// Avoid duplicating options into config; REPL reads from r.configOptions directly where needed.
-
 	// Set prompts in the readline instance
 	if prompt := repl.configOptions.Get("prompt"); prompt != "" {
 		repl.readline.SetPrompt(prompt)
@@ -284,36 +280,6 @@ func (r *REPL) Run() error {
 	return nil
 }
 
-// AITODO move into files.go
-func (r *REPL) setupHistory() error {
-	if !r.configOptions.GetBool("history") {
-		return nil
-	}
-	// Determine the .mai directory for history/chat storage: search project dirs or fallback to home
-	maiDir, err := findMaiDir()
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(maiDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(maiDir, 0755); err != nil {
-			return fmt.Errorf("cannot create %s: %v", maiDir, err)
-		}
-	}
-	chatDir := filepath.Join(maiDir, "chat")
-	if _, err := os.Stat(chatDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(chatDir, 0755); err != nil {
-			return fmt.Errorf("cannot create %s: %v", chatDir, err)
-		}
-	}
-	historyFile := filepath.Join(maiDir, "history.json")
-	if _, err := os.Stat(historyFile); os.IsNotExist(err) {
-		if _, err := os.Create(historyFile); err != nil {
-			return fmt.Errorf("cannot create %s: %v", historyFile, err)
-		}
-	}
-	return nil
-}
-
 func (r *REPL) showCommands() {
 	fmt.Print("Commands:\r\n")
 
@@ -383,26 +349,6 @@ func (r *REPL) cleanup() {
 	}
 }
 
-// AITODO move into files.go
-func (r *REPL) saveHistory() error {
-	if !r.configOptions.GetBool("history") {
-		return nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
-	}
-	historyFile := filepath.Join(homeDir, ".mai", "history.json")
-
-	// Overwrite history file with updated history
-	history := r.readline.GetHistory()
-	data, err := json.MarshalIndent(history, "", "  ")
-	if err != nil {
-		return fmt.Errorf("cannot marshal history: %v", err)
-	}
-	return os.WriteFile(historyFile, data, 0644)
-}
-
 // interruptResponse interrupts the current LLM response if one is being generated
 func (r *REPL) interruptResponse() {
 	r.mu.Lock()
@@ -428,32 +374,6 @@ func (r *REPL) interruptResponse() {
 			r.mu.Unlock()
 		}
 	}
-}
-
-// loadReplHistory reads the history file and loads entries into readline's history
-// AITODO move into files.go
-func (r *REPL) loadReplHistory() error {
-	if !r.configOptions.GetBool("history") {
-		return nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
-	}
-	historyFile := filepath.Join(homeDir, ".mai", "history.json")
-	data, err := os.ReadFile(historyFile)
-	if err != nil {
-		// Nothing to load if file doesn't exist or cannot be read
-		return nil
-	}
-	var history []string
-	if err := json.Unmarshal(data, &history); err != nil {
-		return fmt.Errorf("cannot unmarshal history: %v", err)
-	}
-	for _, entry := range history {
-		r.readline.AddToHistory(entry)
-	}
-	return nil
 }
 
 func (r *REPL) setupSignalHandler() {
