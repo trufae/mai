@@ -40,12 +40,12 @@ func runIRC(config Config, wg *sync.WaitGroup) {
 }
 
 func newIRCClient(config Config) (*ircClient, error) {
-	server := config.IrcServer
+	server := config.IRC.Server
 	if server == "" {
 		return nil, fmt.Errorf("missing IRC server")
 	}
 
-	port := config.IrcPort
+	port := config.IRC.Port
 	if port == 0 {
 		port = 6667
 	}
@@ -57,7 +57,7 @@ func newIRCClient(config Config) (*ircClient, error) {
 		err  error
 	)
 
-	if config.IrcTLS {
+	if config.IRC.TLS {
 		conn, err = tls.Dial("tcp", addr, &tls.Config{ServerName: server})
 	} else {
 		conn, err = net.Dial("tcp", addr)
@@ -66,17 +66,17 @@ func newIRCClient(config Config) (*ircClient, error) {
 		return nil, err
 	}
 
-	nick := config.IrcNick
+	nick := config.IRC.Nick
 	if nick == "" {
 		nick = "mai-bot"
 	}
 
-	user := config.IrcUser
+	user := config.IRC.User
 	if user == "" {
 		user = nick
 	}
 
-	realname := config.IrcRealname
+	realname := config.IRC.Realname
 	if realname == "" {
 		realname = "mai"
 	}
@@ -89,15 +89,15 @@ func newIRCClient(config Config) (*ircClient, error) {
 		nick:     nick,
 		user:     user,
 		realname: realname,
-		channel:  config.IrcChannel,
+		channel:  config.IRC.Channel,
 	}
 
 	return client, nil
 }
 
 func (c *ircClient) register() error {
-	if c.config.IrcPassword != "" {
-		if err := c.write(fmt.Sprintf("PASS %s", c.config.IrcPassword)); err != nil {
+	if c.config.IRC.Password != "" {
+		if err := c.write(fmt.Sprintf("PASS %s", c.config.IRC.Password)); err != nil {
 			return err
 		}
 	}
@@ -193,7 +193,7 @@ func (c *ircClient) extractCommand(target, message string) string {
 }
 
 func (c *ircClient) sendMessage(target, text string) {
-	maxLen := c.config.IrcMaxLength
+	maxLen := c.config.IRC.MaxLength
 	if maxLen <= 0 {
 		maxLen = 400
 	}

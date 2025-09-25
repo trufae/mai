@@ -1,11 +1,23 @@
-  {
-    "token": "",
-    "program": ["/usr/local/bin/mai", "you are r2clippy, a helpful assistant for radare2, you must respond with only one sentence"],
-    "_program": ["/usr/local/bin/r2", "-q", "-c", "{input}", "-ecfg.fortunes=false", "-ecfg.sandbox=true", "-escr.color=0", "malloc://1024"],
-    "input_method": "argument",
-      "max_length": 2000,
-    "split_messages": false,
-    "capture_stderr":true,
-    "logfile": "queries.log",
-    "log_to_stdout": true
+{
+  "program": ["/usr/local/bin/mai", "you are r2clippy, a helpful assistant for radare2, you must respond with only one sentence"],
+  "input_method": "argument",
+  "capture_stderr": true,
+  "logfile": "queries.log",
+  "log_to_stdout": true,
+  "telegram": {
+    "token": "your_telegram_bot_token_here",
+    "max_length": 2000,
+    "split_messages": false
+  },
+  "irc": {
+    "server": "irc.example.com",
+    "port": 6667,
+    "tls": false,
+    "nick": "botnick",
+    "user": "botuser",
+    "realname": "Bot Real Name",
+    "password": "your_irc_password_here",
+    "channel": "#your_channel",
+    "max_length": 400
   }
+}

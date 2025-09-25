@@ -11,7 +11,7 @@ import (
 func runTelegram(config Config, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	bot, err := tgbotapi.NewBotAPI(config.Token)
+	bot, err := tgbotapi.NewBotAPI(config.Telegram.Token)
 	if err != nil {
 		log.Printf("Error creating bot: %v", err)
 		return
@@ -44,7 +44,7 @@ func processTelegramMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, con
 
 	logInteraction(config, buildTelegramLogEntry(message, command, response, exitCode))
 
-	sendTelegramMessage(bot, message.Chat.ID, message.MessageID, response, config.MaxLength, config.SplitMessages)
+	sendTelegramMessage(bot, message.Chat.ID, message.MessageID, response, config.Telegram.MaxLength, config.Telegram.SplitMessages)
 }
 
 func extractTelegramCommand(message *tgbotapi.Message, mention string) string {

@@ -4,30 +4,52 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 )
 
+type TelegramConfig struct {
+	Token         string `json:"token"`
+	MaxLength     int    `json:"max_length,omitempty"`
+	SplitMessages bool   `json:"split_messages,omitempty"`
+}
+
+type IRCConfig struct {
+	Server    string `json:"server,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	TLS       bool   `json:"tls,omitempty"`
+	Nick      string `json:"nick,omitempty"`
+	User      string `json:"user,omitempty"`
+	Realname  string `json:"realname,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Channel   string `json:"channel,omitempty"`
+	MaxLength int    `json:"max_length,omitempty"`
+}
+
 type Config struct {
-	Token         string   `json:"token"`
 	Program       []string `json:"program"`
 	InputMethod   string   `json:"input_method"`
-	MaxLength     int      `json:"max_length,omitempty"`
-	SplitMessages bool     `json:"split_messages,omitempty"`
 	CaptureStderr bool     `json:"capture_stderr,omitempty"`
 	Logfile       string   `json:"logfile,omitempty"`
 	LogToStdout   bool     `json:"log_to_stdout,omitempty"`
 
-	IrcServer    string `json:"irc_server,omitempty"`
-	IrcPort      int    `json:"irc_port,omitempty"`
-	IrcTLS       bool   `json:"irc_tls,omitempty"`
-	IrcNick      string `json:"irc_nick,omitempty"`
-	IrcUser      string `json:"irc_user,omitempty"`
-	IrcRealname  string `json:"irc_realname,omitempty"`
-	IrcPassword  string `json:"irc_password,omitempty"`
-	IrcChannel   string `json:"irc_channel,omitempty"`
-	IrcMaxLength int    `json:"irc_max_length,omitempty"`
+	Telegram TelegramConfig `json:"telegram"`
+	IRC      IRCConfig      `json:"irc"`
 }
 
 func loadConfig(filename string) Config {
+	if filename == "" {
+		// Default to config.json in the executable's directory or cwd
+		execPath, err := os.Executable()
+		if err == nil {
+			// Follow symlink to resolve the actual executable path
+			if resolvedPath, err := filepath.EvalSymlinks(execPath); err == nil {
+				execPath = resolvedPath
+			}
+			filename = filepath.Join(filepath.Dir(execPath), "config.json")
+		} else {
+			filename = "config.json"
+		}
+	}
 	configFile, err := os.Open(filename)
 	if err != nil {
 		log.Fatal("Error opening config file:", err)
