@@ -68,9 +68,9 @@ func (r *REPL) buildLLMConfig() *llm.Config {
 	// Apply current options into the provider config (provider, model, baseurl, toggles, schema)
 	applyConfigOptionsToLLMConfig(cfg, &r.configOptions)
 	// Respect REPL streaming option
-	cfg.NoStream = !r.configOptions.GetBool("stream")
+	cfg.NoStream = !r.configOptions.GetBool("llm.stream")
 	// Set demo mode option
-	cfg.DemoMode = r.configOptions.GetBool("demo")
+	cfg.DemoMode = r.configOptions.GetBool("repl.demo")
 	return cfg
 }
 
@@ -159,31 +159,31 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	}
 
 	// Set prompts in the readline instance
-	if prompt := repl.configOptions.Get("prompt"); prompt != "" {
+	if prompt := repl.configOptions.Get("repl.prompt"); prompt != "" {
 		repl.readline.SetPrompt(prompt)
 	}
 
-	if readlinePrompt := repl.configOptions.Get("readlineprompt"); readlinePrompt != "" {
+	if readlinePrompt := repl.configOptions.Get("repl.prompt2"); readlinePrompt != "" {
 		repl.readline.SetReadlinePrompt(readlinePrompt)
 	}
 
 	// Initialize provider/model/baseurl/useragent options from environment defaults if not set
 	// Use loadConfig to honor env defaults and then apply into options only on first run
 	envCfg := loadConfig()
-	if repl.configOptions.Get("provider") == "" && envCfg.PROVIDER != "" {
-		repl.configOptions.Set("provider", envCfg.PROVIDER)
+	if repl.configOptions.Get("ai.provider") == "" && envCfg.PROVIDER != "" {
+		repl.configOptions.Set("ai.provider", envCfg.PROVIDER)
 	}
-	if repl.configOptions.Get("model") == "" {
+	if repl.configOptions.Get("chat.prompt") == "" {
 		// Use provider's DefaultModel if model not set
-		if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("provider")); dm != "" {
-			repl.configOptions.Set("model", dm)
+		if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("ai.provider")); dm != "" {
+			repl.configOptions.Set("chat.prompt", dm)
 		}
 	}
-	if repl.configOptions.Get("baseurl") == "" && envCfg.BaseURL != "" {
-		repl.configOptions.Set("baseurl", envCfg.BaseURL)
+	if repl.configOptions.Get("ai.baseurl") == "" && envCfg.BaseURL != "" {
+		repl.configOptions.Set("ai.baseurl", envCfg.BaseURL)
 	}
-	if repl.configOptions.Get("useragent") == "" && envCfg.UserAgent != "" {
-		repl.configOptions.Set("useragent", envCfg.UserAgent)
+	if repl.configOptions.Get("http.useragent") == "" && envCfg.UserAgent != "" {
+		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
 	// Set the stop demo callback to transition out of the "thinking" action
@@ -193,7 +193,7 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	// the action label so the demo loop continues running and will display
 	// tokens as they arrive.
 	repl.stopDemoCallback = func() {
-		if repl.configOptions.GetBool("demo") {
+		if repl.configOptions.GetBool("repl.demo") {
 			// Stop the demo entirely. We only call this callback when the
 			// first token from the model is not a <think> tag, so the
 			// greyscaled scroller should be stopped.
@@ -204,7 +204,7 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	// Do not cache system prompt here; it will be read dynamically from configOptions (or file)
 
 	// Validate schema if provided (no storage here; providers read from options via buildLLMConfig)
-	if schemaFile := repl.configOptions.Get("schemafile"); schemaFile != "" {
+	if schemaFile := repl.configOptions.Get("llm.schemafile"); schemaFile != "" {
 		if content, err := os.ReadFile(schemaFile); err == nil {
 			var tmp map[string]interface{}
 			if err := json.Unmarshal(content, &tmp); err != nil {
@@ -213,7 +213,7 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		} else {
 			fmt.Fprintf(os.Stderr, "Failed to read schemafile %s: %v\n", schemaFile, err)
 		}
-	} else if inline := repl.configOptions.Get("schema"); inline != "" {
+	} else if inline := repl.configOptions.Get("llm.schema"); inline != "" {
 		var tmp map[string]interface{}
 		if err := json.Unmarshal([]byte(inline), &tmp); err != nil {
 			fmt.Fprintf(os.Stderr, "Invalid JSON for schema: %v\n", err)
@@ -222,19 +222,19 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 
 	// Keep schema in sync when options change at runtime
 	// Schema listeners no longer need to update any local state
-	repl.configOptions.RegisterOptionListener("schemafile", func(value string) {})
-	repl.configOptions.RegisterOptionListener("schema", func(value string) {})
+	repl.configOptions.RegisterOptionListener("llm.schemafile", func(value string) {})
+	repl.configOptions.RegisterOptionListener("llm.schema", func(value string) {})
 
 	// baseurl is fully handled in options; providers will receive it via buildLLMConfig
 
 	// Register listeners for prompt option changes
-	repl.configOptions.RegisterOptionListener("prompt", func(value string) {
+	repl.configOptions.RegisterOptionListener("repl.prompt", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetPrompt(value)
 		}
 	})
 
-	repl.configOptions.RegisterOptionListener("readlineprompt", func(value string) {
+	repl.configOptions.RegisterOptionListener("repl.prompt2", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetReadlinePrompt(value)
 		}
@@ -260,7 +260,7 @@ func (r *REPL) Run() error {
 	r.setupSignalHandler()
 
 	// Load and process 'rc' file from project or home .mai directory unless skipped by option
-	if !r.configOptions.GetBool("skiprc") {
+	if !r.configOptions.GetBool("repl.skiprc") {
 		if err := r.loadRCFile(); err != nil {
 			fmt.Printf("Error loading rc file: %v\r\n", err)
 		}
@@ -326,8 +326,8 @@ func (r *REPL) cleanup() {
 	}
 	// Auto-save the chat session if history is enabled and messages exist,
 	// updating the current session or creating a new one if none selected
-	if r.configOptions.GetBool("history") && len(r.messages) > 0 {
-		mode := r.configOptions.Get("session_save")
+	if r.configOptions.GetBool("repl.history") && len(r.messages) > 0 {
+		mode := r.configOptions.Get("chat.save")
 		if mode != "never" {
 			var name string
 			if r.currentSession != "" {
@@ -555,18 +555,18 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		return
 	}
 
-	// Check for /set promptfile and promptdir value completion
+	// Check for /set dir.promptfile and dir.prompt value completion
 	setParts := strings.SplitN(input, " ", 3)
 	if len(setParts) >= 2 && setParts[0] == "/set" {
 		if len(setParts) == 3 {
 			switch setParts[1] {
-			case "promptfile":
-				// Complete file paths for promptfile
-				r.handleFilePathCompletion(line, "/set promptfile", setParts[2])
+			case "dir.promptfile":
+				// Complete file paths for dir.promptfile
+				r.handleFilePathCompletion(line, "/set dir.promptfile", setParts[2])
 				return
-			case "promptdir":
-				// Complete directory paths for promptdir
-				r.handleDirectoryCompletion(line, "/set promptdir", setParts[2])
+			case "dir.prompt":
+				// Complete directory paths for dir.prompt
+				r.handleDirectoryCompletion(line, "/set dir.prompt", setParts[2])
 				return
 			}
 		}
@@ -627,7 +627,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 		if needFreshOptions {
 			// Determine prompt directory
-			promptDir := r.configOptions.Get("promptdir")
+			promptDir := r.configOptions.Get("dir.prompt")
 			if promptDir == "" {
 				for _, loc := range []string{"./prompts", "../prompts"} {
 					if _, err := os.Stat(loc); err == nil {
@@ -702,7 +702,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 		if needFreshOptions {
 			// Determine template directory
-			templDir := r.configOptions.Get("templatedir")
+			templDir := r.configOptions.Get("dir.templates")
 			if templDir == "" {
 				for _, loc := range []string{"./templates", "../templates"} {
 					if _, err := os.Stat(loc); err == nil {
@@ -1029,13 +1029,13 @@ func (r *REPL) generateMemory() error {
 // getVDBContext executes mai-vdb with the configured directory and current message
 // Returns the context output to be used as [CONTEXT] for the LLM
 func (r *REPL) getVDBContext(message string) (string, error) {
-	vdbDir := r.configOptions.Get("vdbdir")
+	vdbDir := r.configOptions.Get("vdb.datadir")
 	if vdbDir == "" {
-		return "", fmt.Errorf("vdbdir not configured")
+		return "", fmt.Errorf("vdb.datadir not configured")
 	}
 
 	// Execute mai-vdb command
-	vdbLimitNum, err := r.configOptions.GetNumber("vdblimit")
+	vdbLimitNum, err := r.configOptions.GetNumber("vdb.limit")
 	if err != nil {
 		vdbLimitNum = 5 // fallback to default
 	}
@@ -1222,7 +1222,7 @@ func (r *REPL) substituteInput(input string) (string, error) {
 
 // buildUserDetails creates a string with user context information
 func (r *REPL) buildUserDetails() string {
-	if !r.configOptions.GetBool("userdetails") {
+	if !r.configOptions.GetBool("user.details") {
 		return ""
 	}
 
@@ -1241,7 +1241,7 @@ func (r *REPL) buildUserDetails() string {
 
 	osName := runtime.GOOS
 
-	lang := r.configOptions.Get("lang")
+	lang := r.configOptions.Get("user.lang")
 	if lang == "" {
 		lang = os.Getenv("LANG")
 	}
@@ -1295,7 +1295,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	// If memory option is enabled, load consolidated memory and include as system context
-	if r.configOptions.GetBool("memory") {
+	if r.configOptions.GetBool("chat.memory") {
 		homeDir, err := os.UserHomeDir()
 		if err == nil {
 			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
@@ -1318,9 +1318,9 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	// Handle conversation history based on logging and reply settings
-	if r.configOptions.GetBool("logging") {
+	if r.configOptions.GetBool("chat.log") {
 		// When logging is enabled, use normal message history behavior
-		if r.configOptions.GetBool("chat_replies") {
+		if r.configOptions.GetBool("chat.replies") {
 			// Include all messages
 			messages = append(messages, r.messages...)
 		} else {
@@ -1340,7 +1340,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		// When logging is disabled, we don't append any previous messages
 	}
 
-	if r.configOptions.GetBool("newtools") {
+	if r.configOptions.GetBool("tools.use") {
 		StartTimer()
 		tool, err := r.QueryWithNewTools(messages, input)
 		if err != nil {
@@ -1349,7 +1349,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		input = tool
 		fmt.Println("(tools) loop finished.")
 		StopTimer()
-	} else if r.configOptions.GetBool("usetools") {
+	} else if r.configOptions.GetBool("tools.old") {
 		StartTimer()
 		tool, err := r.QueryWithTools(messages, input)
 		if err != nil {
@@ -1365,7 +1365,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// If `autocompact` is non-zero and there are more than 5 messages, run
 	// the compact operation which will replace the conversation with a
 	// compact summary produced by the AI.
-	if ac, err := r.configOptions.GetNumber("autocompact"); err == nil {
+	if ac, err := r.configOptions.GetNumber("chat.autocompact"); err == nil {
 		if ac != 0 && len(r.messages) > 5 {
 			if err := r.handleCompactCommand(); err != nil {
 				// Log compact errors but continue sending the message
@@ -1380,7 +1380,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	userMessage := llm.Message{Role: "user", Content: input}
 
 	// Handle conversation history based on logging settings
-	if r.configOptions.GetBool("logging") {
+	if r.configOptions.GetBool("chat.log") {
 		// Save the user message to conversation history when logging is enabled.
 		// NOTE: VDB context (when enabled) is included in the API call below
 		// but must NOT be stored in the persistent chat log. Do not append
@@ -1404,7 +1404,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM
-	if !r.configOptions.GetBool("reasoning") && r.configOptions.GetBool("rawdog") {
+	if !r.configOptions.GetBool("llm.think") && r.configOptions.GetBool("llm.rawmode") {
 		// Create a copy of the messages for the API call with /no_think appended
 		messagesCopy := make([]llm.Message, len(messages))
 		copy(messagesCopy, messages)
@@ -1424,10 +1424,10 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// reasoning blocks.
 
 	// Send message with streaming based on REPL settings, but disable if redirected
-	streamEnabled := r.configOptions.GetBool("stream") && redirectType == ""
+	streamEnabled := r.configOptions.GetBool("llm.stream") && redirectType == ""
 
 	// Reset the markdown processor state before starting a new streaming session
-	if streamEnabled && r.configOptions.GetBool("markdown") {
+	if streamEnabled && r.configOptions.GetBool("scr.markdown") {
 		llm.ResetStreamRenderer()
 	}
 
@@ -1442,7 +1442,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// If demo mode is active, let the LLM client notify the demo stop callback
 	// as soon as the first streaming token arrives. We set the callback on the
 	// client so it will be embedded into the request context used by providers.
-	if r.configOptions.GetBool("demo") && client != nil {
+	if r.configOptions.GetBool("repl.demo") && client != nil {
 		client.SetResponseStopCallback(r.stopDemoCallback)
 		defer client.SetResponseStopCallback(nil)
 
@@ -1450,7 +1450,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		// updates. The llm package exposes SetDemoPhaseCallback and
 		// SetDemoTokenCallback which we can use here.
 		llm.SetDemoPhaseCallback(func(phase string) {
-			if !r.configOptions.GetBool("demo") {
+			if !r.configOptions.GetBool("repl.demo") {
 				return
 			}
 			// If phase is empty the llm package is signalling that the
@@ -1466,7 +1466,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		defer llm.SetDemoPhaseCallback(nil)
 
 		llm.SetDemoTokenCallback(func(phase string, token string) {
-			if !r.configOptions.GetBool("demo") {
+			if !r.configOptions.GetBool("repl.demo") {
 				return
 			}
 			// Feed text into the demo scroller; filtering/newline removal is
@@ -1479,7 +1479,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// Start the demo animation immediately; it will remain visible until
 	// the first token arrives. If the first token is not a <think> tag the
 	// streaming parser will invoke the stop callback to stop the animation.
-	if r.configOptions.GetBool("demo") && client != nil {
+	if r.configOptions.GetBool("repl.demo") && client != nil {
 		startLoop("Thinking...")
 	}
 
@@ -1487,7 +1487,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	// Stop the animation after SendMessage returns (for non-streaming)
 	// For streaming, the animation will be stopped when the first token arrives.
-	if r.configOptions.GetBool("demo") && !streamEnabled {
+	if r.configOptions.GetBool("repl.demo") && !streamEnabled {
 		stopLoop()
 	}
 
@@ -1515,11 +1515,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 			if !streamEnabled {
 				// Optionally strip <think> regions from printed output in demo mode
 				out := response
-				if r.configOptions.GetBool("demo") {
+				if r.configOptions.GetBool("repl.demo") {
 					out = llm.FilterOutThinkForOutput(out)
 					out = strings.TrimLeft(out, " \t\r\n")
 				}
-				if r.configOptions.GetBool("markdown") {
+				if r.configOptions.GetBool("scr.markdown") {
 					// Use markdown formatting
 					fmt.Print(llm.RenderMarkdown(out))
 				} else {
@@ -1532,7 +1532,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		// Create assistant message
 		assistantMessage := llm.Message{Role: "assistant", Content: response}
 
-		if r.configOptions.GetBool("logging") {
+		if r.configOptions.GetBool("chat.log") {
 			// Save to conversation history when logging is enabled
 			r.messages = append(r.messages, assistantMessage)
 		} else {
@@ -1541,7 +1541,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		}
 
 		// If followup is enabled, run the #followup prompt once asynchronously
-		if r.configOptions.GetBool("followup") {
+		if r.configOptions.GetBool("chat.followup") {
 			r.mu.Lock()
 			if !r.followupInProgress {
 				r.followupInProgress = true
@@ -1574,11 +1574,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 // Legacy function kept for compatibility
 func (r *REPL) supportsStreaming() bool {
 	// Check if streaming mode is enabled in REPL
-	if !r.configOptions.GetBool("stream") {
+	if !r.configOptions.GetBool("llm.stream") {
 		return false
 	}
 	// Check if API supports streaming
-	provider := strings.ToLower(r.configOptions.Get("provider"))
+	provider := strings.ToLower(r.configOptions.Get("ai.provider"))
 	return provider != "bedrock"
 }
 
@@ -1833,7 +1833,7 @@ func (r *REPL) initCommands() {
 			}
 
 			// Print the content with markdown rendering if enabled
-			if r.configOptions.GetBool("markdown") {
+			if r.configOptions.GetBool("scr.markdown") {
 				fmt.Print(llm.RenderMarkdown(content))
 			} else {
 				// Replace single newlines with \r\n for proper terminal display
@@ -1899,9 +1899,9 @@ func (r *REPL) initCommands() {
 		Description: "Clear system prompt",
 		Handler: func(r *REPL, args []string) error {
 			// Clear inline and file-based system prompt settings
-			r.configOptions.Unset("systemprompt")
-			r.configOptions.Unset("promptfile")
-			r.configOptions.Unset("systempromptfile")
+			r.configOptions.Unset("llm.systemprompt")
+			r.configOptions.Unset("dir.promptfile")
+			r.configOptions.Unset("llm.systempromptfile")
 			fmt.Print("System prompt cleared\r\n")
 			return nil
 		},
@@ -2386,7 +2386,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	}
 
 	// Add conversation history if we should include replies
-	if r.configOptions.GetBool("chat_replies") && len(r.messages) > 0 {
+	if r.configOptions.GetBool("chat.replies") && len(r.messages) > 0 {
 		messages = append(messages, r.messages...)
 	}
 
@@ -2520,10 +2520,10 @@ func (r *REPL) displayConversationLog() {
 
 	fmt.Printf("Total messages: %d\r\n", len(r.messages))
 	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
-		r.configOptions.GetBool("chat_replies"),
-		r.configOptions.GetBool("stream"),
-		r.configOptions.GetBool("reasoning"),
-		r.configOptions.GetBool("logging"))
+		r.configOptions.GetBool("chat.replies"),
+		r.configOptions.GetBool("llm.stream"),
+		r.configOptions.GetBool("llm.think"),
+		r.configOptions.GetBool("chat.log"))
 
 	// Display pending files if any
 	if len(r.pendingFiles) > 0 {
@@ -2562,7 +2562,7 @@ func (r *REPL) displayFullConversationLog() {
 
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
-		if r.configOptions.GetBool("markdown") {
+		if r.configOptions.GetBool("scr.markdown") {
 			fmt.Printf("%s\r\n", llm.RenderMarkdown(msg.Content.(string)))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
@@ -2794,13 +2794,13 @@ func (r *REPL) processIncludeStatements(content, baseDir string) string {
 // autoDetectPromptDir attempts to find a prompts directory relative to the executable path
 // and sets the promptdir config variable if found
 func (r *REPL) autoDetectPromptDir() {
-	r.autoDetectDirectory("promptdir", "prompts", true)
+	r.autoDetectDirectory("dir.prompt", "prompts", true)
 }
 
 // showCurrentModel displays the current model based on the provider
 func (r *REPL) showCurrentModel() {
-	provider := r.configOptions.Get("provider")
-	model := r.configOptions.Get("model")
+	provider := r.configOptions.Get("ai.provider")
+	model := r.configOptions.Get("chat.prompt")
 	if provider == "" {
 		fmt.Printf("Current model: %s\r\n", model)
 		return
@@ -2810,8 +2810,8 @@ func (r *REPL) showCurrentModel() {
 
 // setModel changes the model for the current provider
 func (r *REPL) setModel(model string) error {
-	r.configOptions.Set("model", model)
-	prov := r.configOptions.Get("provider")
+	r.configOptions.Set("chat.prompt", model)
+	prov := r.configOptions.Get("ai.provider")
 	if prov == "" {
 		fmt.Printf("Model set to %s\r\n", model)
 		return nil
@@ -2822,7 +2822,7 @@ func (r *REPL) setModel(model string) error {
 
 // showCurrentProvider displays the current provider
 func (r *REPL) showCurrentProvider() {
-	fmt.Printf("Current provider: %s\r\n", r.configOptions.Get("provider"))
+	fmt.Printf("Current provider: %s\r\n", r.configOptions.Get("ai.provider"))
 	// Also show the current model for this provider
 	r.showCurrentModel()
 }
@@ -2860,14 +2860,14 @@ func (r *REPL) listProviders() error {
 
 	fmt.Print("Available providers:\r\n")
 	for _, provider := range providers {
-		if provider == r.configOptions.Get("provider") {
+		if provider == r.configOptions.Get("ai.provider") {
 			fmt.Printf("* %s (current)\r\n", provider)
 		} else {
 			fmt.Printf("  %s\r\n", provider)
 		}
 	}
 
-	fmt.Print("\r\nUse '/set provider <name>' to change the current provider\r\n")
+	fmt.Print("\r\nUse '/set ai.provider <name>' to change the current provider\r\n")
 	return nil
 }
 
@@ -2886,11 +2886,11 @@ func (r *REPL) setProvider(provider string) error {
 	}
 
 	// Update the provider in the configOptions
-	r.configOptions.Set("provider", provider)
+	r.configOptions.Set("ai.provider", provider)
 
 	// Resolve a default model for the new provider from env/provider defaults
 	if dm := r.resolveDefaultModelForProvider(provider); dm != "" {
-		r.configOptions.Set("model", dm)
+		r.configOptions.Set("chat.prompt", dm)
 	}
 
 	fmt.Printf("Provider set to %s\r\n", provider)
@@ -2920,7 +2920,7 @@ func (r *REPL) listModels() error {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
-	fmt.Printf("Fetching available models for %s...\r\n", r.configOptions.Get("provider"))
+	fmt.Printf("Fetching available models for %s...\r\n", r.configOptions.Get("ai.provider"))
 
 	// Get models from the provider
 	models, err := client.ListModels()
@@ -2934,7 +2934,7 @@ func (r *REPL) listModels() error {
 	}
 
 	// Display models
-	fmt.Printf("Available %s models:\r\n", r.configOptions.Get("provider"))
+	fmt.Printf("Available %s models:\r\n", r.configOptions.Get("ai.provider"))
 	fmt.Print("-----------------------\r\n")
 
 	// Get current model for highlighting
@@ -2957,14 +2957,14 @@ func (r *REPL) listModels() error {
 	}
 
 	fmt.Printf("Total models: %d\r\n", len(models))
-	fmt.Print("Use '/set model <model-id>' to change the model\r\n")
+	fmt.Print("Use '/set chat.prompt <model-id>' to change the model\r\n")
 
 	return nil
 }
 
 // getCurrentModelForProvider returns the current model ID for the active provider
 func (r *REPL) getCurrentModelForProvider() string {
-	return r.configOptions.Get("model")
+	return r.configOptions.Get("chat.prompt")
 }
 
 // handleCompactCommand processes the /compact command
@@ -3228,9 +3228,9 @@ func (r *REPL) loadConversation(path string) error {
 
 	// Update REPL with loaded data
 	if conversationData.SystemPrompt != "" {
-		_ = r.configOptions.Set("systemprompt", conversationData.SystemPrompt)
+		_ = r.configOptions.Set("llm.systemprompt", conversationData.SystemPrompt)
 	} else {
-		r.configOptions.Unset("systemprompt")
+		r.configOptions.Unset("llm.systemprompt")
 	}
 	r.messages = conversationData.Messages
 

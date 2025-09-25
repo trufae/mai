@@ -143,7 +143,7 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 		}
 
 		// Prompt the user with the text from inside the brackets
-		prompt := r.configOptions.Get("prompt")
+		prompt := r.configOptions.Get("repl.prompt")
 		if prompt == "" {
 			prompt = ">>>"
 		}
@@ -172,7 +172,7 @@ func (r *REPL) processTemplate(templateText string) (string, error) {
 // listTemplates lists all files in the templatedir
 func (r *REPL) listTemplates() error {
 	// Get the template directory from config
-	templateDir := r.configOptions.Get("templatedir")
+	templateDir := r.configOptions.Get("dir.templates")
 	if templateDir == "" {
 		// Try common locations
 		commonLocations := []string{
@@ -234,7 +234,7 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 	}
 
 	// First try the templatedir configuration if set
-	if templateDir := r.configOptions.Get("templatedir"); templateDir != "" {
+	if templateDir := r.configOptions.Get("dir.templates"); templateDir != "" {
 		templatePath := filepath.Join(templateDir, templateName)
 
 		// Try with file as is
@@ -281,11 +281,11 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 // autoDetectTemplateDir attempts to find a templates directory relative to the executable path
 // and sets the templatedir config variable if found
 func (r *REPL) autoDetectTemplateDir() {
-	r.autoDetectDirectory("templatedir", "templates", false)
+	r.autoDetectDirectory("dir.templates", "templates", false)
 }
 
 // autoDetectWwwRoot attempts to find a www directory relative to the executable path
 // and sets the wwwroot config variable if found
 func (r *REPL) autoDetectWwwRoot() {
-	r.autoDetectDirectory("wwwroot", filepath.Join("doc", "www"), false)
+	r.autoDetectDirectory("http.wwwroot", filepath.Join("doc", "www"), false)
 }

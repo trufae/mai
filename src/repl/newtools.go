@@ -317,7 +317,7 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 
 	var planTemplate = ""
 	// If enabled, query MCP prompts to choose a plan template before running the tool loop
-	if r.configOptions.GetBool("mcpprompts") {
+	if r.configOptions.GetBool("tools.prompts") {
 		planTemplate, err := r.prepareMCPromptTemplate(input, messages)
 		if err != nil {
 			// Non-fatal: proceed without a template if selection fails
@@ -328,16 +328,16 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		}
 	}
 	// Temporarily override schema via options; providers read it from buildLLMConfig
-	origSchema := r.configOptions.Get("schema")
+	origSchema := r.configOptions.Get("llm.schema")
 	defer func() {
-		_ = r.configOptions.Set("schema", origSchema)
+		_ = r.configOptions.Set("llm.schema", origSchema)
 	}()
 	schemaString := func(s string) string {
 		if s == "gemini" {
 			return geminiToolsSchema
 		}
 		return toolsSchema
-	}(r.configOptions.Get("provider"))
+	}(r.configOptions.Get("ai.provider"))
 
 	chatHistory := buildChatHistory(input, messages)
 
@@ -346,7 +346,7 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		return "", fmt.Errorf("I cannot unmarshal the schema")
 	}
 	// Store inline schema JSON in options for providers to consume
-	_ = r.configOptions.Set("schema", schemaString)
+	_ = r.configOptions.Set("llm.schema", schemaString)
 	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")

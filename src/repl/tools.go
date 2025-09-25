@@ -312,7 +312,7 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 			continue
 		}
 		if clearScreen {
-			prompt := r.configOptions.Get("prompt")
+			prompt := r.configOptions.Get("repl.prompt")
 			if prompt == "" {
 				prompt = ">>>"
 			}

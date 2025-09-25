@@ -175,24 +175,24 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	if opts == nil {
 		return
 	}
-	if v := opts.Get("provider"); v != "" {
+	if v := opts.Get("ai.provider"); v != "" {
 		config.PROVIDER = v
 	}
-	if v := opts.Get("model"); v != "" {
+	if v := opts.Get("chat.prompt"); v != "" {
 		config.Model = v
 	}
-	if v := opts.Get("baseurl"); v != "" {
+	if v := opts.Get("ai.baseurl"); v != "" {
 		config.BaseURL = v
 	}
-	if v := opts.Get("useragent"); v != "" {
+	if v := opts.Get("http.useragent"); v != "" {
 		config.UserAgent = v
 	}
 
 	// System prompt options
-	if v := opts.Get("systemprompt"); v != "" {
+	if v := opts.Get("llm.systemprompt"); v != "" {
 		config.SystemPrompt = v
 	}
-	if v := opts.Get("systempromptfile"); v != "" {
+	if v := opts.Get("llm.systempromptfile"); v != "" {
 		// Expand ~ if present
 		if strings.HasPrefix(v, "~") {
 			if home, err := os.UserHomeDir(); err == nil {
@@ -202,7 +202,7 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 		config.SystemPromptFile = v
 	}
 
-	if v := opts.Get("promptfile"); v != "" {
+	if v := opts.Get("dir.promptfile"); v != "" {
 		if strings.HasPrefix(v, "~") {
 			if home, err := os.UserHomeDir(); err == nil {
 				v = filepath.Join(home, v[1:])
@@ -211,34 +211,34 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 		config.PromptFile = v
 	}
 	// Behavior toggles used by providers
-	if opts.Get("markdown") != "" {
-		config.Markdown = opts.GetBool("markdown")
+	if opts.Get("scr.markdown") != "" {
+		config.Markdown = opts.GetBool("scr.markdown")
 	}
-	if opts.Get("deterministic") != "" {
-		config.Deterministic = opts.GetBool("deterministic")
+	if opts.Get("ai.deterministic") != "" {
+		config.Deterministic = opts.GetBool("ai.deterministic")
 	}
-	if opts.Get("rawdog") != "" {
-		config.Rawdog = opts.GetBool("rawdog")
+	if opts.Get("llm.rawmode") != "" {
+		config.Rawdog = opts.GetBool("llm.rawmode")
 	}
 
 	// Debug flag: when enabled, show raw messages sent to providers
-	if opts.Get("debug") != "" {
-		config.Debug = opts.GetBool("debug")
+	if opts.Get("repl.debug") != "" {
+		config.Debug = opts.GetBool("repl.debug")
 	}
 
 	// Conversation message limit: number of recent messages to include when sending
-	if v := opts.Get("history_messages"); v != "" {
-		if num, err := opts.GetNumber("history_messages"); err == nil {
+	if v := opts.Get("chat.tail"); v != "" {
+		if num, err := opts.GetNumber("chat.tail"); err == nil {
 			config.ConversationMessageLimit = int(num)
 		}
 	}
 
 	// Auto-compact option is handled at REPL level; mirror into options for visibility
-	if v := opts.Get("autocompact"); v != "" {
+	if v := opts.Get("chat.autocompact"); v != "" {
 		// no direct mapping into llm.Config required; REPL reads configOptions
 	}
 	// Structured output schema: prefer schemafile if provided, else inline schema
-	if path := opts.Get("schemafile"); path != "" {
+	if path := opts.Get("llm.schemafile"); path != "" {
 		if strings.HasPrefix(path, "~") {
 			if home, err := os.UserHomeDir(); err == nil {
 				path = filepath.Join(home, path[1:])
@@ -250,7 +250,7 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 				config.Schema = schema
 			}
 		}
-	} else if inline := opts.Get("schema"); inline != "" {
+	} else if inline := opts.Get("llm.schema"); inline != "" {
 		var schema map[string]interface{}
 		if err := json.Unmarshal([]byte(inline), &schema); err == nil {
 			config.Schema = schema
@@ -290,20 +290,20 @@ func main() {
 		switch args[i] {
 		case "-n":
 			// Skip loading rc file and disable REPL history
-			configOptions.Set("history", "false")
-			configOptions.Set("skiprc", "true")
+			configOptions.Set("repl.history", "false")
+			configOptions.Set("repl.skiprc", "true")
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-t":
-			// Set usetools to true
-			configOptions.Set("usetools", "true")
+			// Enable legacy tools flow
+			configOptions.Set("tools.old", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-1":
 			config.NoStream = true
 			// Keep REPL in sync with stdin mode: disable streaming in options
-			configOptions.Set("stream", "false")
+			configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-i":
@@ -319,7 +319,7 @@ func main() {
 			if i+1 < len(args) {
 				config.PROVIDER = args[i+1]
 				// Keep REPL options in sync so /get reflects this
-				configOptions.Set("provider", args[i+1])
+				configOptions.Set("ai.provider", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -330,7 +330,7 @@ func main() {
 			if i+1 < len(args) {
 				config.BaseURL = args[i+1]
 				// Mirror into options for REPL visibility
-				configOptions.Set("baseurl", args[i+1])
+				configOptions.Set("ai.baseurl", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -341,7 +341,7 @@ func main() {
 			if i+1 < len(args) {
 				setModel(config, args[i+1])
 				// Also set generic model option for REPL
-				configOptions.Set("model", args[i+1])
+				configOptions.Set("chat.prompt", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -352,7 +352,7 @@ func main() {
 			if i+1 < len(args) {
 				config.UserAgent = args[i+1]
 				// Mirror into options so /get useragent shows it
-				configOptions.Set("useragent", args[i+1])
+				configOptions.Set("http.useragent", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {

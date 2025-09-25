@@ -46,66 +46,74 @@ func NewConfigOptions() *ConfigOptions {
 
 	// Define built-in options
 
-	// Enable automatic AI-generated session topics (#topic)
-	// Set session save behavior on exit: always, never, or prompt
-	co.RegisterOption("aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
-	co.RegisterOption("baseurl", StringOption, "Custom base URL for API requests", "")
-	co.RegisterOption("debug", BooleanOption, "Show internal processing logs", "false")
-	co.RegisterOption("deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
-	co.RegisterOption("history", BooleanOption, "Enable REPL history", "true")
-	co.RegisterOption("skiprc", BooleanOption, "Skip loading rc file on start", "false")
+	// AI provider options
+	co.RegisterOption("ai.baseurl", StringOption, "Custom base URL for API requests", "")
+	co.RegisterOption("ai.deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
+	co.RegisterOption("ai.provider", StringOption, "AI provider to use", "")
 
-	co.RegisterOption("logging", BooleanOption, "Enable conversation logging", "true")
-	co.RegisterOption("markdown", BooleanOption, "Enable markdown rendering with colors", "false")
-	co.RegisterOption("max_tokens", NumberOption, "Maximum tokens for AI response", "5128")
-	co.RegisterOption("model", StringOption, "AI model to use", "")
-	co.RegisterOption("prompt", StringOption, "Main prompt string for input", ">>>")
-	co.RegisterOption("promptdir", StringOption, "Directory to read prompts from", "")
-	co.RegisterOption("promptfile", StringOption, "System prompt file path", "")
-	co.RegisterOption("agentsfile", StringOption, "Filename to load agent instructions from current or parent directories (empty to disable)", "AGENTS.md")
-	co.RegisterOption("schema", StringOption, "Inline JSON schema to constrain model output", "")
-	co.RegisterOption("schemafile", StringOption, "Path to JSON schema file for formatted output", "")
-	co.RegisterOption("provider", StringOption, "AI provider to use", "")
-	co.RegisterOption("rawdog", BooleanOption, "Send messages in raw", "false")
-	co.RegisterOption("readlineprompt", StringOption, "Prompt string for heredoc/continuation lines", "...")
-	co.RegisterOption("reasoning", BooleanOption, "Enable AI reasoning", "false")
-	co.RegisterOption("session_save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
-	co.RegisterOption("stream", BooleanOption, "Enable streaming mode", "true")
-	co.RegisterOption("systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
-	co.RegisterOption("systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
-	co.RegisterOption("temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
-	co.RegisterOption("templatedir", StringOption, "Directory to read templates from", "")
-	co.RegisterOption("useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
-	co.RegisterOption("usetools", BooleanOption, "Process user input using tools.go functions", "false")
-	co.RegisterOption("newtools", BooleanOption, "Process user input using newtools functions (overrides usetools)", "false")
-	co.RegisterOption("mcpprompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "false")
-	co.RegisterOption("demo", BooleanOption, "Enable demo mode with waiting animation", "false")
+	// Chat configuration
+	co.RegisterOption("chat.aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
+	co.RegisterOption("chat.autocompact", NumberOption, "Auto-compact conversation when history exceeds threshold (0=off)", "0")
+	co.RegisterOption("chat.followup", BooleanOption, "Automatically run #followup after assistant replies", "false")
+	co.RegisterOption("chat.format", StringOption, "Chat formatting: tokens, labeled, or plain", "plain")
+	co.RegisterOption("chat.log", BooleanOption, "Enable conversation logging", "true")
 	// Memory option: load consolidated memory from ~/.mai/memory.txt into conversation context
-	co.RegisterOption("memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
-	// Followup option: automatically run #followup after assistant replies
-	co.RegisterOption("followup", BooleanOption, "Automatically run #followup after assistant replies", "false")
-	// VDB option: use mai-vdb tool to get context from vector database
-	co.RegisterOption("vdb", BooleanOption, "Use mai-vdb tool to get context from vector database", "false")
-	co.RegisterOption("vdbdir", StringOption, "Directory to search for vector database sources", "")
-	co.RegisterOption("vdblimit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
+	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
+	co.RegisterOption("chat.prompt", StringOption, "AI model to use", "")
+	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "false")
+	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
+	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
+	// Number of most recent messages to include when sending to the LLM (0 = all)
+	co.RegisterOption("chat.tail", NumberOption, "Number of most recent messages to include when sending to the LLM (0=all)", "0")
+
+	// Directory configuration
+	co.RegisterOption("dir.prompt", StringOption, "Directory to read prompts from", "")
+	co.RegisterOption("dir.promptfile", StringOption, "System prompt file path", "")
+	co.RegisterOption("dir.templates", StringOption, "Directory to read templates from", "")
+
+	// HTTP server options
+	co.RegisterOption("http.listen", StringOption, "Listen address for the web server (host:port)", "0.0.0.0:9000")
+	co.RegisterOption("http.repl", BooleanOption, "Route / commands from web UI through REPL command system", "true")
+	co.RegisterOption("http.useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
+	co.RegisterOption("http.wwwroot", StringOption, "Directory to serve static web files from", "")
+
+	// LLM interaction options
+	// co.RegisterOption("llm.agentfile", StringOption, "Filename to load agent instructions from current or parent directories (empty to disable)", "AGENTS.md")
+	co.RegisterOption("llm.agentfile", StringOption, "Filename to load agent instructions from current or parent directories (empty to disable)", "")
+	co.RegisterOption("llm.maxtokens", NumberOption, "Maximum tokens for AI response", "5128")
+	co.RegisterOption("llm.rawmode", BooleanOption, "Send messages in raw", "false")
+	co.RegisterOption("llm.schema", StringOption, "Inline JSON schema to constrain model output", "")
+	co.RegisterOption("llm.schemafile", StringOption, "Path to JSON schema file for formatted output", "")
+	co.RegisterOption("llm.stream", BooleanOption, "Enable streaming mode", "true")
+	co.RegisterOption("llm.systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
+	co.RegisterOption("llm.systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
+	co.RegisterOption("llm.temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
+	co.RegisterOption("llm.think", BooleanOption, "Enable AI reasoning", "false")
+
+	// REPL behavior options
+	co.RegisterOption("repl.debug", BooleanOption, "Show internal processing logs", "false")
+	co.RegisterOption("repl.demo", BooleanOption, "Enable demo mode with waiting animation", "false")
+	co.RegisterOption("repl.history", BooleanOption, "Enable REPL history", "true")
+	co.RegisterOption("repl.prompt", StringOption, "Main prompt string for input", ">>>")
+	co.RegisterOption("repl.prompt2", StringOption, "Prompt string for heredoc/continuation lines", "...")
+	co.RegisterOption("repl.skiprc", BooleanOption, "Skip loading rc file on start", "false")
+
+	// Screen rendering options
+	co.RegisterOption("scr.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
+
+	// Tooling options
+	co.RegisterOption("tools.old", BooleanOption, "Process user input using tools.go functions", "false")
+	co.RegisterOption("tools.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
+	co.RegisterOption("tools.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
 
 	// User details options
-	co.RegisterOption("userdetails", BooleanOption, "Include user details (CWD, username, OS, language, time) in conversation context", "false")
-	co.RegisterOption("lang", StringOption, "Language preference for user details (defaults to LANG environment variable)", "")
+	co.RegisterOption("user.details", BooleanOption, "Include user details (CWD, username, OS, language, time) in conversation context", "false")
+	co.RegisterOption("user.lang", StringOption, "Language preference for user details (defaults to LANG environment variable)", "")
 
-	// Conversation formatting options (used when building a single prompt from history)
-	co.RegisterOption("chat_replies", BooleanOption, "Include chat replies when building a single prompt", "false")
-	co.RegisterOption("chat_system", BooleanOption, "Include chat system messages when building a single prompt", "true")
-	co.RegisterOption("chat_format", StringOption, "Chat formatting: tokens, labeled, or plain", "plain")
-	// Number of most recent messages to include when sending to the LLM (0 = all)
-	co.RegisterOption("history_messages", NumberOption, "Number of most recent messages to include when sending to the LLM (0=all)", "0")
-	// Auto-compact: when non-zero and conversation is large, run /chat compact
-	co.RegisterOption("autocompact", NumberOption, "Auto-compact conversation when history exceeds threshold (0=off)", "0")
-
-	// Server configuration
-	co.RegisterOption("listen", StringOption, "Listen address for the web server (host:port)", "0.0.0.0:9000")
-	co.RegisterOption("wwwroot", StringOption, "Directory to serve static web files from", "")
-	co.RegisterOption("wwwrepl", BooleanOption, "Route / commands from web UI through REPL command system", "true")
+	// Vector database integration
+	co.RegisterOption("vdb", BooleanOption, "Use mai-vdb tool to get context from vector database", "false")
+	co.RegisterOption("vdb.datadir", StringOption, "Directory to search for vector database sources", "")
+	co.RegisterOption("vdb.limit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
 
 	co.initialized = true
 
@@ -292,7 +300,7 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	}
 
 	// First try the promptdir configuration if set
-	if promptDir := r.configOptions.Get("promptdir"); promptDir != "" {
+	if promptDir := r.configOptions.Get("dir.prompt"); promptDir != "" {
 		promptPath := filepath.Join(promptDir, promptName)
 		// Try with and without .md extension
 		if _, err := os.Stat(promptPath); err == nil {
@@ -331,42 +339,42 @@ func (r *REPL) handleSetCommand(args []string) error {
 	if len(args) >= 3 {
 		val := strings.Join(args[2:], " ")
 		switch args[1] {
-		case "deterministic":
+		case "ai.deterministic":
 			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("deterministic", val)
+			r.configOptions.Set("ai.deterministic", val)
 			return nil
-		case "rawdog":
+		case "llm.rawmode":
 			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("rawdog", val)
+			r.configOptions.Set("llm.rawmode", val)
 			return nil
-		case "promptfile":
+		case "dir.promptfile":
 			return r.loadSystemPrompt(val)
-		case "systemprompt":
+		case "llm.systemprompt":
 			// Store inline system prompt via config API; no local cache
-			r.configOptions.Set("systemprompt", val)
+			r.configOptions.Set("llm.systemprompt", val)
 			fmt.Printf("System prompt set (%d chars)\r\n", len(val))
 			return nil
-		case "model":
+		case "chat.prompt":
 			return r.setModel(val)
-		case "provider":
+		case "ai.provider":
 			provider := strings.ToLower(val)
 			return r.setProvider(provider)
-		case "chat_replies":
+		case "chat.replies":
 			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("chat_replies", val)
+			r.configOptions.Set("chat.replies", val)
 			return nil
-		case "chat_system":
+		case "chat.system":
 			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("chat_system", val)
+			r.configOptions.Set("chat.system", val)
 			return nil
-		case "chat_format":
+		case "chat.format":
 			// Accept plain, labeled, tokens
 			valLower := strings.ToLower(val)
 			if valLower != "plain" && valLower != "labeled" && valLower != "tokens" {
 				// still set, but warn
-				fmt.Printf("Warning: unknown chat_format '%s'\n", val)
+				fmt.Printf("Warning: unknown chat.format '%s'\n", val)
 			}
-			r.configOptions.Set("chat_format", valLower)
+			r.configOptions.Set("chat.format", valLower)
 			return nil
 
 		}
@@ -426,37 +434,37 @@ func (r *REPL) handleSetCommand(args []string) error {
 
 	// Handle special options that require updating REPL output/state
 	switch option {
-	case "stream":
+	case "llm.stream":
 		streamStatus := "enabled"
-		if !r.configOptions.GetBool("stream") {
+		if !r.configOptions.GetBool("llm.stream") {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s\r\n", streamStatus)
-	case "chat_replies":
+	case "chat.replies":
 		fmt.Printf("Set %s = %s\r\n", option, value)
-	case "reasoning":
+	case "llm.think":
 		fmt.Printf("Set %s = %s\r\n", option, value)
-	case "logging":
+	case "chat.log":
 		fmt.Printf("Set %s = %s\r\n", option, value)
-	case "markdown":
+	case "scr.markdown":
 		markdownStatus := "enabled"
-		if !r.configOptions.GetBool("markdown") {
+		if !r.configOptions.GetBool("scr.markdown") {
 			markdownStatus = "disabled"
 		}
 		fmt.Printf("Markdown rendering %s\r\n", markdownStatus)
-	case "usetools":
+	case "tools.old":
 		toolsStatus := "enabled"
-		if !r.configOptions.GetBool("usetools") {
+		if !r.configOptions.GetBool("tools.old") {
 			toolsStatus = "disabled"
 		}
 		fmt.Printf("Tools processing %s\r\n", toolsStatus)
-	case "promptfile", "systemprompt":
+	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return nil
-	case "model":
+	case "chat.prompt":
 		// Already handled above
 		return nil
-	case "provider":
+	case "ai.provider":
 		// Already handled above
 		return nil
 	default:
@@ -539,30 +547,30 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 
 	// Handle special options that require updating REPL output/state
 	switch option {
-	case "rawdog":
-	case "stream":
+	case "llm.rawmode":
+	case "llm.stream":
 		streamStatus := "enabled"
-		if !r.configOptions.GetBool("stream") {
+		if !r.configOptions.GetBool("llm.stream") {
 			streamStatus = "disabled"
 		}
 		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
-	case "chat_replies":
+	case "chat.replies":
 		fmt.Printf("Include replies reverted to default\r\n")
-	case "reasoning":
+	case "llm.think":
 		fmt.Printf("AI reasoning reverted to default\r\n")
-	case "logging":
+	case "chat.log":
 		fmt.Printf("Logging reverted to default\r\n")
-	case "markdown":
+	case "scr.markdown":
 		fmt.Printf("Markdown rendering reverted to default\r\n")
-	case "usetools":
+	case "tools.old":
 		fmt.Printf("Tools processing reverted to default\r\n")
-	case "promptfile", "systemprompt":
+	case "dir.promptfile", "llm.systemprompt":
 		fmt.Print("System prompt removed\r\n")
-	case "model":
+	case "chat.prompt":
 		fmt.Print("Model setting reverted to default\r\n")
-	case "provider":
+	case "ai.provider":
 		fmt.Print("Provider setting reverted to default\r\n")
-	case "schema", "schemafile":
+	case "llm.schema", "llm.schemafile":
 		fmt.Print("Schema cleared\r\n")
 	default:
 		fmt.Printf("Unset %s\r\n", option)

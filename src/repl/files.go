@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 )
@@ -84,7 +84,7 @@ func findFileUpwards(filename string) (string, error) {
 }
 
 func (r *REPL) loadAgentsFile() error {
-	fname := r.configOptions.Get("agentsfile")
+	fname := r.configOptions.Get("llm.agentfile")
 	if fname == "" {
 		return nil
 	}
@@ -114,12 +114,12 @@ func (r *REPL) loadAgentsFile() error {
 	if existing != "" {
 		combined = combined + "\n\n" + existing
 	}
-	_ = r.configOptions.Set("systemprompt", combined)
+	_ = r.configOptions.Set("llm.systemprompt", combined)
 	return nil
 }
 
 func (r *REPL) saveHistory() error {
-	if !r.configOptions.GetBool("history") {
+	if !r.configOptions.GetBool("repl.history") {
 		return nil
 	}
 	homeDir, err := os.UserHomeDir()
@@ -139,7 +139,7 @@ func (r *REPL) saveHistory() error {
 
 // loadReplHistory reads the history file and loads entries into readline's history
 func (r *REPL) loadReplHistory() error {
-	if !r.configOptions.GetBool("history") {
+	if !r.configOptions.GetBool("repl.history") {
 		return nil
 	}
 	homeDir, err := os.UserHomeDir()
@@ -163,7 +163,7 @@ func (r *REPL) loadReplHistory() error {
 }
 
 func (r *REPL) setupHistory() error {
-	if !r.configOptions.GetBool("history") {
+	if !r.configOptions.GetBool("repl.history") {
 		return nil
 	}
 	// Determine the .mai directory for history/chat storage: search project dirs or fallback to home

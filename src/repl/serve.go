@@ -215,12 +215,12 @@ func (sm *ServerManager) executeInputWithCapture(input string, stream bool, syst
 	}
 
 	// Optionally override streaming and system prompt for this call
-	oldStream := sm.repl.configOptions.Get("stream")
-	oldSystem := sm.repl.configOptions.Get("systemprompt")
+	oldStream := sm.repl.configOptions.Get("llm.stream")
+	oldSystem := sm.repl.configOptions.Get("llm.systemprompt")
 	// Best-effort set; ignore validation errors (boolean requires true/false)
-	_ = sm.repl.configOptions.Set("stream", map[bool]string{true: "true", false: "false"}[stream])
+	_ = sm.repl.configOptions.Set("llm.stream", map[bool]string{true: "true", false: "false"}[stream])
 	if system != "" {
-		_ = sm.repl.configOptions.Set("systemprompt", system)
+		_ = sm.repl.configOptions.Set("llm.systemprompt", system)
 	}
 
 	// Capture stdout/stderr while invoking REPL sendToAI
@@ -261,12 +261,12 @@ func (sm *ServerManager) executeInputWithCapture(input string, stream bool, syst
 	}
 
 	// Restore previous config
-	_ = sm.repl.configOptions.Set("stream", oldStream)
+	_ = sm.repl.configOptions.Set("llm.stream", oldStream)
 	if system != "" || oldSystem != "" {
 		if oldSystem == "" {
-			sm.repl.configOptions.Unset("systemprompt")
+			sm.repl.configOptions.Unset("llm.systemprompt")
 		} else {
-			_ = sm.repl.configOptions.Set("systemprompt", oldSystem)
+			_ = sm.repl.configOptions.Set("llm.systemprompt", oldSystem)
 		}
 	}
 
@@ -809,7 +809,7 @@ func (r *REPL) handleServeCommand(args []string) error {
 		}
 
 		// Get listen address from config
-		listenAddr := r.configOptions.Get("listen")
+		listenAddr := r.configOptions.Get("http.listen")
 		if listenAddr == "" {
 			listenAddr = "0.0.0.0:9000"
 		}
@@ -817,7 +817,7 @@ func (r *REPL) handleServeCommand(args []string) error {
 		// Create server manager if it doesn't exist
 		if serverManager == nil {
 			config := r.buildLLMConfig()
-			wwwRoot := r.configOptions.Get("wwwroot")
+			wwwRoot := r.configOptions.Get("http.wwwroot")
 
 			// Resolve wwwroot to an absolute path
 			if wwwRoot != "" && !filepath.IsAbs(wwwRoot) {

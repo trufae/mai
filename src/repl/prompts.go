@@ -29,7 +29,7 @@ func (r *REPL) loadPrompt(promptName, extra string) (string, error) {
 // listPrompts lists all .md files in the promptdir
 func (r *REPL) listPrompts() ([]string, error) {
 	// Get the prompt directory from config
-	promptDir := r.configOptions.Get("promptdir")
+	promptDir := r.configOptions.Get("dir.prompt")
 	if promptDir == "" {
 		// Try common locations
 		commonLocations := []string{
@@ -77,14 +77,14 @@ func (r *REPL) listPrompts() ([]string, error) {
 // Priority: explicit text (systemprompt) > promptfile > systempromptfile > default .mai/systemprompt.md
 func (r *REPL) currentSystemPrompt() string {
 	// 1. Inline system prompt text
-	if sp := r.configOptions.Get("systemprompt"); sp != "" {
+	if sp := r.configOptions.Get("llm.systemprompt"); sp != "" {
 		return sp
 	}
 	// 2. Prompt file path
 	var path string
-	if p := r.configOptions.Get("promptfile"); p != "" {
+	if p := r.configOptions.Get("dir.promptfile"); p != "" {
 		path = p
-	} else if p := r.configOptions.Get("systempromptfile"); p != "" {
+	} else if p := r.configOptions.Get("llm.systempromptfile"); p != "" {
 		path = p
 	} else {
 		// 3. Default .mai/systemprompt.md
@@ -92,7 +92,7 @@ func (r *REPL) currentSystemPrompt() string {
 			candidate := filepath.Join(d, "systemprompt.md")
 			if _, err := os.Stat(candidate); err == nil {
 				path = candidate
-				_ = r.configOptions.Set("systempromptfile", path)
+				_ = r.configOptions.Set("llm.systempromptfile", path)
 			}
 		}
 	}
@@ -119,7 +119,7 @@ func (r *REPL) loadSystemPrompt(path string) error {
 	}
 
 	// Update the promptfile configuration
-	r.configOptions.Set("promptfile", path)
+	r.configOptions.Set("dir.promptfile", path)
 
 	// Try to read to provide feedback, but don't cache the content
 	if content, err := os.ReadFile(path); err == nil {

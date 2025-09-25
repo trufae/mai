@@ -262,9 +262,9 @@ func (r *REPL) saveSession(sessionName string) error {
 
 	sess := sessionData{
 		Messages: r.messages,
-		Provider: r.configOptions.Get("provider"),
-		Model:    r.configOptions.Get("model"),
-		BaseURL:  r.configOptions.Get("baseurl"),
+		Provider: r.configOptions.Get("ai.provider"),
+		Model:    r.configOptions.Get("chat.prompt"),
+		BaseURL:  r.configOptions.Get("ai.baseurl"),
 	}
 	data, err := json.MarshalIndent(sess, "", "  ")
 	if err != nil {
@@ -274,7 +274,7 @@ func (r *REPL) saveSession(sessionName string) error {
 		return fmt.Errorf("cannot write session file: %v", err)
 	}
 
-	if r.configOptions.GetBool("aitopic") {
+	if r.configOptions.GetBool("chat.aitopic") {
 		full, err := r.generateAndSetTopic()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error generating topic: %v\n", err)
@@ -312,9 +312,9 @@ func (r *REPL) loadSession(sessionName string) error {
 		return fmt.Errorf("cannot unmarshal session: %v", err)
 	}
 	r.messages = sess.Messages
-	r.configOptions.Set("provider", sess.Provider)
-	r.configOptions.Set("model", sess.Model)
-	r.configOptions.Set("baseurl", sess.BaseURL)
+	r.configOptions.Set("ai.provider", sess.Provider)
+	r.configOptions.Set("chat.prompt", sess.Model)
+	r.configOptions.Set("ai.baseurl", sess.BaseURL)
 	fmt.Printf("Session '%s' loaded (provider=%s, model=%s, baseurl=%s)\r\n", sessionName, sess.Provider, sess.Model, sess.BaseURL)
 	return nil
 }
