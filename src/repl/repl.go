@@ -2908,91 +2908,18 @@ func (r *REPL) handlePromptCommand(input string) error {
 	parts := strings.SplitN(input, " ", 2)
 	promptName := parts[0][1:] // Remove the # prefix
 
-	// If no prompt name is provided, list all .md files from promptdir
 	if promptName == "" {
 		return r.listPrompts()
 	}
 
-	// Load the prompt file content
-	promptPath, err := r.resolvePromptPath(promptName)
-	if err != nil {
-		fmt.Printf("Error: %v\r\n", err)
-		return nil
+	// Load the prompt file content and send to AI
+	var extra string
+	if len(parts) > 1 {
+		extra = parts[1]
 	}
-
-	// Read the prompt file content
-	promptContent, err := os.ReadFile(promptPath)
-	if err != nil {
-		fmt.Printf("Error: %v\r\n", err)
-		return nil
-	}
-
-	// Replace the #command with the file content in the input
-	expandedInput := string(promptContent)
-	if len(parts) > 1 && parts[1] != "" {
-		expandedInput += "\n\n" + parts[1]
-	}
-
-	// Send expanded input to AI
+	expandedInput := r.loadPrompt(promptName, extra)
 	return r.sendToAI(expandedInput, "", "")
 }
-
-// listPrompts lists all .md files in the promptdir
-func (r *REPL) listPrompts() error {
-	// Get the prompt directory from config
-	promptDir := r.configOptions.Get("promptdir")
-	if promptDir == "" {
-		// Try common locations
-		commonLocations := []string{
-			"./prompts",
-			"../prompts",
-		}
-
-		found := false
-		for _, loc := range commonLocations {
-			if _, err := os.Stat(loc); err == nil {
-				promptDir = loc
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			fmt.Print("No prompt directory found. Set one with /set promptdir <path>\r\n")
-			return nil
-		}
-	}
-
-	// List all .md files in the directory
-	files, err := os.ReadDir(promptDir)
-	if err != nil {
-		fmt.Printf("Error reading prompt directory: %v\r\n", err)
-		return nil
-	}
-
-	// Filter for .md files and display
-	mdFiles := []string{}
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".md") {
-			baseName := strings.TrimSuffix(file.Name(), ".md")
-			mdFiles = append(mdFiles, baseName)
-		}
-	}
-
-	if len(mdFiles) == 0 {
-		fmt.Printf("No prompt files (.md) found in %s\r\n", promptDir)
-		return nil
-	}
-
-	fmt.Printf("Available prompts (use # followed by name):\r\n")
-	for _, file := range mdFiles {
-		fmt.Printf("  %s\r\n", file)
-	}
-
-	return nil
-}
-
-// handleFilePathCompletion handles tab completion for file paths
 
 // handleAtFilePathCompletion handles tab completion for file paths with @ prefix
 func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partialPath string) {
