@@ -300,28 +300,67 @@ func (s *MCPServer) handleCall(req JSONRPCRequest) {
 		return
 	}
 
-	// Return proper MCP tools/call response format
-	var textOut string
+	// Allow handlers to return rich MCP tool results so servers can include
+	// attachments/resources in their tool responses. Accepted return types:
+	// - string: treated as simple text content (backwards compatible)
+	// - ToolCallResult: library-native rich result
+	// - map[string]interface{} that already contains a "content" key: passed through
+
+	// ToolCallResult is a convenience type for handlers to return structured content
+	type ToolCallResult struct {
+		Content interface{} `json:"content,omitempty"`
+		IsError bool        `json:"isError,omitempty"`
+	}
+
 	switch v := result.(type) {
 	case string:
-		textOut = v
-	default:
-		// Stringify non-string results as JSON to keep 'text' a string
-		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
-			textOut = string(b)
-		} else {
-			textOut = fmt.Sprintf("%v", v)
+		s.sendResult(req.ID, map[string]interface{}{
+			"content": []interface{}{map[string]interface{}{"type": "text", "text": v}},
+			"isError": false,
+		})
+	case ToolCallResult:
+		// If handler returned the convenience struct, forward as-is
+		out := map[string]interface{}{"isError": v.IsError}
+		if v.Content != nil {
+			out["content"] = v.Content
 		}
+		s.sendResult(req.ID, out)
+	case map[string]interface{}:
+		// If the handler already returned a map with content, pass-through
+		if _, ok := v["content"]; ok {
+			// Ensure isError present
+			if _, eok := v["isError"]; !eok {
+				v["isError"] = false
+			}
+			s.sendResult(req.ID, v)
+			return
+		}
+		// Fallback: stringify the map into a text block
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			s.sendResult(req.ID, map[string]interface{}{
+				"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
+				"isError": false,
+			})
+			return
+		}
+		s.sendResult(req.ID, map[string]interface{}{
+			"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
+			"isError": false,
+		})
+	default:
+		// Stringify unknown results as JSON to keep 'text' a string
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			s.sendResult(req.ID, map[string]interface{}{
+				"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
+				"isError": false,
+			})
+			return
+		}
+		s.sendResult(req.ID, map[string]interface{}{
+			"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
+			"isError": false,
+		})
 	}
-	s.sendResult(req.ID, map[string]interface{}{
-		"content": []interface{}{
-			map[string]interface{}{
-				"type": "text",
-				"text": textOut,
-			},
-		},
-		"isError": false,
-	})
 }
 
 // sendResult sends a successful JSON-RPC response
