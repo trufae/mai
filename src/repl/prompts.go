@@ -106,3 +106,26 @@ func (r *REPL) currentSystemPrompt() string {
 	}
 	return ""
 }
+
+// loadSystemPrompt loads a system prompt from a file and updates the config
+func (r *REPL) loadSystemPrompt(path string) error {
+	// Expand ~ to home directory if present
+	if strings.HasPrefix(path, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %v", err)
+		}
+		path = filepath.Join(homeDir, path[1:])
+	}
+
+	// Update the promptfile configuration
+	r.configOptions.Set("promptfile", path)
+
+	// Try to read to provide feedback, but don't cache the content
+	if content, err := os.ReadFile(path); err == nil {
+		fmt.Printf("System prompt loaded from %s (%d bytes)\r\n", path, len(content))
+	} else {
+		fmt.Printf("System prompt set to %s (failed to read: %v)\r\n", path, err)
+	}
+	return nil
+}
