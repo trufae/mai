@@ -109,10 +109,6 @@ func NewConfigOptions() *ConfigOptions {
 
 	co.initialized = true
 
-	// Set the global reference to this config
-	// TODO rimraf
-	globalConfig = co
-
 	return co
 }
 
@@ -226,15 +222,15 @@ func (c *ConfigOptions) GetKeys() []string {
 	return keys
 }
 
-// Global reference to the configOptions for static functions
-// AITODO: refactor the code to avoid the need of having this global variable
-var globalConfig *ConfigOptions
-
 // GetAvailableOptions returns a list of all available configuration options
 // GetAvailableOptions returns a sorted list of all available configuration options
-func GetAvailableOptions() []string {
-	opts := make([]string, 0, len(globalConfig.optionInfos))
-	for key := range globalConfig.optionInfos {
+func (c *ConfigOptions) GetAvailableOptions() []string {
+	if c == nil {
+		return nil
+	}
+
+	opts := make([]string, 0, len(c.optionInfos))
+	for key := range c.optionInfos {
 		opts = append(opts, key)
 	}
 	sort.Strings(opts)
@@ -263,8 +259,12 @@ func (c *ConfigOptions) notifyListeners(key, value string) {
 
 // GetOptionDescription returns a description for the given option
 // GetOptionDescription returns a description for the given option
-func GetOptionDescription(option string) string {
-	if info, exists := globalConfig.GetOptionInfo(option); exists {
+func (c *ConfigOptions) GetOptionDescription(option string) string {
+	if c == nil {
+		return ""
+	}
+
+	if info, exists := c.GetOptionInfo(option); exists {
 		return info.Description
 	}
 	return "No description available"
@@ -272,8 +272,12 @@ func GetOptionDescription(option string) string {
 
 // GetOptionType returns the type of a given option
 // GetOptionType returns the type of a given option
-func GetOptionType(option string) OptionType {
-	if info, exists := globalConfig.GetOptionInfo(option); exists {
+func (c *ConfigOptions) GetOptionType(option string) OptionType {
+	if c == nil {
+		return StringOption
+	}
+
+	if info, exists := c.GetOptionInfo(option); exists {
 		return info.Type
 	}
 	return StringOption
@@ -370,9 +374,9 @@ func (r *REPL) handleSetCommand(args []string) error {
 	if len(args) < 2 {
 		fmt.Print("Usage: /set <option> [value]\r\n")
 		fmt.Print("Available options:\r\n")
-		for _, option := range GetAvailableOptions() {
-			optType := GetOptionType(option)
-			fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", GetOptionDescription(option))
+		for _, option := range r.configOptions.GetAvailableOptions() {
+			optType := r.configOptions.GetOptionType(option)
+			fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", r.configOptions.GetOptionDescription(option))
 		}
 		return nil
 	}
@@ -384,7 +388,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 		value := r.configOptions.Get(option)
 
 		// Get option type and status
-		optType := GetOptionType(option)
+		optType := r.configOptions.GetOptionType(option)
 		var status string
 		if value == "" {
 			status = "not set"
@@ -408,7 +412,7 @@ func (r *REPL) handleSetCommand(args []string) error {
 		fmt.Printf("Error: %v\r\n", err)
 
 		// Show expected format for the type
-		if optType := GetOptionType(option); optType != "" {
+		if optType := r.configOptions.GetOptionType(option); optType != "" {
 			switch optType {
 			case BooleanOption:
 				fmt.Print("Boolean options accept: true, false\r\n")
@@ -468,9 +472,9 @@ func (r *REPL) handleGetCommand(args []string) error {
 		fmt.Print("Usage: /get <option>\r\n")
 		fmt.Print("Available options:\r\n")
 		// List all available options and their current values
-		for _, option := range GetAvailableOptions() {
+		for _, option := range r.configOptions.GetAvailableOptions() {
 			value := r.configOptions.Get(option)
-			// optType := GetOptionType(option)
+			// optType := r.configOptions.GetOptionType(option)
 
 			var status string
 			if value == "" {
@@ -483,16 +487,16 @@ func (r *REPL) handleGetCommand(args []string) error {
 			} else {
 				status = value
 			}
-			// fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", GetOptionDescription(option))
+			// fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", r.configOptions.GetOptionDescription(option))
 			fmt.Printf("  %-20s = %-15s\r\n", option, status)
-			// (type: %s) - %s\r\n", option, status, optType, GetOptionDescription(option))
+			// (type: %s) - %s\r\n", option, status, optType, r.configOptions.GetOptionDescription(option))
 		}
 		return nil
 	}
 
 	option := args[1]
 	value := r.configOptions.Get(option)
-	optType := GetOptionType(option)
+	optType := r.configOptions.GetOptionType(option)
 
 	// Get detailed status
 	var status string
@@ -508,7 +512,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 	}
 
 	fmt.Printf("%s = %s (type: %s)\r\n", option, status, optType)
-	fmt.Printf("Description: %s\r\n", GetOptionDescription(option))
+	fmt.Printf("Description: %s\r\n", r.configOptions.GetOptionDescription(option))
 
 	return nil
 }
@@ -520,7 +524,7 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 		fmt.Print("Available options:\r\n")
 		for _, key := range r.configOptions.GetKeys() {
 			if value := r.configOptions.Get(key); value != "" {
-				optType := GetOptionType(key)
+				optType := r.configOptions.GetOptionType(key)
 				fmt.Printf("  %s = %s (type: %s)\r\n", key, value, optType)
 			}
 		}

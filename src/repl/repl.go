@@ -2976,7 +2976,7 @@ func (r *REPL) handleOptionCompletion(line *strings.Builder, cmd, partialOption 
 
 	if cmd == "/set" || cmd == "/get" {
 		// For /set and /get, show all available options
-		options = GetAvailableOptions()
+		options = r.configOptions.GetAvailableOptions()
 	} else if cmd == "/unset" {
 		// For /unset, show only options that are currently set
 		options = r.configOptions.GetKeys()
