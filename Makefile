@@ -17,6 +17,7 @@ install:
 	$(MAKE) -C src/tool install
 	$(MAKE) -C src/mcps install
 	$(MAKE) -C src/vdb install
+	$(MAKE) -C src/bot install
 
 uninstall:
 	$(MAKE) -C src/wmcp uninstall
@@ -24,6 +25,7 @@ uninstall:
 	$(MAKE) -C src/tool uninstall
 	$(MAKE) -C src/mcps uninstall
 	$(MAKE) -C src/vdb uninstall
+	$(MAKE) -C src/bot uninstall
 
 run:
 	go run $(MAIN_FILE)

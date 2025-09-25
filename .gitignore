@@ -2,7 +2,13 @@ src/repl/mai-repl
 src/tool/mai-tool
 src/wmcp/mai-wmcp
 src/mcps/wttr/mai-mcp-wttr
+src/mcps/wttr/wttr
 src/mcps/pipe/mai-mcp-pipe
 src/mcps/gemcode/mai-mcp-gemcode
 src/mcps/code/mai-mcp-code
 src/mcps/markdown/mai-mcp-markdown
+src/bot/config.json
+src/bot/mai-bot
+src/repl/mai
+*/**/*_test.go
+src/mcps/shell/mai-mcp-shell

@@ -27,17 +27,17 @@ type Config struct {
 	IrcMaxLength int    `json:"irc_max_length,omitempty"`
 }
 
-func loadConfig() Config {
-	configFile, err := os.Open("config.json")
+func loadConfig(filename string) Config {
+	configFile, err := os.Open(filename)
 	if err != nil {
-		log.Fatal("Error opening config.json:", err)
+		log.Fatal("Error opening config file:", err)
 	}
 	defer configFile.Close()
 
 	var config Config
 	decoder := json.NewDecoder(configFile)
 	if err := decoder.Decode(&config); err != nil {
-		log.Fatal("Error decoding config.json:", err)
+		log.Fatal("Error decoding config file:", err)
 	}
 	return config
 }
