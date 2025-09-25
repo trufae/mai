@@ -30,7 +30,7 @@ import (
 type Command struct {
 	Name        string
 	Description string
-	Handler     func(r *REPL, args []string) error
+	Handler     func(r *REPL, args []string) (string, error)
 }
 
 type REPL struct {
@@ -280,8 +280,9 @@ func (r *REPL) Run() error {
 	return nil
 }
 
-func (r *REPL) showCommands() {
-	fmt.Print("Commands:\r\n")
+func (r *REPL) showCommands() string {
+	var output strings.Builder
+	output.WriteString("Commands:\r\n")
 
 	// Sort commands for consistent display
 	var cmdNames []string
@@ -293,25 +294,26 @@ func (r *REPL) showCommands() {
 	// Display all registered commands with descriptions
 	for _, name := range cmdNames {
 		cmd := r.commands[name]
-		fmt.Printf("  %-15s - %s\r\n", name, cmd.Description)
+		output.WriteString(fmt.Sprintf("  %-15s - %s\r\n", name, cmd.Description))
 	}
 
 	// Display special commands that aren't in the registry
-	fmt.Print("  #              - List available prompt files (.md)\r\n")
-	fmt.Print("  #<n> <text>    - Use content from prompt file with text\r\n")
-	fmt.Print("  $              - List available template files\r\n")
-	fmt.Print("  $<n> <text>    - Use template with interactive prompts and optional text\r\n")
-	fmt.Print("  !<command>     - Execute shell command\r\n")
-	fmt.Print("  _              - Print the last assistant reply\r\n")
+	output.WriteString("  #              - List available prompt files (.md)\r\n")
+	output.WriteString("  #<n> <text>    - Use content from prompt file with text\r\n")
+	output.WriteString("  $              - List available template files\r\n")
+	output.WriteString("  $<n> <text>    - Use template with interactive prompts and optional text\r\n")
+	output.WriteString("  !<command>     - Execute shell command\r\n")
+	output.WriteString("  _              - Print the last assistant reply\r\n")
 
 	// Display keyboard shortcuts
-	fmt.Print("  Ctrl+C         - Cancel current request\r\n")
-	fmt.Print("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
-	fmt.Print("  Ctrl+W         - Delete last word\r\n")
-	fmt.Print("  Up/Down arrows - Navigate history\r\n")
-	fmt.Print("  Tab            - Command/path completion\r\n")
-	fmt.Print("  @<path>        - File path with tab completion (can appear anywhere in input)\r\n")
-	fmt.Print("\r\n")
+	output.WriteString("  Ctrl+C         - Cancel current request\r\n")
+	output.WriteString("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
+	output.WriteString("  Ctrl+W         - Delete last word\r\n")
+	output.WriteString("  Up/Down arrows - Navigate history\r\n")
+	output.WriteString("  Tab            - Command/path completion\r\n")
+	output.WriteString("  @<path>        - File path with tab completion (can appear anywhere in input)\r\n")
+	output.WriteString("\r\n")
+	return output.String()
 }
 
 func (r *REPL) cleanup() {
@@ -433,7 +435,7 @@ func (r *REPL) handleInput() error {
 	if strings.HasPrefix(input, "/") || strings.HasPrefix(input, ".") || input == "_" {
 		// Add to history
 		r.addToHistory(input)
-		err = r.handleCommand(input)
+		err = r.handleCommand(input, redirectType, redirectTarget)
 	} else if strings.HasPrefix(input, "#") {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
@@ -445,7 +447,7 @@ func (r *REPL) handleInput() error {
 	} else if strings.HasPrefix(input, "?") {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
-		err = r.handleCommand("/help")
+		err = r.handleCommand("/help", "", "")
 	} else if strings.HasPrefix(input, "!") {
 		// Add to history
 		r.addToHistory(input)
@@ -455,8 +457,8 @@ func (r *REPL) handleInput() error {
 		err = r.sendToAI(input, redirectType, redirectTarget)
 	}
 	if skipMessage {
-		r.handleCommand("/chat undo")
-		r.handleCommand("/chat undo")
+		r.handleCommand("/chat undo", "", "")
+		r.handleCommand("/chat undo", "", "")
 	}
 	return err
 }
@@ -858,19 +860,20 @@ func (r *REPL) addToHistory(input string) {
 }
 
 // handleChatCommand handles the /chat command and its subcommands
-func (r *REPL) handleChatCommand(args []string) error {
+func (r *REPL) handleChatCommand(args []string) (string, error) {
 	// Show help if no arguments provided
 	if len(args) < 2 {
-		fmt.Print("Chat conversation management commands:\r\n")
-		fmt.Print("  /chat save [name] - Save conversation to a session file\r\n")
-		fmt.Print("  /chat load <name> - Load conversation from a session file\r\n")
-		fmt.Print("  /chat sessions    - List all saved sessions\r\n")
-		fmt.Print("  /chat clear       - Clear conversation messages\r\n")
-		fmt.Print("  /chat list        - Display conversation messages (truncated)\r\n")
-		fmt.Print("  /chat log         - Display full conversation with preserved formatting\r\n")
-		fmt.Print("  /chat undo [N]    - Remove last or Nth message\r\n")
-		fmt.Print("  /chat compact     - Compact conversation into a single message\r\n")
-		return nil
+		var output strings.Builder
+		output.WriteString("Chat conversation management commands:\r\n")
+		output.WriteString("  /chat save [name] - Save conversation to a session file\r\n")
+		output.WriteString("  /chat load <name> - Load conversation from a session file\r\n")
+		output.WriteString("  /chat sessions    - List all saved sessions\r\n")
+		output.WriteString("  /chat clear       - Clear conversation messages\r\n")
+		output.WriteString("  /chat list        - Display conversation messages (truncated)\r\n")
+		output.WriteString("  /chat log         - Display full conversation with preserved formatting\r\n")
+		output.WriteString("  /chat undo [N]    - Remove last or Nth message\r\n")
+		output.WriteString("  /chat compact     - Compact conversation into a single message\r\n")
+		return output.String(), nil
 	}
 
 	// Handle subcommands
@@ -883,25 +886,27 @@ func (r *REPL) handleChatCommand(args []string) error {
 		} else {
 			sessionName = time.Now().Format("20060102150405")
 		}
-		return r.saveSession(sessionName)
+		return "", r.saveSession(sessionName)
 	case "load":
 		if len(args) < 3 {
-			fmt.Print("Usage: /chat load <name>\r\n")
-			return nil
+			return "Usage: /chat load <name>\r\n", nil
 		}
-		return r.loadSession(args[2])
+		return "", r.loadSession(args[2])
 	case "sessions":
-		return r.listSessions()
+		output, err := r.listSessions()
+		if err != nil {
+			return "", err
+		}
+		return output, nil
 	case "clear":
 		r.messages = []llm.Message{}
-		fmt.Print("Conversation messages cleared\r\n")
-		return nil
+		return "Conversation messages cleared\r\n", nil
 	case "list":
-		r.displayConversationLog()
-		return nil
+		output := r.displayConversationLog()
+		return output, nil
 	case "log":
-		r.displayFullConversationLog()
-		return nil
+		output := r.displayFullConversationLog()
+		return output, nil
 	case "undo":
 		if len(args) > 2 {
 			// Parse the index argument
@@ -910,46 +915,38 @@ func (r *REPL) handleChatCommand(args []string) error {
 			// Default behavior - remove the last message
 			r.undoLastMessage()
 		}
-		return nil
+		return "", nil
 	case "compact":
-		return r.handleCompactCommand()
+		return "", r.handleCompactCommand()
 	case "memory":
 		// Generate or manage consolidated memory file
 		if len(args) < 3 || args[2] == "generate" {
-			return r.generateMemory()
+			return "", r.generateMemory()
 		}
 		if args[2] == "show" {
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Printf("Cannot get home directory: %v\r\n", err)
-				return nil
+				return fmt.Sprintf("Cannot get home directory: %v\r\n", err), nil
 			}
 			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
 			b, err := os.ReadFile(memFile)
 			if err != nil {
-				fmt.Printf("Cannot read memory file: %v\r\n", err)
-				return nil
+				return fmt.Sprintf("Cannot read memory file: %v\r\n", err), nil
 			}
-			fmt.Printf("%s\r\n", string(b))
-			return nil
+			return fmt.Sprintf("%s\r\n", string(b)), nil
 		}
 		if args[2] == "clear" {
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Printf("Cannot get home directory: %v\r\n", err)
-				return nil
+				return fmt.Sprintf("Cannot get home directory: %v\r\n", err), nil
 			}
 			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
 			_ = os.Remove(memFile)
-			fmt.Print("Memory file removed\r\n")
-			return nil
+			return "Memory file removed\r\n", nil
 		}
-		fmt.Print("Usage: /chat memory [generate|show|clear]\r\n")
-		return nil
+		return "Usage: /chat memory [generate|show|clear]\r\n", nil
 	default:
-		fmt.Printf("Unknown action: %s\r\n", action)
-		fmt.Print("Available actions: save, load, sessions, clear, list, log, undo, compact\r\n")
-		return nil
+		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: save, load, sessions, clear, list, log, undo, compact\r\n", action), nil
 	}
 }
 
@@ -1075,7 +1072,7 @@ func (r *REPL) handleScriptCommand(scriptPath string) error {
 		}
 
 		fmt.Printf("> %s\n", line)
-		err := r.handleCommand(line)
+		err := r.handleCommand(line, "", "")
 		if err != nil {
 			return fmt.Errorf("error executing command '%s': %v", line, err)
 		}
@@ -1084,7 +1081,7 @@ func (r *REPL) handleScriptCommand(scriptPath string) error {
 	return nil
 }
 
-func (r *REPL) handleCommand(input string) error {
+func (r *REPL) handleCommand(input string, redirectType, redirectTarget string) error {
 	parts := strings.Fields(input)
 	if len(parts) == 0 {
 		return nil
@@ -1095,7 +1092,30 @@ func (r *REPL) handleCommand(input string) error {
 	// Check if the command exists in the registry
 	if cmd, exists := r.commands[command]; exists {
 		// Execute the command handler
-		return cmd.Handler(r, parts)
+		output, err := cmd.Handler(r, parts)
+		if err != nil {
+			return err
+		}
+		if output != "" {
+			if redirectType == "file" {
+				err = os.WriteFile(redirectTarget, []byte(output), 0644)
+				if err != nil {
+					return fmt.Errorf("failed to write to file %s: %v", redirectTarget, err)
+				}
+				fmt.Printf("Output written to %s\r\n", redirectTarget)
+			} else if redirectType == "pipe" {
+				cmd := exec.Command("/bin/sh", "-c", redirectTarget)
+				cmd.Stdin = strings.NewReader(output)
+				pipeOutput, err := cmd.CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("failed to execute command %s: %v", redirectTarget, err)
+				}
+				fmt.Print(string(pipeOutput))
+			} else {
+				fmt.Print(output)
+			}
+		}
+		return nil
 	} else {
 		fmt.Printf("Unknown command: %s\n\r", command)
 	}
@@ -1103,12 +1123,12 @@ func (r *REPL) handleCommand(input string) error {
 	return nil
 }
 
-func (r *REPL) addImage(imagePath string) error {
+func (r *REPL) addImage(imagePath string) (string, error) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(imagePath, "~") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("failed to get home directory: %v", err)
+			return "", fmt.Errorf("failed to get home directory: %v", err)
 		}
 		imagePath = filepath.Join(homeDir, imagePath[1:])
 	}
@@ -1116,7 +1136,7 @@ func (r *REPL) addImage(imagePath string) error {
 	// Read image file
 	imageData, err := os.ReadFile(imagePath)
 	if err != nil {
-		return fmt.Errorf("failed to read image: %v", err)
+		return "", fmt.Errorf("failed to read image: %v", err)
 	}
 
 	// Encode to base64 and build data URI
@@ -1132,17 +1152,17 @@ func (r *REPL) addImage(imagePath string) error {
 	})
 
 	r.addToHistory(fmt.Sprintf("/image %s", imagePath))
-	fmt.Printf("Image added: %s (%d bytes). Send a message to analyze it.\r\n",
+	message := fmt.Sprintf("Image added: %s (%d bytes). Send a message to analyze it.\r\n",
 		filepath.Base(imagePath), len(imageData))
-	return nil
+	return message, nil
 }
 
-func (r *REPL) addFile(filePath string) error {
+func (r *REPL) addFile(filePath string) (string, error) {
 	// Expand ~ to home directory
 	if strings.HasPrefix(filePath, "~") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("failed to get home directory: %v", err)
+			return "", fmt.Errorf("failed to get home directory: %v", err)
 		}
 		filePath = filepath.Join(homeDir, filePath[1:])
 	}
@@ -1150,7 +1170,7 @@ func (r *REPL) addFile(filePath string) error {
 	// Read file content
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %v", err)
+		return "", fmt.Errorf("failed to read file: %v", err)
 	}
 
 	// Add to pending files
@@ -1161,9 +1181,9 @@ func (r *REPL) addFile(filePath string) error {
 	})
 
 	r.addToHistory(fmt.Sprintf("/file %s", filePath))
-	fmt.Printf("File added: %s (%d bytes). Send a message to analyze it.\r\n",
+	message := fmt.Sprintf("File added: %s (%d bytes). Send a message to analyze it.\r\n",
 		filepath.Base(filePath), len(content))
-	return nil
+	return message, nil
 }
 
 func (r *REPL) substituteInput(input string) (string, error) {
@@ -1666,17 +1686,16 @@ func (r *REPL) initCommands() {
 	r.commands["/help"] = Command{
 		Name:        "/help",
 		Description: "Show available commands",
-		Handler: func(r *REPL, args []string) error {
-			r.showCommands()
-			return nil
+		Handler: func(r *REPL, args []string) (string, error) {
+			return r.showCommands(), nil
 		},
 	}
 
 	r.commands["/slurp"] = Command{
 		Name:        "/slurp",
 		Description: "Read from stdin until EOF (Ctrl+D)",
-		Handler: func(r *REPL, args []string) error {
-			return r.handleSlurpCommand()
+		Handler: func(r *REPL, args []string) (string, error) {
+			return "", r.handleSlurpCommand()
 		},
 	}
 
@@ -1684,22 +1703,20 @@ func (r *REPL) initCommands() {
 	r.commands["."] = Command{
 		Name:        ".",
 		Description: "Load file(s) and send contents as a single prompt",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			if len(args) < 2 {
-				fmt.Print("Usage: . <path>\n\r")
-				return nil
+				return "Usage: . <path>\n\r", nil
 			}
 			var buf strings.Builder
 			for _, path := range args[1:] {
 				data, err := os.ReadFile(path)
 				if err != nil {
-					fmt.Printf("failed to read file '%s': %v\n\r", path, err)
-					return nil
+					return fmt.Sprintf("failed to read file '%s': %v\n\r", path, err), nil
 				}
 				buf.Write(data)
 				buf.WriteString("\n")
 			}
-			return r.sendToAI(buf.String(), "", "")
+			return "", r.sendToAI(buf.String(), "", "")
 		},
 	}
 
@@ -1707,12 +1724,11 @@ func (r *REPL) initCommands() {
 	r.commands["/script"] = Command{
 		Name:        "/script",
 		Description: "Execute a script file containing REPL commands",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			if len(args) < 2 {
-				fmt.Print("Usage: /script <path>\n\r")
-				return nil
+				return "Usage: /script <path>\n\r", nil
 			}
-			return r.handleScriptCommand(args[1])
+			return "", r.handleScriptCommand(args[1])
 		},
 	}
 
@@ -1720,10 +1736,9 @@ func (r *REPL) initCommands() {
 	r.commands["/image"] = Command{
 		Name:        "/image",
 		Description: "Add an image to the next message",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			if len(args) < 2 {
-				fmt.Print("Usage: /image <path>\n\r")
-				return nil
+				return "Usage: /image <path>\n\r", nil
 			}
 			return r.addImage(args[1])
 		},
@@ -1732,10 +1747,9 @@ func (r *REPL) initCommands() {
 	r.commands["/file"] = Command{
 		Name:        "/file",
 		Description: "Add a file to the next message",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			if len(args) < 2 {
-				fmt.Print("Usage: /file <path>\n\r")
-				return nil
+				return "Usage: /file <path>\n\r", nil
 			}
 			return r.addFile(args[1])
 		},
@@ -1744,7 +1758,7 @@ func (r *REPL) initCommands() {
 	r.commands["/noimage"] = Command{
 		Name:        "/noimage",
 		Description: "Remove pending images",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.clearPendingImages()
 		},
 	}
@@ -1752,7 +1766,7 @@ func (r *REPL) initCommands() {
 	r.commands["/nofiles"] = Command{
 		Name:        "/nofiles",
 		Description: "Remove pending files",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.clearPendingFiles()
 		},
 	}
@@ -1761,7 +1775,7 @@ func (r *REPL) initCommands() {
 	r.commands["/set"] = Command{
 		Name:        "/set",
 		Description: "Set or display configuration option",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleSetCommand(args)
 		},
 	}
@@ -1769,7 +1783,7 @@ func (r *REPL) initCommands() {
 	r.commands["/get"] = Command{
 		Name:        "/get",
 		Description: "Display configuration option value",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleGetCommand(args)
 		},
 	}
@@ -1777,7 +1791,7 @@ func (r *REPL) initCommands() {
 	r.commands["/unset"] = Command{
 		Name:        "/unset",
 		Description: "Unset configuration option",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleUnsetCommand(args)
 		},
 	}
@@ -1786,7 +1800,7 @@ func (r *REPL) initCommands() {
 	r.commands["/chat"] = Command{
 		Name:        "/chat",
 		Description: "Manage conversation (save, load, clear, list, log, undo, compact)",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleChatCommand(args)
 		},
 	}
@@ -1794,7 +1808,7 @@ func (r *REPL) initCommands() {
 	r.commands["/session"] = Command{
 		Name:        "/session",
 		Description: "Manage chat sessions (new, list, use, del, purge)",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleSessionCommand(args)
 		},
 	}
@@ -1804,20 +1818,19 @@ func (r *REPL) initCommands() {
 	r.commands["/cancel"] = Command{
 		Name:        "/cancel",
 		Description: "Cancel current request",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			r.cancel()
 			r.ctx, r.cancel = context.WithCancel(context.Background())
-			return nil
+			return "", nil
 		},
 	}
 
 	r.commands["/clear"] = Command{
 		Name:        "/clear",
 		Description: "Clear conversation messages",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			r.messages = []llm.Message{}
-			fmt.Print("Conversation messages cleared\r\n")
-			return nil
+			return "Conversation messages cleared\r\n", nil
 		},
 	}
 
@@ -1825,23 +1838,20 @@ func (r *REPL) initCommands() {
 	r.commands["_"] = Command{
 		Name:        "_",
 		Description: "Print the last assistant reply",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			content, err := r.getLastAssistantReply()
 			if err != nil {
-				fmt.Printf("%v\r\n", err)
-				return nil
+				return fmt.Sprintf("%v\r\n", err), nil
 			}
 
-			// Print the content with markdown rendering if enabled
+			// Return the content with markdown rendering if enabled
 			if r.configOptions.GetBool("scr.markdown") {
-				fmt.Print(llm.RenderMarkdown(content))
+				return llm.RenderMarkdown(content) + "\r\n", nil
 			} else {
 				// Replace single newlines with \r\n for proper terminal display
 				content = strings.ReplaceAll(content, "\n", "\r\n")
-				fmt.Print(content)
+				return content + "\r\n", nil
 			}
-			fmt.Print("\r\n")
-			return nil
 		},
 	}
 
@@ -1849,23 +1859,23 @@ func (r *REPL) initCommands() {
 	r.commands["/quit"] = Command{
 		Name:        "/quit",
 		Description: "Exit REPL",
-		Handler: func(r *REPL, args []string) error {
-			return io.EOF
+		Handler: func(r *REPL, args []string) (string, error) {
+			return "", io.EOF
 		},
 	}
 
 	r.commands["/exit"] = Command{
 		Name:        "/exit",
 		Description: "Exit REPL",
-		Handler: func(r *REPL, args []string) error {
-			return io.EOF
+		Handler: func(r *REPL, args []string) (string, error) {
+			return "", io.EOF
 		},
 	}
 
 	r.commands["/tool"] = Command{
 		Name:        "/tool",
 		Description: "Execute the mai-tool command, passing arguments",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleToolCommand(args)
 		},
 	}
@@ -1874,7 +1884,7 @@ func (r *REPL) initCommands() {
 	r.commands["/serve"] = Command{
 		Name:        "/serve",
 		Description: "Manage the background web server (start, stop, status)",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleServeCommand(args)
 		},
 	}
@@ -1883,27 +1893,25 @@ func (r *REPL) initCommands() {
 	r.commands["/prompt"] = Command{
 		Name:        "/prompt",
 		Description: "Show current system prompt",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			sp := r.currentSystemPrompt()
 			if sp == "" {
-				fmt.Print("No system prompt set\r\n")
+				return "No system prompt set\r\n", nil
 			} else {
-				fmt.Printf("System prompt (%d chars):\r\n%s\r\n", len(sp), sp)
+				return fmt.Sprintf("System prompt (%d chars):\r\n%s\r\n", len(sp), sp), nil
 			}
-			return nil
 		},
 	}
 
 	r.commands["/noprompt"] = Command{
 		Name:        "/noprompt",
 		Description: "Clear system prompt",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			// Clear inline and file-based system prompt settings
 			r.configOptions.Unset("llm.systemprompt")
 			r.configOptions.Unset("dir.promptfile")
 			r.configOptions.Unset("llm.systempromptfile")
-			fmt.Print("System prompt cleared\r\n")
-			return nil
+			return "System prompt cleared\r\n", nil
 		},
 	}
 
@@ -1911,7 +1919,7 @@ func (r *REPL) initCommands() {
 	r.commands["/models"] = Command{
 		Name:        "/models",
 		Description: "List available models",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.listModels()
 		},
 	}
@@ -1920,7 +1928,7 @@ func (r *REPL) initCommands() {
 	r.commands["/providers"] = Command{
 		Name:        "/providers",
 		Description: "List available providers",
-		Handler: func(r *REPL, args []string) error {
+		Handler: func(r *REPL, args []string) (string, error) {
 			return r.listProviders()
 		},
 	}
@@ -2492,19 +2500,20 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 }
 
 // displayConversationLog prints the current conversation messages
-func (r *REPL) displayConversationLog() {
+func (r *REPL) displayConversationLog() string {
+	var output strings.Builder
 	if len(r.messages) == 0 {
-		fmt.Print("No conversation messages yet\r\n")
-		return
+		output.WriteString("No conversation messages yet\r\n")
+		return output.String()
 	}
 
-	fmt.Print("Conversation log:\r\n")
-	fmt.Print("-----------------\r\n")
+	output.WriteString("Conversation log:\r\n")
+	output.WriteString("-----------------\r\n")
 
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
 
-		fmt.Printf("[%d] %s: ", i+1, role)
+		output.WriteString(fmt.Sprintf("[%d] %s: ", i+1, role))
 
 		// For log display, use a larger truncation limit
 		content := msg.Content.(string)
@@ -2515,64 +2524,66 @@ func (r *REPL) displayConversationLog() {
 		// Replace newlines with space for compact display
 		content = strings.ReplaceAll(content, "\n", " ")
 
-		fmt.Printf("%s\r\n", content)
+		output.WriteString(fmt.Sprintf("%s\r\n", content))
 	}
 
-	fmt.Printf("Total messages: %d\r\n", len(r.messages))
-	fmt.Printf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
+	output.WriteString(fmt.Sprintf("Total messages: %d\r\n", len(r.messages)))
+	output.WriteString(fmt.Sprintf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
 		r.configOptions.GetBool("chat.replies"),
 		r.configOptions.GetBool("llm.stream"),
 		r.configOptions.GetBool("llm.think"),
-		r.configOptions.GetBool("chat.log"))
+		r.configOptions.GetBool("chat.log")))
 
 	// Display pending files if any
 	if len(r.pendingFiles) > 0 {
-		fmt.Print("\r\nPending files for next message:\r\n")
+		output.WriteString("\r\nPending files for next message:\r\n")
 		imageCount := 0
 		fileCount := 0
 
 		for _, file := range r.pendingFiles {
-			fmt.Println(file)
 			if file.isImage {
 				imageCount++
-				fmt.Printf(" - Image: %s\r\n", file.filePath)
+				output.WriteString(fmt.Sprintf(" - Image: %s\r\n", file.filePath))
 			} else {
 				fileCount++
-				fmt.Printf(" - File: %s\r\n", file.filePath)
+				output.WriteString(fmt.Sprintf(" - File: %s\r\n", file.filePath))
 			}
 		}
 
-		fmt.Printf("Total pending: %d images, %d files\r\n", imageCount, fileCount)
+		output.WriteString(fmt.Sprintf("Total pending: %d images, %d files\r\n", imageCount, fileCount))
 	}
+	return output.String()
 }
 
 // displayFullConversationLog prints the complete conversation without truncating or filtering
-func (r *REPL) displayFullConversationLog() {
+func (r *REPL) displayFullConversationLog() string {
+	var output strings.Builder
 	if len(r.messages) == 0 {
-		fmt.Print("No conversation messages yet\r\n")
-		return
+		output.WriteString("No conversation messages yet\r\n")
+		return output.String()
 	}
 
-	fmt.Print("# Full conversation log:\r\n")
+	output.WriteString("# Full conversation log:\r\n")
 
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
 
-		fmt.Printf("\r\n## [%d] %s:\r\n", i+1, role)
+		output.WriteString(fmt.Sprintf("\r\n## [%d] %s:\r\n", i+1, role))
 
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
 		if r.configOptions.GetBool("scr.markdown") {
-			fmt.Printf("%s\r\n", llm.RenderMarkdown(msg.Content.(string)))
+			output.WriteString(fmt.Sprintf("%s\r\n", llm.RenderMarkdown(msg.Content.(string))))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
 			content := strings.ReplaceAll(msg.Content.(string), "\n", "\r\n")
-			fmt.Printf("%s\r\n", content)
+			output.WriteString(fmt.Sprintf("%s\r\n", content))
 		}
-		fmt.Print("--------------------\r\n")
+		output.WriteString("--------------------\r\n")
 	}
 
-	fmt.Printf("\r\nTotal messages: %d\r\n", len(r.messages))
+	output.WriteString(fmt.Sprintf("\r\nTotal messages: %d\r\n", len(r.messages)))
+	return output.String()
 }
 
 // undoLastMessage removes the last message from the conversation history
@@ -2586,7 +2597,7 @@ func (r *REPL) undoLastMessage() {
 }
 
 // clearPendingImages removes all pending images
-func (r *REPL) clearPendingImages() error {
+func (r *REPL) clearPendingImages() (string, error) {
 	imageCount := 0
 
 	// Count images and remove them from pendingFiles
@@ -2601,17 +2612,18 @@ func (r *REPL) clearPendingImages() error {
 
 	r.pendingFiles = remainingFiles
 
+	var output strings.Builder
 	if imageCount > 0 {
-		fmt.Printf("Removed %d pending image(s)\r\n", imageCount)
+		output.WriteString(fmt.Sprintf("Removed %d pending image(s)\r\n", imageCount))
 	} else {
-		fmt.Print("No pending images to remove\r\n")
+		output.WriteString("No pending images to remove\r\n")
 	}
 
-	return nil
+	return output.String(), nil
 }
 
 // clearPendingFiles removes all pending non-image files
-func (r *REPL) clearPendingFiles() error {
+func (r *REPL) clearPendingFiles() (string, error) {
 	fileCount := 0
 
 	// Count regular files and remove them from pendingFiles
@@ -2626,13 +2638,14 @@ func (r *REPL) clearPendingFiles() error {
 
 	r.pendingFiles = remainingFiles
 
+	var output strings.Builder
 	if fileCount > 0 {
-		fmt.Printf("Removed %d pending file(s)\r\n", fileCount)
+		output.WriteString(fmt.Sprintf("Removed %d pending file(s)\r\n", fileCount))
 	} else {
-		fmt.Print("No pending files to remove\r\n")
+		output.WriteString("No pending files to remove\r\n")
 	}
 
-	return nil
+	return output.String(), nil
 }
 
 // undoMessageByIndex removes a specific message by its 1-based index
@@ -2844,7 +2857,7 @@ func (r *REPL) getValidProviders() map[string]bool {
 }
 
 // listProviders displays all available providers
-func (r *REPL) listProviders() error {
+func (r *REPL) listProviders() (string, error) {
 	validProviders := r.getValidProviders()
 
 	// Extract provider names and sort them
@@ -2858,17 +2871,18 @@ func (r *REPL) listProviders() error {
 	}
 	sort.Strings(providers)
 
-	fmt.Print("Available providers:\r\n")
+	var output strings.Builder
+	output.WriteString("Available providers:\r\n")
 	for _, provider := range providers {
 		if provider == r.configOptions.Get("ai.provider") {
-			fmt.Printf("* %s (current)\r\n", provider)
+			output.WriteString(fmt.Sprintf("* %s (current)\r\n", provider))
 		} else {
-			fmt.Printf("  %s\r\n", provider)
+			output.WriteString(fmt.Sprintf("  %s\r\n", provider))
 		}
 	}
 
-	fmt.Print("\r\nUse '/set ai.provider <name>' to change the current provider\r\n")
-	return nil
+	output.WriteString("\r\nUse '/set ai.provider <name>' to change the current provider\r\n")
+	return output.String(), nil
 }
 
 // setProvider changes the current provider
@@ -2913,29 +2927,31 @@ func (r *REPL) resolveDefaultModelForProvider(provider string) string {
 }
 
 // listModels fetches and displays available models for the current provider
-func (r *REPL) listModels() error {
+func (r *REPL) listModels() (string, error) {
+	var output strings.Builder
+
 	// Create client
 	client, err := llm.NewLLMClient(r.buildLLMConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create LLM client: %v", err)
+		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
-	fmt.Printf("Fetching available models for %s...\r\n", r.configOptions.Get("ai.provider"))
+	output.WriteString(fmt.Sprintf("Fetching available models for %s...\r\n", r.configOptions.Get("ai.provider")))
 
 	// Get models from the provider
 	models, err := client.ListModels()
 	if err != nil {
-		return fmt.Errorf("failed to fetch models: %v", err)
+		return "", fmt.Errorf("failed to fetch models: %v", err)
 	}
 
 	if len(models) == 0 {
-		fmt.Print("No models available for this provider\r\n")
-		return nil
+		output.WriteString("No models available for this provider\r\n")
+		return output.String(), nil
 	}
 
 	// Display models
-	fmt.Printf("Available %s models:\r\n", r.configOptions.Get("ai.provider"))
-	fmt.Print("-----------------------\r\n")
+	output.WriteString(fmt.Sprintf("Available %s models:\r\n", r.configOptions.Get("ai.provider")))
+	output.WriteString("-----------------------\r\n")
 
 	// Get current model for highlighting
 	currentModel := r.getCurrentModelForProvider()
@@ -2950,16 +2966,16 @@ func (r *REPL) listModels() error {
 
 		// Display model with description if available
 		if model.Description != "" {
-			fmt.Printf("[%d] %s%s - %s\r\n", i+1, model.ID, current, model.Description)
+			output.WriteString(fmt.Sprintf("[%d] %s%s - %s\r\n", i+1, model.ID, current, model.Description))
 		} else {
-			fmt.Printf("[%d] %s%s\r\n", i+1, model.ID, current)
+			output.WriteString(fmt.Sprintf("[%d] %s%s\r\n", i+1, model.ID, current))
 		}
 	}
 
-	fmt.Printf("Total models: %d\r\n", len(models))
-	fmt.Print("Use '/set chat.prompt <model-id>' to change the model\r\n")
+	output.WriteString(fmt.Sprintf("Total models: %d\r\n", len(models)))
+	output.WriteString("Use '/set chat.prompt <model-id>' to change the model\r\n")
 
-	return nil
+	return output.String(), nil
 }
 
 // getCurrentModelForProvider returns the current model ID for the active provider
@@ -3134,20 +3150,25 @@ func (r *REPL) handleCompactCommand() error {
 }
 
 // handleToolCommand executes the mai-tool command with the given arguments
-func (r *REPL) handleToolCommand(args []string) error {
+func (r *REPL) handleToolCommand(args []string) (string, error) {
+	var output strings.Builder
 	if len(args) < 2 {
 		tools, err := GetAvailableTools(Quiet)
 		if err == nil {
-			fmt.Println(tools)
+			output.WriteString(tools)
+			output.WriteString("\n")
 		}
 	} else {
 		res, err := ExecuteTool(args[1], args[2:]...)
 		if err == nil {
-			fmt.Println(res)
+			output.WriteString(res)
+			output.WriteString("\n")
+		} else {
+			return "", err
 		}
 	}
 
-	return nil
+	return output.String(), nil
 }
 
 // saveConversation saves the current conversation to a JSON file

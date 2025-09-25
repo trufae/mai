@@ -30,7 +30,7 @@ func (r *REPL) loadRCFile() error {
 		if line == "" || !strings.HasPrefix(line, "/") {
 			continue
 		}
-		if err := r.handleCommand(line); err != nil {
+		if err := r.handleCommand(line, "", ""); err != nil {
 			fmt.Printf("Error in rc file %s: %v\r\n", rcFilePath, err)
 		}
 	}

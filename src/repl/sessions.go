@@ -22,25 +22,26 @@ type sessionData struct {
 }
 
 // handleSessionCommand handles the /session command and its subcommands.
-func (r *REPL) handleSessionCommand(args []string) error {
+func (r *REPL) handleSessionCommand(args []string) (string, error) {
 	if len(args) < 2 {
-		fmt.Print("Session management commands:\r\n")
-		fmt.Print("  /session new      - Start a new session (save current if non-empty)\r\n")
-		fmt.Print("  /session list     - List all saved sessions\r\n")
-		fmt.Print("  /session show <name> - Display full conversation with preserved formatting for the given session\r\n")
-		fmt.Print("  /session use <name> - Switch to the given session\r\n")
-		fmt.Print("  /session del <name> - Delete the given session\r\n")
-		fmt.Print("  /session purge    - Delete all saved sessions\r\n")
-		fmt.Print("  /session topic [t] - Show or set session topic\r\n")
-		fmt.Print("  /session aitopic  - Generate AI session topic and set unsaved topic\r\n")
-		return nil
+		var output strings.Builder
+		output.WriteString("Session management commands:\r\n")
+		output.WriteString("  /session new      - Start a new session (save current if non-empty)\r\n")
+		output.WriteString("  /session list     - List all saved sessions\r\n")
+		output.WriteString("  /session show <name> - Display full conversation with preserved formatting for the given session\r\n")
+		output.WriteString("  /session use <name> - Switch to the given session\r\n")
+		output.WriteString("  /session del <name> - Delete the given session\r\n")
+		output.WriteString("  /session purge    - Delete all saved sessions\r\n")
+		output.WriteString("  /session topic [t] - Show or set session topic\r\n")
+		output.WriteString("  /session aitopic  - Generate AI session topic and set unsaved topic\r\n")
+		return output.String(), nil
 	}
 
 	action := args[1]
 	switch action {
 	case "new":
 		if len(r.messages) == 0 {
-			return nil
+			return "", nil
 		}
 
 		name := r.currentSession
@@ -48,67 +49,66 @@ func (r *REPL) handleSessionCommand(args []string) error {
 			name = time.Now().Format("20060102150405")
 		}
 		if err := r.saveSession(name); err != nil {
-			return err
+			return "", err
 		}
 		r.messages = []llm.Message{}
 		r.currentSession = name
 		r.unsavedTopic = ""
-		fmt.Printf("Started new session '%s'\r\n", name)
+		return fmt.Sprintf("Started new session '%s'\r\n", name), nil
 	case "list":
-		return r.listSessions()
+		output, err := r.listSessions()
+		if err != nil {
+			return "", err
+		}
+		return output, nil
 	case "show":
 		if len(args) < 3 {
-			fmt.Print("Usage: /session show <session-name>\r\n")
-			return nil
+			return "Usage: /session show <session-name>\r\n", nil
 		}
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			fmt.Printf("Cannot get home directory: %v\r\n", err)
-			return nil
+			return fmt.Sprintf("Cannot get home directory: %v\r\n", err), nil
 		}
 		sessionFile := filepath.Join(homeDir, ".mai", "chat", args[2]+".json")
 		data, err := os.ReadFile(sessionFile)
 		if err != nil {
-			fmt.Printf("Cannot read session file: %v\r\n", err)
-			return nil
+			return fmt.Sprintf("Cannot read session file: %v\r\n", err), nil
 		}
 		var sess sessionData
 		if err := json.Unmarshal(data, &sess); err != nil {
-			fmt.Printf("Cannot parse session data: %v\r\n", err)
-			return nil
+			return fmt.Sprintf("Cannot parse session data: %v\r\n", err), nil
 		}
 		origMsgs := r.messages
 		r.messages = sess.Messages
-		r.displayFullConversationLog()
+		output := r.displayFullConversationLog()
 		r.messages = origMsgs
-		return nil
+		return output, nil
 	case "use":
 		if len(args) < 3 {
-			fmt.Print("Usage: /session use <session-name>\r\n")
-			return nil
+			return "Usage: /session use <session-name>\r\n", nil
 		}
 		if err := r.loadSession(args[2]); err != nil {
-			return err
+			return "", err
 		}
 		r.currentSession = args[2]
 		r.unsavedTopic = ""
+		return "", nil
 	case "del":
 		if len(args) < 3 {
-			fmt.Print("Usage: /session del <session-name>\r\n")
-			return nil
+			return "Usage: /session del <session-name>\r\n", nil
 		}
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("cannot get home directory: %v\r\n", err)
+			return "", fmt.Errorf("cannot get home directory: %v\r\n", err)
 		}
 		chatDir := filepath.Join(homeDir, ".mai", "chat")
 		sessionFile := filepath.Join(chatDir, args[2]+".json")
 		topicFile := filepath.Join(chatDir, args[2]+".topic")
 		if err := os.Remove(sessionFile); err != nil {
-			fmt.Printf("Error deleting session: %v\r\n", err)
+			return fmt.Sprintf("Error deleting session: %v\r\n", err), nil
 		}
 		_ = os.Remove(topicFile)
-		fmt.Printf("Deleted session '%s'\r\n", args[2])
+		return fmt.Sprintf("Deleted session '%s'\r\n", args[2]), nil
 	case "topic":
 		if len(args) > 2 {
 			topic := strings.Join(args[2:], " ")
@@ -117,26 +117,27 @@ func (r *REPL) handleSessionCommand(args []string) error {
 			} else {
 				r.setSessionTopic(r.currentSession, topic)
 			}
+			return "", nil
 		} else {
 			if r.currentSession == "" {
-				fmt.Printf("Current session topic: %s\r\n", r.unsavedTopic)
+				return fmt.Sprintf("Current session topic: %s\r\n", r.unsavedTopic), nil
 			} else {
-				fmt.Printf("Current session topic: %s\r\n", r.getSessionTopic(r.currentSession))
+				return fmt.Sprintf("Current session topic: %s\r\n", r.getSessionTopic(r.currentSession)), nil
 			}
 		}
 	case "purge":
-		return r.purgeSessions()
+		return "", r.purgeSessions()
 	case "aitopic":
 		topic, err := r.generateAndSetTopic()
 		if err != nil {
-			fmt.Printf("Error generating AI topic: %v\r\n", err)
+			return fmt.Sprintf("Error generating AI topic: %v\r\n", err), nil
 		} else {
-			fmt.Printf("AI session topic: %s\r\n", topic)
+			return fmt.Sprintf("AI session topic: %s\r\n", topic), nil
 		}
 	default:
-		fmt.Printf("Unknown session action: %s\r\n", action)
+		return fmt.Sprintf("Unknown session action: %s\r\n", action), nil
 	}
-	return nil
+	return "", nil
 }
 
 func (r *REPL) getSessionTopic(sessionName string) string {
@@ -319,16 +320,16 @@ func (r *REPL) loadSession(sessionName string) error {
 	return nil
 }
 
-func (r *REPL) listSessions() error {
+func (r *REPL) listSessions() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return "", fmt.Errorf("cannot get home directory: %v", err)
 	}
 	chatDir := filepath.Join(homeDir, ".mai", "chat")
 
 	files, err := os.ReadDir(chatDir)
 	if err != nil {
-		return fmt.Errorf("cannot read chat directory: %v", err)
+		return "", fmt.Errorf("cannot read chat directory: %v", err)
 	}
 
 	type sessionEntry struct {
@@ -367,11 +368,12 @@ func (r *REPL) listSessions() error {
 		return sessions[i].time.Before(sessions[j].time)
 	})
 
-	fmt.Print("Available sessions:\n\r")
+	var output strings.Builder
+	output.WriteString("Available sessions:\r\n")
 	for _, s := range sessions {
-		fmt.Printf("  %s (%d bytes) - %s\n\r", s.name, s.info.Size(), string(s.topic))
+		output.WriteString(fmt.Sprintf("  %s (%d bytes) - %s\r\n", s.name, s.info.Size(), string(s.topic)))
 	}
-	return nil
+	return output.String(), nil
 }
 
 func (r *REPL) purgeSessions() error {

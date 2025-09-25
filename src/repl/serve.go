@@ -357,7 +357,7 @@ func (sm *ServerManager) executeCommandWithCapture(command string) (string, erro
 	os.Stderr = stderrW
 
 	// Execute the command
-	err = sm.repl.handleCommand(command)
+	err = sm.repl.handleCommand(command, "", "")
 
 	// Restore stdout and stderr
 	stdoutW.Close()
@@ -785,18 +785,19 @@ func (sm *ServerManager) handleGetProviderModels(w http.ResponseWriter, r *http.
 }
 
 // handleServeCommand handles the /serve command
-func (r *REPL) handleServeCommand(args []string) error {
+func (r *REPL) handleServeCommand(args []string) (string, error) {
 	if len(args) < 2 {
 		// Show current status
+		var output strings.Builder
 		if serverManager == nil {
-			fmt.Print("Server not initialized\r\n")
-			return nil
+			output.WriteString("Server not initialized\r\n")
+			return output.String(), nil
 		}
-		fmt.Printf("Server status: %s\r\n", serverManager.GetStatusString())
+		output.WriteString(fmt.Sprintf("Server status: %s\r\n", serverManager.GetStatusString()))
 		if serverManager.GetStatus() == ServerRunning {
-			fmt.Printf("Listening on: %s\r\n", serverManager.listenAddr)
+			output.WriteString(fmt.Sprintf("Listening on: %s\r\n", serverManager.listenAddr))
 		}
-		return nil
+		return output.String(), nil
 	}
 
 	action := args[1]
@@ -804,8 +805,7 @@ func (r *REPL) handleServeCommand(args []string) error {
 	switch action {
 	case "start":
 		if serverManager != nil && serverManager.GetStatus() == ServerRunning {
-			fmt.Print("Server is already running\r\n")
-			return nil
+			return "Server is already running\r\n", nil
 		}
 
 		// Get listen address from config
@@ -838,27 +838,23 @@ func (r *REPL) handleServeCommand(args []string) error {
 
 		// Start the server
 		if err := serverManager.Start(); err != nil {
-			return fmt.Errorf("failed to start server: %v", err)
+			return "", fmt.Errorf("failed to start server: %v", err)
 		}
 
-		fmt.Printf("Server started on http://%s\r\n", listenAddr)
-		return nil
+		return fmt.Sprintf("Server started on http://%s\r\n", listenAddr), nil
 
 	case "stop":
 		if serverManager == nil || serverManager.GetStatus() != ServerRunning {
-			fmt.Print("Server is not running\r\n")
-			return nil
+			return "Server is not running\r\n", nil
 		}
 
 		if err := serverManager.Stop(); err != nil {
-			return fmt.Errorf("failed to stop server: %v", err)
+			return "", fmt.Errorf("failed to stop server: %v", err)
 		}
 
-		return nil
+		return "", nil
 
 	default:
-		fmt.Printf("Unknown action: %s\r\n", action)
-		fmt.Print("Available actions: start, stop\r\n")
-		return nil
+		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: start, stop\r\n", action), nil
 	}
 }

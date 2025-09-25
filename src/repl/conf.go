@@ -334,7 +334,7 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 
 // TODO: move into repl.go?
 // handleSetCommand handles the /set command with auto-completion and type validation
-func (r *REPL) handleSetCommand(args []string) error {
+func (r *REPL) handleSetCommand(args []string) (string, error) {
 	// Special handling for specific configOptions
 	if len(args) >= 3 {
 		val := strings.Join(args[2:], " ")
@@ -342,31 +342,30 @@ func (r *REPL) handleSetCommand(args []string) error {
 		case "ai.deterministic":
 			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("ai.deterministic", val)
-			return nil
+			return "", nil
 		case "llm.rawmode":
 			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("llm.rawmode", val)
-			return nil
+			return "", nil
 		case "dir.promptfile":
-			return r.loadSystemPrompt(val)
+			return "", r.loadSystemPrompt(val)
 		case "llm.systemprompt":
 			// Store inline system prompt via config API; no local cache
 			r.configOptions.Set("llm.systemprompt", val)
-			fmt.Printf("System prompt set (%d chars)\r\n", len(val))
-			return nil
+			return "", nil
 		case "chat.prompt":
-			return r.setModel(val)
+			return "", r.setModel(val)
 		case "ai.provider":
 			provider := strings.ToLower(val)
-			return r.setProvider(provider)
+			return "", r.setProvider(provider)
 		case "chat.replies":
 			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("chat.replies", val)
-			return nil
+			return "", nil
 		case "chat.system":
 			// Update option; REPL binds keep provider config in sync
 			r.configOptions.Set("chat.system", val)
-			return nil
+			return "", nil
 		case "chat.format":
 			// Accept plain, labeled, tokens
 			valLower := strings.ToLower(val)
@@ -375,26 +374,28 @@ func (r *REPL) handleSetCommand(args []string) error {
 				fmt.Printf("Warning: unknown chat.format '%s'\n", val)
 			}
 			r.configOptions.Set("chat.format", valLower)
-			return nil
+			return "", nil
 
 		}
 	}
 	if len(args) < 2 {
-		fmt.Print("Usage: /set <option> [value]\r\n")
-		fmt.Print("Available options:\r\n")
+		var output strings.Builder
+		output.WriteString("Usage: /set <option> [value]\r\n")
+		output.WriteString("Available options:\r\n")
 		for _, option := range r.configOptions.GetAvailableOptions() {
 			optType := r.configOptions.GetOptionType(option)
-			fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", r.configOptions.GetOptionDescription(option))
+			output.WriteString(fmt.Sprintf("  %-20s %-15s %s\r\n", option, "("+optType+")", r.configOptions.GetOptionDescription(option)))
 		}
-		return nil
+		return output.String(), nil
 	}
 
 	option := args[1]
 
 	// If option ends with '.', list all keys that start with that prefix
 	if strings.HasSuffix(option, ".") {
+		var output strings.Builder
 		prefix := option
-		fmt.Printf("Configuration options starting with '%s':\r\n", prefix)
+		output.WriteString(fmt.Sprintf("Configuration options starting with '%s':\r\n", prefix))
 		found := false
 		for _, opt := range r.configOptions.GetAvailableOptions() {
 			if strings.HasPrefix(opt, prefix) {
@@ -409,14 +410,14 @@ func (r *REPL) handleSetCommand(args []string) error {
 					status = value
 				}
 				optType := r.configOptions.GetOptionType(opt)
-				fmt.Printf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType)
+				output.WriteString(fmt.Sprintf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType))
 				found = true
 			}
 		}
 		if !found {
-			fmt.Printf("No configuration options found starting with '%s'\r\n", prefix)
+			output.WriteString(fmt.Sprintf("No configuration options found starting with '%s'\r\n", prefix))
 		}
-		return nil
+		return output.String(), nil
 	}
 
 	if len(args) < 3 {
@@ -437,76 +438,78 @@ func (r *REPL) handleSetCommand(args []string) error {
 			status = value
 		}
 
-		fmt.Printf("%s = %s (type: %s)\r\n", option, status, optType)
-		return nil
+		return fmt.Sprintf("%s = %s (type: %s)\r\n", option, status, optType), nil
 	}
 
 	value := args[2]
 
 	// Set the option value with validation
 	if err := r.configOptions.Set(option, value); err != nil {
-		fmt.Printf("Error: %v\r\n", err)
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("Error: %v\r\n", err))
 
 		// Show expected format for the type
 		if optType := r.configOptions.GetOptionType(option); optType != "" {
 			switch optType {
 			case BooleanOption:
-				fmt.Print("Boolean options accept: true, false\r\n")
+				output.WriteString("Boolean options accept: true, false\r\n")
 			case NumberOption:
-				fmt.Print("Number options accept numeric values\r\n")
+				output.WriteString("Number options accept numeric values\r\n")
 			}
 		}
 
-		return nil
+		return output.String(), nil
 	}
 
 	// Handle special options that require updating REPL output/state
+	var output strings.Builder
 	switch option {
 	case "llm.stream":
 		streamStatus := "enabled"
 		if !r.configOptions.GetBool("llm.stream") {
 			streamStatus = "disabled"
 		}
-		fmt.Printf("Streaming mode %s\r\n", streamStatus)
+		output.WriteString(fmt.Sprintf("Streaming mode %s\r\n", streamStatus))
 	case "chat.replies":
-		fmt.Printf("Set %s = %s\r\n", option, value)
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
 	case "llm.think":
-		fmt.Printf("Set %s = %s\r\n", option, value)
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
 	case "chat.log":
-		fmt.Printf("Set %s = %s\r\n", option, value)
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
 	case "scr.markdown":
 		markdownStatus := "enabled"
 		if !r.configOptions.GetBool("scr.markdown") {
 			markdownStatus = "disabled"
 		}
-		fmt.Printf("Markdown rendering %s\r\n", markdownStatus)
+		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
 	case "tools.old":
 		toolsStatus := "enabled"
 		if !r.configOptions.GetBool("tools.old") {
 			toolsStatus = "disabled"
 		}
-		fmt.Printf("Tools processing %s\r\n", toolsStatus)
+		output.WriteString(fmt.Sprintf("Tools processing %s\r\n", toolsStatus))
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
-		return nil
+		return output.String(), nil
 	case "chat.prompt":
 		// Already handled above
-		return nil
+		return output.String(), nil
 	case "ai.provider":
 		// Already handled above
-		return nil
+		return output.String(), nil
 	default:
-		fmt.Printf("Set %s = %s\r\n", option, value)
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
 	}
 
-	return nil
+	return output.String(), nil
 }
 
 // handleGetCommand handles the /get command
-func (r *REPL) handleGetCommand(args []string) error {
+func (r *REPL) handleGetCommand(args []string) (string, error) {
+	var output strings.Builder
 	if len(args) < 2 {
-		fmt.Print("Usage: /get <option>\r\n")
-		fmt.Print("Available options:\r\n")
+		output.WriteString("Usage: /get <option>\r\n")
+		output.WriteString("Available options:\r\n")
 		// List all available options and their current values
 		for _, option := range r.configOptions.GetAvailableOptions() {
 			value := r.configOptions.Get(option)
@@ -524,10 +527,10 @@ func (r *REPL) handleGetCommand(args []string) error {
 				status = value
 			}
 			// fmt.Printf("  %-20s %-15s %s\r\n", option, "("+optType+")", r.configOptions.GetOptionDescription(option))
-			fmt.Printf("  %-20s = %-15s\r\n", option, status)
+			output.WriteString(fmt.Sprintf("  %-20s = %-15s\r\n", option, status))
 			// (type: %s) - %s\r\n", option, status, optType, r.configOptions.GetOptionDescription(option))
 		}
-		return nil
+		return output.String(), nil
 	}
 
 	option := args[1]
@@ -535,7 +538,7 @@ func (r *REPL) handleGetCommand(args []string) error {
 	// If option ends with '.', list all keys that start with that prefix
 	if strings.HasSuffix(option, ".") {
 		prefix := option
-		fmt.Printf("Configuration options starting with '%s':\r\n", prefix)
+		output.WriteString(fmt.Sprintf("Configuration options starting with '%s':\r\n", prefix))
 		found := false
 		for _, opt := range r.configOptions.GetAvailableOptions() {
 			if strings.HasPrefix(opt, prefix) {
@@ -550,14 +553,14 @@ func (r *REPL) handleGetCommand(args []string) error {
 					status = value
 				}
 				optType := r.configOptions.GetOptionType(opt)
-				fmt.Printf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType)
+				output.WriteString(fmt.Sprintf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType))
 				found = true
 			}
 		}
 		if !found {
-			fmt.Printf("No configuration options found starting with '%s'\r\n", prefix)
+			output.WriteString(fmt.Sprintf("No configuration options found starting with '%s'\r\n", prefix))
 		}
-		return nil
+		return output.String(), nil
 	}
 
 	value := r.configOptions.Get(option)
@@ -576,31 +579,32 @@ func (r *REPL) handleGetCommand(args []string) error {
 		status = value
 	}
 
-	fmt.Printf("%s = %s (type: %s)\r\n", option, status, optType)
-	fmt.Printf("Description: %s\r\n", r.configOptions.GetOptionDescription(option))
+	output.WriteString(fmt.Sprintf("%s = %s (type: %s)\r\n", option, status, optType))
+	output.WriteString(fmt.Sprintf("Description: %s\r\n", r.configOptions.GetOptionDescription(option)))
 
-	return nil
+	return output.String(), nil
 }
 
 // handleUnsetCommand handles the /unset command with auto-completion
-func (r *REPL) handleUnsetCommand(args []string) error {
+func (r *REPL) handleUnsetCommand(args []string) (string, error) {
+	var output strings.Builder
 	if len(args) < 2 {
-		fmt.Print("Usage: /unset <option>\r\n")
-		fmt.Print("Available options:\r\n")
+		output.WriteString("Usage: /unset <option>\r\n")
+		output.WriteString("Available options:\r\n")
 		for _, key := range r.configOptions.GetKeys() {
 			if value := r.configOptions.Get(key); value != "" {
 				optType := r.configOptions.GetOptionType(key)
-				fmt.Printf("  %s = %s (type: %s)\r\n", key, value, optType)
+				output.WriteString(fmt.Sprintf("  %s = %s (type: %s)\r\n", key, value, optType))
 			}
 		}
-		return nil
+		return output.String(), nil
 	}
 
 	option := args[1]
 
 	// Unset the option
 	r.configOptions.Unset(option)
-	fmt.Printf("Unset %s\r\n", option)
+	output.WriteString(fmt.Sprintf("Unset %s\r\n", option))
 
 	// Handle special options that require updating REPL output/state
 	switch option {
@@ -610,28 +614,28 @@ func (r *REPL) handleUnsetCommand(args []string) error {
 		if !r.configOptions.GetBool("llm.stream") {
 			streamStatus = "disabled"
 		}
-		fmt.Printf("Streaming mode %s (reverted to default)\r\n", streamStatus)
+		output.WriteString(fmt.Sprintf("Streaming mode %s (reverted to default)\r\n", streamStatus))
 	case "chat.replies":
-		fmt.Printf("Include replies reverted to default\r\n")
+		output.WriteString("Include replies reverted to default\r\n")
 	case "llm.think":
-		fmt.Printf("AI reasoning reverted to default\r\n")
+		output.WriteString("AI reasoning reverted to default\r\n")
 	case "chat.log":
-		fmt.Printf("Logging reverted to default\r\n")
+		output.WriteString("Logging reverted to default\r\n")
 	case "scr.markdown":
-		fmt.Printf("Markdown rendering reverted to default\r\n")
+		output.WriteString("Markdown rendering reverted to default\r\n")
 	case "tools.old":
-		fmt.Printf("Tools processing reverted to default\r\n")
+		output.WriteString("Tools processing reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
-		fmt.Print("System prompt removed\r\n")
+		output.WriteString("System prompt removed\r\n")
 	case "chat.prompt":
-		fmt.Print("Model setting reverted to default\r\n")
+		output.WriteString("Model setting reverted to default\r\n")
 	case "ai.provider":
-		fmt.Print("Provider setting reverted to default\r\n")
+		output.WriteString("Provider setting reverted to default\r\n")
 	case "llm.schema", "llm.schemafile":
-		fmt.Print("Schema cleared\r\n")
+		output.WriteString("Schema cleared\r\n")
 	default:
-		fmt.Printf("Unset %s\r\n", option)
+		output.WriteString(fmt.Sprintf("Unset %s\r\n", option))
 	}
 
-	return nil
+	return output.String(), nil
 }
