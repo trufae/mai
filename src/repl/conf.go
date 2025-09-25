@@ -391,6 +391,34 @@ func (r *REPL) handleSetCommand(args []string) error {
 
 	option := args[1]
 
+	// If option ends with '.', list all keys that start with that prefix
+	if strings.HasSuffix(option, ".") {
+		prefix := option
+		fmt.Printf("Configuration options starting with '%s':\r\n", prefix)
+		found := false
+		for _, opt := range r.configOptions.GetAvailableOptions() {
+			if strings.HasPrefix(opt, prefix) {
+				value := r.configOptions.Get(opt)
+				var status string
+				if value == "" {
+					status = "not set"
+					if info, exists := r.configOptions.GetOptionInfo(opt); exists && info.Default != "" {
+						status = fmt.Sprintf("default: %s", info.Default)
+					}
+				} else {
+					status = value
+				}
+				optType := r.configOptions.GetOptionType(opt)
+				fmt.Printf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType)
+				found = true
+			}
+		}
+		if !found {
+			fmt.Printf("No configuration options found starting with '%s'\r\n", prefix)
+		}
+		return nil
+	}
+
 	if len(args) < 3 {
 		// Display current value if no value argument is provided
 		value := r.configOptions.Get(option)
@@ -503,6 +531,35 @@ func (r *REPL) handleGetCommand(args []string) error {
 	}
 
 	option := args[1]
+
+	// If option ends with '.', list all keys that start with that prefix
+	if strings.HasSuffix(option, ".") {
+		prefix := option
+		fmt.Printf("Configuration options starting with '%s':\r\n", prefix)
+		found := false
+		for _, opt := range r.configOptions.GetAvailableOptions() {
+			if strings.HasPrefix(opt, prefix) {
+				value := r.configOptions.Get(opt)
+				var status string
+				if value == "" {
+					status = "not set"
+					if info, exists := r.configOptions.GetOptionInfo(opt); exists && info.Default != "" {
+						status = fmt.Sprintf("default: %s", info.Default)
+					}
+				} else {
+					status = value
+				}
+				optType := r.configOptions.GetOptionType(opt)
+				fmt.Printf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType)
+				found = true
+			}
+		}
+		if !found {
+			fmt.Printf("No configuration options found starting with '%s'\r\n", prefix)
+		}
+		return nil
+	}
+
 	value := r.configOptions.Get(option)
 	optType := r.configOptions.GetOptionType(option)
 
