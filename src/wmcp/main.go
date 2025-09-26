@@ -129,6 +129,7 @@ const (
 	YoloPermitToolWithParamsForever
 	YoloRejectForever
 	YoloPermitAllToolsForever
+	YoloModify
 )
 
 // Tool permission record
@@ -427,6 +428,7 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 	fmt.Printf("[p] Permit this tool with these parameters forever\n")
 	fmt.Printf("[x] Reject this tool forever\n")
 	fmt.Printf("[y] Approve all tools forever (Yolo mode)\n")
+	fmt.Printf("[m] Modify tool name/parameters and run\n")
 	fmt.Printf("\nYour decision: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -446,10 +448,91 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 		return YoloRejectForever
 	case "y":
 		return YoloPermitAllToolsForever
+	case "m":
+		return YoloModify
 	default:
 		fmt.Println("Invalid option, defaulting to reject")
 		return YoloReject
 	}
+}
+
+// promptModifyTool prompts the user to modify the tool name and arguments.
+// Accepts simple syntax: "toolname key=value key2=value"
+// Or a JSON object (must start with '{') with optional fields: {"name":"tool","arguments":{...}}
+func (s *MCPService) promptModifyTool(callParams *CallToolParams) (*CallToolParams, error) {
+	fmt.Printf("\nEnter new tool name and arguments.\n")
+	fmt.Printf("Simple: <toolname> key=value key2=value\n")
+	fmt.Printf("Or JSON (must start with '{'): {\"name\":\"tool\", \"arguments\":{...}}\n")
+	fmt.Printf("Input: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil, fmt.Errorf("empty input")
+	}
+
+	// If JSON
+	if strings.HasPrefix(line, "{") {
+		var parsed struct {
+			Name      string                 `json:"name"`
+			Arguments map[string]interface{} `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+			return nil, fmt.Errorf("invalid JSON: %v", err)
+		}
+		if parsed.Name == "" {
+			parsed.Name = callParams.Name
+		}
+		if parsed.Arguments == nil {
+			parsed.Arguments = callParams.Arguments
+		}
+		return &CallToolParams{Name: parsed.Name, Arguments: parsed.Arguments}, nil
+	}
+
+	// Simple syntax: split tokens
+	toks := strings.Fields(line)
+	if len(toks) == 0 {
+		return nil, fmt.Errorf("invalid input")
+	}
+	newName := toks[0]
+	newArgs := make(map[string]interface{})
+	// Start with existing arguments
+	for k, v := range callParams.Arguments {
+		newArgs[k] = v
+	}
+	for _, tok := range toks[1:] {
+		if !strings.Contains(tok, "=") {
+			return nil, fmt.Errorf("invalid parameter '%s': expected format name=value", tok)
+		}
+		parts := strings.SplitN(tok, "=", 2)
+		k := parts[0]
+		v := parts[1]
+		// Try parse JSON for complex values
+		if strings.HasPrefix(v, "{") || strings.HasPrefix(v, "[") {
+			var vv interface{}
+			if err := json.Unmarshal([]byte(v), &vv); err == nil {
+				newArgs[k] = vv
+				continue
+			}
+		}
+		// Try number
+		if num, err := strconv.ParseFloat(v, 64); err == nil {
+			newArgs[k] = num
+			continue
+		}
+		// Try bool
+		if b, err := strconv.ParseBool(v); err == nil {
+			newArgs[k] = b
+			continue
+		}
+		newArgs[k] = v
+	}
+
+	return &CallToolParams{Name: newName, Arguments: newArgs}, nil
 }
 
 // checkToolPermission checks if a tool is allowed to run based on stored permissions
@@ -572,6 +655,38 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 				// If it was a reject decision, return error
 				if decision == YoloRejectForever {
 					return nil, fmt.Errorf("tool execution rejected by user policy")
+				}
+			case YoloModify:
+				// Ask the user for a modified tool name/arguments
+				newCallParams, err := s.promptModifyTool(&callParams)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse modified params: %v", err)
+				}
+				callParams = *newCallParams
+				// Update original request params so the modified values are sent
+				request.Params = callParams
+				// Recompute params JSON and re-check permissions
+				paramsJSON, _ = json.Marshal(callParams.Arguments)
+				allowed = s.checkToolPermission(callParams.Name, string(paramsJSON))
+				if !allowed {
+					// Ask user again for the modified tool if still no permission
+					decision2 := s.promptYoloDecision(callParams.Name, string(paramsJSON))
+					switch decision2 {
+					case YoloApprove:
+						break
+					case YoloReject:
+						return nil, fmt.Errorf("tool execution rejected by user")
+					case YoloPermitToolForever, YoloPermitAllToolsForever:
+						s.yoloMode = true
+					case YoloPermitToolWithParamsForever, YoloRejectForever:
+						s.storeToolPermission(callParams.Name, string(paramsJSON), decision2)
+						if decision2 == YoloRejectForever {
+							return nil, fmt.Errorf("tool execution rejected by user policy")
+						}
+					case YoloModify:
+						// If user asks to modify again, return an error to avoid deep loops
+						return nil, fmt.Errorf("multiple modifications not supported in one prompt")
+					}
 				}
 			}
 		}
