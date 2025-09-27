@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -58,6 +59,8 @@ type REPL struct {
 	followupInProgress bool
 	// Callback to stop demo animation when first token is received
 	stopDemoCallback func()
+	wmcpProcess      *exec.Cmd
+	wmcpPort         int
 }
 
 // buildLLMConfig constructs a provider config from environment defaults and current options.
@@ -186,6 +189,11 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
+	// Set default tools.config if not set
+	if repl.configOptions.Get("tools.config") == "" {
+		repl.configOptions.Set("tools.config", "wmcp/sample-config.json")
+	}
+
 	// Set the stop demo callback to transition out of the "thinking" action
 	// when the first token is received. Previously this stopped the demo loop
 	// entirely which caused subsequent streaming tokens to be buffered but
@@ -249,6 +257,26 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	repl.autoDetectWwwRoot()
 
 	repl.loadAgentsFile()
+
+	// Spawn mai-wmcp if tools.config is set
+	if v := repl.configOptions.Get("tools.config"); v != "" {
+		listener, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error finding random port for wmcp: %v\n", err)
+		} else {
+			port := listener.Addr().(*net.TCPAddr).Port
+			listener.Close()
+			repl.wmcpPort = port
+			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
+			cmd := exec.Command("wmcp/mai-wmcp", "-c", v, "-b", fmt.Sprintf("localhost:%d", port))
+			err = cmd.Start()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error starting wmcp: %v\n", err)
+			} else {
+				repl.wmcpProcess = cmd
+			}
+		}
+	}
 
 	return repl, nil
 }
@@ -348,6 +376,11 @@ func (r *REPL) cleanup() {
 			}
 			r.currentSession = name
 		}
+	}
+	// Kill wmcp process if running
+	if r.wmcpProcess != nil {
+		r.wmcpProcess.Process.Kill()
+		r.wmcpProcess.Wait()
 	}
 }
 
