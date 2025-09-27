@@ -152,16 +152,18 @@ func showHelp() {
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
 -m <model>       select the model for the given provider
-	-n               do not load rc file and disable REPL history
+-n               do not load rc file and disable REPL history
 -p <provider>    select the provider to use
 -q               quit after running given actions
- -s <string>      send string directly to AI (can be used multiple times)
- -t               enable tools processing
- -U               update project by running git pull ; make in project directory
+-s <string>      send string directly to AI (can be used multiple times)
+-t               enable tools processing
+-U               update project by running git pull ; make in project directory
+
+Files:
 .mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
 .mai/history.json (project or ~/.mai) : REPL command history file (JSON array)
 .mai/chat (project or ~/.mai)         : storage for chat session files
-	.mai/systemprompt.md (project or ~/.mai) : system prompt file (supports '@' include directives)
+.mai/systemprompt.md (project or ~/.mai) : system prompt file (supports '@' include directives)
 ./prompts          : directory containing custom prompts
 `)
 }

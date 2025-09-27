@@ -1598,18 +1598,18 @@ const (
 )
 
 func showHelp() {
-	fmt.Println("Usage: mai-wmcp [options] \"command1\" \"command2\" ...")
-	fmt.Println("Options:")
-	fmt.Println("  -v\tShow version information")
-	fmt.Println("  -h\tShow this help message")
-	fmt.Println("  -b URL\tBase URL to listen on (default: :8989)")
-	fmt.Println("  -y\tYolo mode (skip tool confirmations)")
-	fmt.Println("  -o FILE\tOutput report to FILE")
-	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
-	fmt.Println("  -c FILE\tPath to config file (default: ~/.mai-wmcp.json)")
-	fmt.Println("  -n\tSkip loading config file")
-	fmt.Println("Example: mai-wmcp \"r2pm -r r2mcp\" \"timemcp\"")
-	fmt.Println("Example with config: mai-wmcp -c /path/to/config.json")
+	fmt.Println(`Usage: mai-wmcp [options] "command1" "command2" ...
+Options:
+  -v	Show version information
+  -h	Show this help message
+  -b URL	Base URL to listen on (default: :8989)
+  -y	Yolo mode (skip tool confirmations)
+  -o FILE	Output report to FILE
+  -d	Enable debug logging (shows HTTP requests and JSON payloads)
+  -c FILE	Path to config file (default: ~/.mai-wmcp.json)
+  -n	Skip loading config file
+Example: mai-wmcp "r2pm -r r2mcp" "timemcp"
+Example with config: mai-wmcp -c /path/to/config.json`)
 }
 
 func showVersion() {
@@ -1811,7 +1811,7 @@ Available endpoints:
 - GET /call/{tool}?param=value - Call tool on auto-discovered server
 - POST /tools/{server}/{tool} - Call tool with JSON body or form data (legacy)
 - POST /call/{server}/{tool} - Call tool with JSON body or form data
- - POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
+- POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
 
 Prompts endpoints:
 - GET /prompts - List all available prompts
@@ -1827,11 +1827,11 @@ Prompts endpoints:
  - curl http://localhost:8989/tools/quiet
  - curl http://localhost:8989/tools/markdown
  - curl http://localhost:8989/tools/server1/mytool?arg1=value1
-  - curl -X POST http://localhost:8989/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
-  - curl http://localhost:8989/prompts
-  - curl http://localhost:8989/prompts/json
-  - curl http://localhost:8989/prompts/server1/myPrompt?topic=xyz
-  - curl -X POST http://localhost:8989/prompts/server1/myPrompt -H "Content-Type: application/json" -d '{"topic":"xyz"}'
+ - curl -X POST http://localhost:8989/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
+ - curl http://localhost:8989/prompts
+ - curl http://localhost:8989/prompts/json
+ - curl http://localhost:8989/prompts/server1/myPrompt?topic=xyz
+ - curl -X POST http://localhost:8989/prompts/server1/myPrompt -H "Content-Type: application/json" -d '{"topic":"xyz"}'
 `
 		w.Write([]byte(usage))
 	}).Methods("GET")
