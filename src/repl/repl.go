@@ -268,7 +268,7 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 			listener.Close()
 			repl.wmcpPort = port
 			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
-			cmd := exec.Command("wmcp/mai-wmcp", "-c", v, "-b", fmt.Sprintf("localhost:%d", port))
+			cmd := exec.Command("mai-wmcp", "-c", v, "-b", fmt.Sprintf("localhost:%d", port))
 			err = cmd.Start()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error starting wmcp: %v\n", err)
