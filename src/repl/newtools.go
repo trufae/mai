@@ -316,6 +316,10 @@ func FillLineWithTriangles() string {
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 
 	var planTemplate = ""
+	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("tools.display")))
+	if display == "" {
+		display = "verbose"
+	}
 	// If enabled, query MCP prompts to choose a plan template before running the tool loop
 	if r.configOptions.GetBool("tools.prompts") {
 		planTemplate, err := r.prepareMCPromptTemplate(input, messages)
@@ -362,8 +366,14 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 	for {
 		stepCount++
 		// Build the dynamic tools prompt with optional plan template
-		dynamicToolsPrompt := toolsPromptPrefix + planTemplate + toolsPromptSuffix
-		fmt.Println("\x1b[0m 🐾| ...")
+		reasonLevel := strings.ToLower(strings.TrimSpace(r.configOptions.Get("tools.reason")))
+		if reasonLevel != "low" && reasonLevel != "medium" && reasonLevel != "high" {
+			reasonLevel = "low"
+		}
+		dynamicToolsPrompt := toolsPromptPrefix + planTemplate + "\n\nUse Reasoning: " + reasonLevel + "\n" + toolsPromptSuffix
+		if display != "quiet" {
+			fmt.Println("\x1b[0m 🐾| ...")
+		}
 		step, err := r.newToolStep(dynamicToolsPrompt, input, context, toolList, chatHistory)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
@@ -374,15 +384,23 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			continue
 
 		}
-		showPlan(&step)
+		if display != "quiet" && (display == "verbose" || display == "plan") {
+			showPlan(&step)
+		}
 		progress = step.Progress
 		tool := &Tool{
 			Name: step.SelectedTool,
 			Args: map2array(step.ToolArgs),
 		}
-		fmt.Println("\x1b[0m 🚀| " + step.Action + " | 🛠️ " + tool.ToString())
-		fmt.Println("\x1b[0m ✅| " + step.Progress)
-		fmt.Println("\x1b[0m 🤔| " + step.Reasoning)
+		if display != "quiet" {
+			fmt.Println("\x1b[0m 🚀| " + step.Action + " | 🛠️ " + tool.ToString())
+			if display == "verbose" || display == "progress" {
+				fmt.Println("\x1b[0m ✅| " + step.Progress)
+			}
+			if display == "verbose" || display == "reason" {
+				fmt.Println("\x1b[0m 🤔| " + step.Reasoning)
+			}
+		}
 		if (step.Action == "Done" || step.Action == "") || !step.ToolRequired {
 			//	context += "Progres: " + step.Progress
 			context += "Reasoning: " + step.Reasoning
@@ -404,8 +422,20 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			// context += "## Action Done\n" + step.NextStep
 		}
 	}
-	fmt.Println("\x1b[33m" + FillLineWithTriangles() + "\x1b[0m")
+	if display != "quiet" {
+		fmt.Println("\x1b[33m" + FillLineWithTriangles() + "\x1b[0m")
+	}
 
 	// return input + context + progress, nil
 	return input + context + progress + "\n## Resolution Instructions\n\nBe concise in your response", nil
+}
+
+// QueryWithToolsUnified selects between schema/grammar-guided tool loop and
+// markdown-based loop based on the `tools.grammar` option. This provides a
+// single entry point for tool-calling behavior.
+func (r *REPL) QueryWithToolsUnified(messages []llm.Message, input string) (string, error) {
+	if r.configOptions.GetBool("tools.grammar") {
+		return r.QueryWithNewTools(messages, input)
+	}
+	return r.QueryWithTools(messages, input)
 }

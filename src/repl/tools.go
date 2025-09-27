@@ -136,6 +136,27 @@ func (repl *REPL) getToolPrompt(foo string) (string, error) {
 	return string(toolPromptBytes), nil
 }
 
+// adjustReasoningPrompt injects or adjusts a simple "Use Reasoning: <level>" directive
+// inside the tool prompt to influence how much time the LLM should spend reasoning.
+func adjustReasoningPrompt(prompt string, level string) string {
+	if level == "" {
+		return prompt
+	}
+	// Normalize level
+	lvl := strings.ToLower(strings.TrimSpace(level))
+	if lvl != "low" && lvl != "medium" && lvl != "high" {
+		// Unknown value; keep original
+		return prompt
+	}
+	// Replace existing directive if present
+	re := regexp.MustCompile(`(?m)^\s*Use\s+Reasoning:\s*(low|medium|high)\s*$`)
+	if re.MatchString(prompt) {
+		return re.ReplaceAllString(prompt, "Use Reasoning: "+lvl)
+	}
+	// Otherwise, prepend a directive near the top
+	return "Use Reasoning: " + lvl + "\n\n" + prompt
+}
+
 // buildMessageWithTools formats a message with tool information
 func buildMessageWithTools(toolPrompt string, userInput string, ctx string, toolList string) string {
 	return fmt.Sprintf("%s\n<prompt>\n%s\n</prompt>\n<context>%s</context>\n<tools>\n%s\n</tools>",
@@ -280,12 +301,18 @@ func (t *Tool) ToString() string {
 
 func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, error) {
 	// TODO: Do something with the previous messages
-	showPlan := true
+	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("tools.display")))
+	if display == "" {
+		display = "verbose"
+	}
+	showPlan := (display == "verbose" || display == "plan")
 	toolPrompt, err := r.getToolPrompt("tool.md")
 	if err != nil {
 		// If can't get the tool prompt, return input unchanged
 		return input, err
 	}
+	// Apply reasoning level directive
+	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("tools.reason"))
 
 	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {
@@ -311,7 +338,7 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 			input += fmt.Sprintf("\n[query error] %s. Try again with a new plan\n", err.Error())
 			continue
 		}
-		if clearScreen {
+		if clearScreen && display != "quiet" {
 			prompt := r.configOptions.Get("repl.prompt")
 			if prompt == "" {
 				prompt = ">>>"
@@ -322,9 +349,13 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 				fmt.Printf("Context: %d bytes\r\n", cl)
 			}
 		}
-		fmt.Printf("\033[0m\n%s\r\n", step.Progress)
-		fmt.Printf("\r\n%s\r\n\r\n", step.Reasoning)
-		if showPlan {
+		if display != "quiet" && (display == "verbose" || display == "progress") {
+			fmt.Printf("\033[0m\n%s\r\n", step.Progress)
+		}
+		if display != "quiet" && (display == "verbose" || display == "reason") {
+			fmt.Printf("\r\n%s\r\n\r\n", step.Reasoning)
+		}
+		if showPlan && display != "quiet" {
 			planString := "## Plan\n\n\r"
 			i := 0
 			for _, s := range step.Plan {
@@ -338,7 +369,9 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 				i++
 			}
 		} else {
-			fmt.Printf("\033[0m\r\n%s\r\n", step.NextStep)
+			if display != "quiet" {
+				fmt.Printf("\033[0m\r\n%s\r\n", step.NextStep)
+			}
 		}
 		fmt.Printf("\033[0m")
 
@@ -363,7 +396,9 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 			Name: toolName,
 			Args: mapToArray(step.ToolArgs.(map[string]interface{})),
 		}
-		fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
+		if display != "quiet" {
+			fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
+		}
 		result, err := callTool(tool)
 		if err != nil {
 			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), err.Error())
@@ -382,16 +417,20 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 		// fmt.Println (toolResponse)
 		if expl != "" {
 			context += "\n\n## Context\n\n" + expl
-			reasoning += "\n\n## Reasoning\n\n" + expl
+			if display != "quiet" && (display == "verbose" || display == "reason") {
+				reasoning += "\n\n## Reasoning\n\n" + expl
+			}
 		}
 		reasoning += "- " + step.Progress + "\n"
 		context += toolResponse
 		// input += planString + toolResponse
 	}
-	if reasoning != "" {
+	if reasoning != "" && display != "quiet" {
 		reasoning = "<reasoning>\n" + reasoning + "</reasoning>\n"
 	}
-	fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
+	if display != "quiet" {
+		fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
+	}
 	return input + context, nil
 	// return input + context + reasoning, nil
 }

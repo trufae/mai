@@ -105,6 +105,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("tools.old", BooleanOption, "Process user input using tools.go functions", "false")
 	co.RegisterOption("tools.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
 	co.RegisterOption("tools.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
+	// Unified tool-calling controls
+	co.RegisterOption("tools.grammar", BooleanOption, "Use JSON schema/grammar for tool planning output", "true")
+	co.RegisterOption("tools.display", StringOption, "Tool loop display: verbose, plan, progress, reason, quiet", "verbose")
+	co.RegisterOption("tools.reason", StringOption, "Reasoning level: low, medium, high", "low")
 
 	// User details options
 	co.RegisterOption("user.details", BooleanOption, "Include user details (CWD, username, OS, language, time) in conversation context", "false")

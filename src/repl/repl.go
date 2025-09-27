@@ -1393,18 +1393,9 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		// When logging is disabled, we don't append any previous messages
 	}
 
-	if r.configOptions.GetBool("tools.use") {
+	if r.configOptions.GetBool("tools.use") || r.configOptions.GetBool("tools.old") {
 		StartTimer()
-		tool, err := r.QueryWithNewTools(messages, input)
-		if err != nil {
-			return fmt.Errorf("tool execution failed: %v", err)
-		}
-		input = tool
-		fmt.Println("(tools) loop finished.")
-		StopTimer()
-	} else if r.configOptions.GetBool("tools.old") {
-		StartTimer()
-		tool, err := r.QueryWithTools(messages, input)
+		tool, err := r.QueryWithToolsUnified(messages, input)
 		if err != nil {
 			return fmt.Errorf("tool execution failed: %v", err)
 		}
