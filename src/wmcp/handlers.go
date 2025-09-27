@@ -1,0 +1,595 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gorilla/mux"
+)
+
+// debugLog prints debug logs when debug mode is enabled
+func debugLog(debug bool, format string, args ...interface{}) {
+	if debug {
+		log.Printf("DEBUG: "+format, args...)
+	}
+}
+
+// HTTP Handlers
+
+// listToolsHandler returns all tools from all servers
+func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+	output.WriteString("# Tools Catalog\n\n")
+
+	for _ /*serverName */, server := range s.servers {
+		// output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
+		server.mutex.RLock()
+		// output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
+		// output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
+
+		for _, tool := range server.Tools {
+			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
+			// output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
+			output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
+			if tool.InputSchema != nil {
+				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
+				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
+
+				// Print CLI-style arguments list
+				// Use the prepared Parameters array if available
+				if len(tool.Parameters) > 0 {
+					output.WriteString("Arguments:\n")
+					for _, param := range tool.Parameters {
+						// Format: name=<value> : description (type) [required]
+						reqText := ""
+						if param.Required {
+							reqText = " [required]"
+						}
+						output.WriteString(fmt.Sprintf("- %s=<value> : %s (%s)%s\n",
+							param.Name, param.Description, param.Type, reqText))
+					}
+				} else {
+					//		output.WriteString("Arguments: None\n")
+				}
+			}
+			/*
+				// Construct usage example with parameters if available
+				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(properties) > 0 {
+					// Build URL with query parameters
+					var params []string
+					for key, _ := range properties {
+						params = append(params, fmt.Sprintf("%s=value", key))
+					}
+					paramString := strings.Join(params, " ")
+					output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s/%s %s`\n\n", serverName, tool.Name, paramString))
+					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
+				} else {
+					output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s`\n\n", serverName, tool.Name))
+					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
+				}
+			*/
+			output.WriteString("----\n")
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// listPromptsHandler returns all prompts from all servers
+func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+	output.WriteString("# Prompts Catalog\n\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, prompt := range server.Prompts {
+			output.WriteString(fmt.Sprintf("PromptName: %s/%s\n", serverName, prompt.Name))
+			if prompt.Description != "" {
+				output.WriteString(fmt.Sprintf("Description: %s\n", prompt.Description))
+			}
+			if len(prompt.Arguments) > 0 {
+				output.WriteString("Arguments:\n")
+				for _, a := range prompt.Arguments {
+					req := ""
+					if a.Required {
+						req = " [required]"
+					}
+					typ := a.Type
+					if typ == "" {
+						typ = "string"
+					}
+					output.WriteString(fmt.Sprintf("- %s=<%s> : %s%s\n", a.Name, typ, a.Description, req))
+				}
+			}
+			output.WriteString("\n")
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// jsonPromptsHandler returns all prompts in JSON grouped by server
+func (s *MCPService) jsonPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	result := make(map[string][]Prompt)
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		prompts := make([]Prompt, len(server.Prompts))
+		copy(prompts, server.Prompts)
+		server.mutex.RUnlock()
+		result[serverName] = prompts
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// getPromptHandler calls prompts/get on a server (or auto-discovers by prompt name)
+func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["server"]
+	promptName := vars["prompt"]
+
+	// Always log HTTP requests
+	log.Printf("HTTP %s %s - Server: %s, Prompt: %s", r.Method, r.URL.String(), serverName, promptName)
+
+	s.mutex.RLock()
+	server, exists := s.servers[serverName]
+	s.mutex.RUnlock()
+	if !exists {
+		// Try to auto-discover by prompt name
+		for name, srv := range s.servers {
+			srv.mutex.RLock()
+			for _, p := range srv.Prompts {
+				if p.Name == promptName {
+					serverName = name
+					server = srv
+					exists = true
+					break
+				}
+			}
+			srv.mutex.RUnlock()
+			if exists {
+				break
+			}
+		}
+	}
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
+		return
+	}
+
+	// Parse arguments (similar to tools)
+	arguments := make(map[string]interface{})
+	if r.Method == "POST" {
+		contentType := r.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to read request body", http.StatusBadRequest)
+				return
+			}
+			if len(body) > 0 {
+				if err := json.Unmarshal(body, &arguments); err != nil {
+					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
+					return
+				}
+			}
+		} else {
+			r.ParseForm()
+			for key, values := range r.Form {
+				if len(values) == 1 {
+					if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+						arguments[key] = num
+					} else if b, err := strconv.ParseBool(values[0]); err == nil {
+						arguments[key] = b
+					} else {
+						arguments[key] = values[0]
+					}
+				} else {
+					arguments[key] = values
+				}
+			}
+		}
+	} else if r.Method == "GET" {
+		for key, values := range r.URL.Query() {
+			if len(values) == 1 {
+				if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+					arguments[key] = num
+				} else if b, err := strconv.ParseBool(values[0]); err == nil {
+					arguments[key] = b
+				} else {
+					arguments[key] = values[0]
+				}
+			} else {
+				arguments[key] = values
+			}
+		}
+	}
+
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "prompts/get",
+		Params: GetPromptParams{
+			Name:      promptName,
+			Arguments: arguments,
+		},
+		ID: 4,
+	}
+
+	response, err := s.sendRequest(server, req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get prompt: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if response.Error != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Return result as JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response.Result)
+}
+
+// jsonToolsHandler returns all tools from all servers in JSON format
+func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	res := make(map[string][]Tool)
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		// Make sure all tools have their Parameters populated from InputSchema
+		tools := make([]Tool, len(server.Tools))
+		copy(tools, server.Tools)
+
+		// Ensure Parameters are populated for JSON output
+		for i := range tools {
+			if len(tools[i].Parameters) == 0 && tools[i].InputSchema != nil {
+				tools[i].Parameters = extractParametersFromSchema(tools[i].InputSchema)
+			}
+		}
+
+		res[serverName] = tools
+		server.mutex.RUnlock()
+	}
+	// json.NewEncoder(w).Encode(res)
+
+	jsonBytes, err := json.Marshal(res) // compact JSON, no newline
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonBytes)
+}
+
+// quietToolsHandler returns all tools from all servers in a minimally formatted plain text
+func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			output.WriteString(fmt.Sprintf("/* %s */\n", tool.Description))
+			output.WriteString(fmt.Sprintf("Tool: %s/%s", serverName, tool.Name))
+			// Use the Parameters array if available
+			if len(tool.Parameters) > 0 {
+				for _, param := range tool.Parameters {
+					output.WriteString(fmt.Sprintf(" %s=<value>", param.Name))
+				}
+			} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+				for key, _ := range properties {
+					output.WriteString(fmt.Sprintf(" %s=<value>", key))
+				}
+			}
+			output.WriteString("\n")
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// markdownToolsHandler returns all tools from all servers in markdown format
+func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/markdown")
+
+	var output strings.Builder
+	output.WriteString("# Tools Catalog\n\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
+		output.WriteString(fmt.Sprintf("Command: `%s`\n", server.Command))
+		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
+
+		for _, tool := range server.Tools {
+			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
+			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
+
+			// Add parameters section with type and required information
+			if len(tool.Parameters) > 0 || tool.InputSchema != nil {
+				output.WriteString("**Parameters:**\n\n")
+				output.WriteString("| Name | Type | Required | Description |\n")
+				output.WriteString("|------|------|----------|-------------|\n")
+
+				// Use Parameters array if available
+				if len(tool.Parameters) > 0 {
+					for _, param := range tool.Parameters {
+						required := "No"
+						if param.Required {
+							required = "Yes"
+						}
+						output.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+							param.Name, param.Type, required, param.Description))
+					}
+				} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					// Extract required fields
+					requiredFields := make(map[string]bool)
+					if required, ok := tool.InputSchema["required"].([]interface{}); ok {
+						for _, field := range required {
+							if fieldName, ok := field.(string); ok {
+								requiredFields[fieldName] = true
+							}
+						}
+					}
+
+					// Display properties from schema
+					for key, val := range properties {
+						propInfo, _ := val.(map[string]interface{})
+						desc := ""
+						propType := "string" // Default type
+						req := "No"
+
+						if requiredFields[key] {
+							req = "Yes"
+						}
+
+						if propInfo != nil {
+							if d, ok := propInfo["description"].(string); ok {
+								desc = d
+							}
+							if t, ok := propInfo["type"].(string); ok {
+								propType = t
+							}
+						}
+
+						output.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+							key, propType, req, desc))
+					}
+				}
+				output.WriteString("\n")
+			}
+
+			// Keep the schema output for reference
+			if tool.InputSchema != nil {
+				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
+				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
+			}
+
+			output.WriteString(fmt.Sprintf("**Usage:** `POST /call/%s/%s`\n\n", serverName, tool.Name))
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// callToolHandler calls a specific tool on a specific server
+func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["server"]
+	toolName := vars["tool"]
+
+	s.mutex.RLock()
+	server, exists := s.servers[serverName]
+	s.mutex.RUnlock()
+	if !exists {
+		for name, _server := range s.servers {
+			for _, tool := range _server.Tools {
+				if toolName == tool.Name {
+					serverName = name
+					server = _server
+					exists = true
+					break
+				}
+			}
+			if exists {
+				break
+			}
+		}
+	}
+
+	// Always log HTTP requests regardless of debug mode
+	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
+		return
+	}
+
+	// Parse arguments
+	arguments := make(map[string]interface{})
+	debugLog(s.debugMode, "Parsing arguments for tool call")
+
+	if r.Method == "POST" {
+		contentType := r.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			// Parse JSON body
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				log.Printf("ERROR: Failed to read request body for tool %s/%s: %v", serverName, toolName, err)
+				http.Error(w, "Failed to read request body", http.StatusBadRequest)
+				return
+			}
+
+			if len(body) > 0 {
+				if err := json.Unmarshal(body, &arguments); err != nil {
+					log.Printf("ERROR: Failed to parse JSON body for tool %s/%s: %v", serverName, toolName, err)
+					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
+					return
+				}
+			}
+		} else {
+			// Parse form data
+			if err := r.ParseForm(); err != nil {
+				log.Printf("ERROR: Failed to parse form data for tool %s/%s: %v", serverName, toolName, err)
+				http.Error(w, "Failed to parse form data", http.StatusBadRequest)
+				return
+			}
+			arguments = make(map[string]interface{})
+			for key, values := range r.Form {
+				if len(values) == 1 {
+					// Try to parse as number, otherwise keep as string
+					if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+						arguments[key] = num
+					} else if b, err := strconv.ParseBool(values[0]); err == nil {
+						arguments[key] = b
+					} else {
+						arguments[key] = values[0]
+					}
+				} else {
+					arguments[key] = values
+				}
+			}
+		}
+	} else if r.Method == "GET" {
+		// Debug log query parameters if debug mode is enabled
+		debugLog(s.debugMode, "Query parameters: %v", r.URL.Query())
+		// Parse query parameters
+		for key, values := range r.URL.Query() {
+			if len(values) == 1 {
+				// Try to parse as number, otherwise keep as string
+				if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+					arguments[key] = num
+				} else if b, err := strconv.ParseBool(values[0]); err == nil {
+					arguments[key] = b
+				} else {
+					arguments[key] = values[0]
+				}
+			} else {
+				arguments[key] = values
+			}
+		}
+	}
+
+	debugLog(s.debugMode, "Parsed arguments: %v", arguments)
+
+	// Create tool call request
+	toolRequest := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "tools/call",
+		Params: CallToolParams{
+			Name:      toolName,
+			Arguments: arguments,
+		},
+		ID: time.Now().UnixNano(),
+	}
+
+	debugLog(s.debugMode, "Calling tool %s on server %s with arguments: %v", toolName, serverName, arguments)
+
+	response, err := s.sendRequest(server, toolRequest)
+	if err != nil {
+		log.Printf("ERROR: Failed to send request to server %s for tool %s: %v", serverName, toolName, err)
+		http.Error(w, fmt.Sprintf("Failed to call tool: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if response.Error != nil {
+		log.Printf("ERROR: Tool call to %s/%s failed with RPC error: %v", serverName, toolName, response.Error)
+		http.Error(w, fmt.Sprintf("Tool call failed: %v", response.Error), http.StatusBadRequest)
+		return
+	}
+
+	// Parse and format response
+	w.Header().Set("Content-Type", "text/plain")
+
+	resultBytes, _ := json.Marshal(response.Result)
+	var toolResult CallToolResult
+	if err := json.Unmarshal(resultBytes, &toolResult); err != nil {
+		// Fallback to raw JSON if parsing fails
+		w.Write(resultBytes)
+		return
+	}
+	if toolResult.Error != nil {
+		emsg := "ERROR: " + toolResult.Error.Message
+		log.Printf("ERROR: Tool %s/%s returned error: %s", serverName, toolName, toolResult.Error.Message)
+		w.Write([]byte(emsg))
+		debugLog(s.debugMode, emsg)
+		return
+	}
+
+	// Format content as markdown/plaintext
+	var output strings.Builder
+	for i, content := range toolResult.Content {
+		if i > 0 {
+			output.WriteString("\n\n")
+		}
+		output.WriteString(content.Text)
+	}
+
+	debugLog(s.debugMode, "Response content: %s", output.String())
+
+	log.Printf("SUCCESS: Tool %s/%s completed successfully", serverName, toolName)
+	w.Write([]byte(output.String()))
+}
+
+// statusHandler returns the status of all servers
+func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+	output.WriteString("# MCP Service Status\n\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
+		output.WriteString(fmt.Sprintf("Command: `%s`\n", server.Command))
+		output.WriteString(fmt.Sprintf("Status: Running\n"))
+		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}

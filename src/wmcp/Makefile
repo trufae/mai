@@ -1,7 +1,7 @@
 include ../../config.mk
 
 BIN=mai-wmcp
-SOURCES=main.go config.go
+SOURCES=main.go config.go types.go service.go handlers.go
 
 .PHONY: all build run clean deps install uninstall
 
