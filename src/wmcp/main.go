@@ -156,17 +156,19 @@ type Report struct {
 
 // MCP Server represents a running MCP server process
 type MCPServer struct {
-	Name         string
-	Command      string
-	Process      *exec.Cmd
-	Stdin        io.WriteCloser
-	Stdout       io.ReadCloser
-	Stderr       io.ReadCloser
-	Tools        []Tool
-	Prompts      []Prompt
-	mutex        sync.RWMutex
-	stderrDone   chan struct{}
-	stderrActive bool
+	Name          string
+	Command       string
+	Process       *exec.Cmd
+	Stdin         io.WriteCloser
+	Stdout        io.ReadCloser
+	Stderr        io.ReadCloser
+	Tools         []Tool
+	Prompts       []Prompt
+	mutex         sync.RWMutex
+	stderrDone    chan struct{}
+	stderrActive  bool
+	monitorDone   chan struct{}
+	monitorActive bool
 }
 
 // MCPService manages multiple MCP servers
@@ -263,19 +265,24 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 	}
 
 	server := &MCPServer{
-		Name:         name,
-		Command:      command,
-		Process:      cmd,
-		Stdin:        stdin,
-		Stdout:       stdout,
-		Stderr:       stderr,
-		Tools:        []Tool{},
-		stderrDone:   make(chan struct{}),
-		stderrActive: true,
+		Name:          name,
+		Command:       command,
+		Process:       cmd,
+		Stdin:         stdin,
+		Stdout:        stdout,
+		Stderr:        stderr,
+		Tools:         []Tool{},
+		stderrDone:    make(chan struct{}),
+		stderrActive:  true,
+		monitorDone:   make(chan struct{}),
+		monitorActive: true,
 	}
 
 	// Start a goroutine to handle stderr output
 	go s.handleStderr(server)
+
+	// Start a goroutine to monitor the server process
+	go s.monitorServer(server)
 
 	s.servers[name] = server
 
@@ -814,10 +821,130 @@ func (s *MCPService) handleStderr(server *MCPServer) {
 	close(server.stderrDone)
 }
 
+// monitorServer monitors the server process and restarts it if it crashes
+func (s *MCPService) monitorServer(server *MCPServer) {
+	for server.monitorActive {
+		// Wait for the process to exit
+		err := server.Process.Wait()
+		if !server.monitorActive {
+			break
+		}
+
+		// Process has exited, log the error
+		if err != nil {
+			log.Printf("ERROR: MCP server '%s' crashed: %v", server.Name, err)
+		} else {
+			log.Printf("ERROR: MCP server '%s' exited unexpectedly", server.Name)
+		}
+
+		// Wait 1 second before restarting
+		time.Sleep(1 * time.Second)
+
+		// Restart the server
+		log.Printf("Restarting MCP server '%s'...", server.Name)
+		if restartErr := s.restartServer(server); restartErr != nil {
+			log.Printf("ERROR: Failed to restart MCP server '%s': %v", server.Name, restartErr)
+			// Continue monitoring in case we can restart later
+		} else {
+			log.Printf("Successfully restarted MCP server '%s'", server.Name)
+		}
+	}
+	close(server.monitorDone)
+}
+
+// restartServer restarts a crashed MCP server
+func (s *MCPService) restartServer(server *MCPServer) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Stop existing goroutines and close pipes
+	server.stderrActive = false
+	server.monitorActive = false
+
+	// Close existing pipes if they exist
+	if server.Stdin != nil {
+		server.Stdin.Close()
+	}
+	if server.Stdout != nil {
+		server.Stdout.Close()
+	}
+	if server.Stderr != nil {
+		server.Stderr.Close()
+	}
+
+	// Wait for goroutines to finish
+	<-server.stderrDone
+	<-server.monitorDone
+
+	// Parse command string
+	parts := strings.Fields(server.Command)
+	if len(parts) == 0 {
+		return fmt.Errorf("empty command")
+	}
+
+	cmd := exec.Command(parts[0], parts[1:]...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %v", err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %v", err)
+	}
+
+	// Recreate channels
+	server.stderrDone = make(chan struct{})
+	server.monitorDone = make(chan struct{})
+
+	// Update server with new process and pipes
+	server.Process = cmd
+	server.Stdin = stdin
+	server.Stdout = stdout
+	server.Stderr = stderr
+
+	// Reset monitoring flags
+	server.stderrActive = true
+	server.monitorActive = true
+
+	// Start new goroutines for stderr and monitoring
+	go s.handleStderr(server)
+	go s.monitorServer(server)
+
+	// Re-initialize the server (handshake)
+	if err := s.initializeServer(server); err != nil {
+		s.stopServer(server)
+		return fmt.Errorf("failed to initialize server: %v", err)
+	}
+
+	// Re-load tools
+	if err := s.loadTools(server); err != nil {
+		log.Printf("Warning: failed to load tools for restarted server %s: %v", server.Name, err)
+	}
+
+	// Re-load prompts
+	if err := s.loadPrompts(server); err != nil {
+		log.Printf("Warning: failed to load prompts for restarted server %s: %v", server.Name, err)
+	}
+
+	return nil
+}
+
 // stopServer stops an MCP server
 func (s *MCPService) stopServer(server *MCPServer) {
-	// Mark stderr handler as inactive
+	// Mark handlers as inactive
 	server.stderrActive = false
+	server.monitorActive = false
 
 	if server.Process != nil {
 		server.Process.Process.Kill()
@@ -827,8 +954,9 @@ func (s *MCPService) stopServer(server *MCPServer) {
 	server.Stdout.Close()
 	server.Stderr.Close()
 
-	// Wait for stderr goroutine to finish
+	// Wait for goroutines to finish
 	<-server.stderrDone
+	<-server.monitorDone
 }
 
 // StopAllServers stops all MCP servers
