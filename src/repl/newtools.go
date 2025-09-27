@@ -316,12 +316,12 @@ func FillLineWithTriangles() string {
 func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
 
 	var planTemplate = ""
-	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("tools.display")))
+	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.display")))
 	if display == "" {
 		display = "verbose"
 	}
 	// If enabled, query MCP prompts to choose a plan template before running the tool loop
-	if r.configOptions.GetBool("tools.prompts") {
+	if r.configOptions.GetBool("mcp.prompts") {
 		planTemplate, err := r.prepareMCPromptTemplate(input, messages)
 		if err != nil {
 			// Non-fatal: proceed without a template if selection fails
@@ -366,7 +366,7 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 	for {
 		stepCount++
 		// Build the dynamic tools prompt with optional plan template
-		reasonLevel := strings.ToLower(strings.TrimSpace(r.configOptions.Get("tools.reason")))
+		reasonLevel := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.reason")))
 		if reasonLevel != "low" && reasonLevel != "medium" && reasonLevel != "high" {
 			reasonLevel = "low"
 		}
@@ -431,10 +431,10 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 }
 
 // QueryWithToolsUnified selects between schema/grammar-guided tool loop and
-// markdown-based loop based on the `tools.grammar` option. This provides a
+// markdown-based loop based on the `mcp.grammar` option. This provides a
 // single entry point for tool-calling behavior.
 func (r *REPL) QueryWithToolsUnified(messages []llm.Message, input string) (string, error) {
-	if r.configOptions.GetBool("tools.grammar") {
+	if r.configOptions.GetBool("mcp.grammar") {
 		return r.QueryWithNewTools(messages, input)
 	}
 	return r.QueryWithTools(messages, input)

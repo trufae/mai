@@ -102,13 +102,13 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("scr.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 
 	// Tooling options
-	co.RegisterOption("tools.old", BooleanOption, "Process user input using tools.go functions", "false")
-	co.RegisterOption("tools.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
-	co.RegisterOption("tools.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
+	co.RegisterOption("mcp.old", BooleanOption, "Process user input using tools.go functions", "false")
+	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
+	co.RegisterOption("mcp.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
 	// Unified tool-calling controls
-	co.RegisterOption("tools.grammar", BooleanOption, "Use JSON schema/grammar for tool planning output", "true")
-	co.RegisterOption("tools.display", StringOption, "Tool loop display: verbose, plan, progress, reason, quiet", "verbose")
-	co.RegisterOption("tools.reason", StringOption, "Reasoning level: low, medium, high", "low")
+	co.RegisterOption("mcp.grammar", BooleanOption, "Use JSON schema/grammar for tool planning output", "true")
+	co.RegisterOption("mcp.display", StringOption, "Tool loop display: verbose, plan, progress, reason, quiet", "verbose")
+	co.RegisterOption("mcp.reason", StringOption, "Reasoning level: low, medium, high", "low")
 
 	// User details options
 	co.RegisterOption("user.details", BooleanOption, "Include user details (CWD, username, OS, language, time) in conversation context", "false")
@@ -120,6 +120,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("vdb.limit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
 
 	// MCP integration
+	co.RegisterOption("mcp.config", StringOption, "Path to MCP configuration file", "")
 	co.RegisterOption("mcp.baseurl", StringOption, "Base URL for MCP server connection", "http://localhost:8989")
 
 	co.initialized = true
@@ -489,9 +490,9 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			markdownStatus = "disabled"
 		}
 		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
-	case "tools.old":
+	case "mcp.old":
 		toolsStatus := "enabled"
-		if !r.configOptions.GetBool("tools.old") {
+		if !r.configOptions.GetBool("mcp.old") {
 			toolsStatus = "disabled"
 		}
 		output.WriteString(fmt.Sprintf("Tools processing %s\r\n", toolsStatus))
@@ -630,7 +631,7 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Logging reverted to default\r\n")
 	case "scr.markdown":
 		output.WriteString("Markdown rendering reverted to default\r\n")
-	case "tools.old":
+	case "mcp.old":
 		output.WriteString("Tools processing reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
 		output.WriteString("System prompt removed\r\n")

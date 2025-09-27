@@ -301,7 +301,7 @@ func (t *Tool) ToString() string {
 
 func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, error) {
 	// TODO: Do something with the previous messages
-	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("tools.display")))
+	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.display")))
 	if display == "" {
 		display = "verbose"
 	}
@@ -312,7 +312,7 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 		return input, err
 	}
 	// Apply reasoning level directive
-	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("tools.reason"))
+	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("mcp.reason"))
 
 	toolList, err := GetAvailableTools(Markdown)
 	if err != nil {

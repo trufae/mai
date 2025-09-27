@@ -299,7 +299,7 @@ func main() {
 			i--
 		case "-t":
 			// Enable legacy tools flow
-			configOptions.Set("tools.old", "true")
+			configOptions.Set("mcp.old", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-1":

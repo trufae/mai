@@ -189,9 +189,9 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
-	// Set default tools.config if not set
-	if repl.configOptions.Get("tools.config") == "" {
-		repl.configOptions.Set("tools.config", "wmcp/sample-config.json")
+	// Set default mcp.config if not set
+	if repl.configOptions.Get("mcp.config") == "" {
+		repl.configOptions.Set("mcp.config", "wmcp/sample-config.json")
 	}
 
 	// Set the stop demo callback to transition out of the "thinking" action
@@ -258,8 +258,8 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 
 	repl.loadAgentsFile()
 
-	// Spawn mai-wmcp if tools.config is set
-	if v := repl.configOptions.Get("tools.config"); v != "" {
+	// Spawn mai-wmcp if mcp.config is set
+	if v := repl.configOptions.Get("mcp.config"); v != "" {
 		listener, err := net.Listen("tcp", "localhost:0")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error finding random port for wmcp: %v\n", err)
@@ -1393,7 +1393,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		// When logging is disabled, we don't append any previous messages
 	}
 
-	if r.configOptions.GetBool("tools.use") || r.configOptions.GetBool("tools.old") {
+	if r.configOptions.GetBool("mcp.use") || r.configOptions.GetBool("mcp.old") {
 		StartTimer()
 		tool, err := r.QueryWithToolsUnified(messages, input)
 		if err != nil {
