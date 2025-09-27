@@ -1361,7 +1361,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	var vdbContext string
 	var vdbErr error
 	// If vdb option is enabled, get context from vector database and include as system context
-	if r.configOptions.GetBool("vdb") {
+	if r.configOptions.GetBool("vdb.use") {
 		vdbContext, vdbErr = r.getVDBContext(input)
 		if vdbErr == nil && vdbContext != "" {
 			messages = append(messages, llm.Message{Role: "user", Content: "[CONTEXT]\n" + vdbContext + "\n[/CONTEXT]"})

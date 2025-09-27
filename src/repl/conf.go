@@ -115,7 +115,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("user.lang", StringOption, "Language preference for user details (defaults to LANG environment variable)", "")
 
 	// Vector database integration
-	co.RegisterOption("vdb", BooleanOption, "Use mai-vdb tool to get context from vector database", "false")
+	co.RegisterOption("vdb.use", BooleanOption, "Use mai-vdb tool to get context from vector database", "false")
 	co.RegisterOption("vdb.datadir", StringOption, "Directory to search for vector database sources", "")
 	co.RegisterOption("vdb.limit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
 
