@@ -115,6 +115,9 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("vdb.datadir", StringOption, "Directory to search for vector database sources", "")
 	co.RegisterOption("vdb.limit", NumberOption, "Limit of entries to be used when calling mai-vdb", "5")
 
+	// MCP integration
+	co.RegisterOption("mcp.baseurl", StringOption, "Base URL for MCP server connection", "http://localhost:8989")
+
 	co.initialized = true
 
 	return co

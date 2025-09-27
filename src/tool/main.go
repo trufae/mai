@@ -101,8 +101,7 @@ func formatJSON(data interface{}, indent int) string {
 
 // Config holds the application configuration
 type Config struct {
-	Host         string
-	Port         string
+	BaseURL      string
 	JsonOutput   bool
 	MarkdownCode bool
 	Quiet        bool
@@ -195,8 +194,7 @@ func main() {
 }
 
 func parseFlags() Config {
-	host := flag.String("host", "localhost", "Host where mcpd is running")
-	port := flag.String("p", "8989", "Port where mcpd is running")
+	baseURL := flag.String("b", "", "Base URL where mcpd is running (overrides MAI_TOOL_BASEURL env var)")
 	jsonOutput := flag.Bool("j", false, "Output in JSON format")
 	markdownCode := flag.Bool("m", false, "Wrap markdown output in code blocks")
 	quiet := flag.Bool("q", false, "Suppress non-essential output")
@@ -210,9 +208,18 @@ func parseFlags() Config {
 		os.Exit(0)
 	}
 
+	// Determine base URL: flag takes precedence, then env var, then default
+	finalBaseURL := *baseURL
+	if finalBaseURL == "" {
+		if envURL := os.Getenv("MAI_TOOL_BASEURL"); envURL != "" {
+			finalBaseURL = envURL
+		} else {
+			finalBaseURL = "http://localhost:8989"
+		}
+	}
+
 	return Config{
-		Host:         *host,
-		Port:         *port,
+		BaseURL:      finalBaseURL,
 		JsonOutput:   *jsonOutput,
 		MarkdownCode: *markdownCode,
 		Quiet:        *quiet,
@@ -223,8 +230,8 @@ func parseFlags() Config {
 func printUsage() {
 	fmt.Println("Usage: mai-tool [options] <command>")
 	fmt.Println("\nOptions:")
-	fmt.Println("  --host <host>  Host where mcpd is running (default: localhost)")
-	fmt.Println("  -p <port>     Port where mcpd is running (default: 8989)")
+	fmt.Println("  -b <url>      Base URL where mcpd is running (default: http://localhost:8989)")
+	fmt.Println("                Can also be set with MAI_TOOL_BASEURL environment variable")
 	fmt.Println("  -j            Output in JSON format")
 	fmt.Println("  -m            Wrap markdown output in code blocks")
 	fmt.Println("  -q            Suppress non-essential output")
@@ -244,6 +251,7 @@ func printUsage() {
 	fmt.Println("  mai-tool call server1 mytool \"text=value with spaces\"")
 	fmt.Println("  mai-tool prompts list")
 	fmt.Println("  mai-tool prompts get server1/welcome topic=onboarding")
+	fmt.Println("  MAI_TOOL_BASEURL=http://remote:9000 mai-tool list")
 }
 
 func parseParams(args []string) map[string]string {
@@ -260,7 +268,7 @@ func parseParams(args []string) map[string]string {
 }
 
 func buildApiUrl(config Config, path string) string {
-	url := fmt.Sprintf("http://%s:%s%s", config.Host, config.Port, path)
+	url := config.BaseURL + path
 	if config.Debug {
 		fmt.Fprintf(os.Stderr, "DEBUG: Request URL: %s\n", url)
 	}

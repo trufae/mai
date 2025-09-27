@@ -1474,7 +1474,7 @@ func showHelp() {
 	fmt.Println("Options:")
 	fmt.Println("  -v\tShow version information")
 	fmt.Println("  -h\tShow this help message")
-	fmt.Println("  -p PORT\tPort to listen on (default: 8989)")
+	fmt.Println("  -b URL\tBase URL to listen on (default: :8989)")
 	fmt.Println("  -y\tYolo mode (skip tool confirmations)")
 	fmt.Println("  -o FILE\tOutput report to FILE")
 	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
@@ -1497,7 +1497,7 @@ func debugLog(debug bool, format string, args ...interface{}) {
 
 func main() {
 	// Parse command line flags
-	port := "8989"
+	baseURL := ":8989"
 	yoloMode := false
 	outputReport := ""
 	debugMode := false
@@ -1540,12 +1540,12 @@ func main() {
 				}
 			case "-n":
 				skipConfig = true
-			case "-p":
+			case "-b":
 				if i+1 < len(args) {
-					port = args[i+1]
+					baseURL = args[i+1]
 					i++
 				} else {
-					fmt.Println("Error: -p requires a port number")
+					fmt.Println("Error: -b requires a base URL")
 					showHelp()
 					os.Exit(1)
 				}
@@ -1689,14 +1689,15 @@ Prompts endpoints:
 	}).Methods("GET")
 
 	// Start HTTP server
-	if envPort := os.Getenv("PORT"); envPort != "" {
-		port = envPort
+	if envBaseURL := os.Getenv("MAI_WMCP_BASEURL"); envBaseURL != "" {
+		baseURL = envBaseURL
 	}
 
-	log.Printf("Starting MCP REST service on port %s", port)
-	log.Printf("Access tools at: http://localhost:%s/tools", port)
+	log.Printf("Starting MCP REST service on %s", baseURL)
+	accessAddr := strings.Replace(baseURL, "0.0.0.0", "localhost", 1)
+	log.Printf("Access tools at: http://%s/tools", accessAddr)
 
-	if err := http.ListenAndServe(":"+port, router); err != nil {
+	if err := http.ListenAndServe(baseURL, router); err != nil {
 		log.Fatal("Failed to start HTTP server:", err)
 	}
 }
