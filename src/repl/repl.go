@@ -173,10 +173,10 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	if repl.configOptions.Get("ai.provider") == "" && envCfg.PROVIDER != "" {
 		repl.configOptions.Set("ai.provider", envCfg.PROVIDER)
 	}
-	if repl.configOptions.Get("chat.prompt") == "" {
+	if repl.configOptions.Get("ai.model") == "" {
 		// Use provider's DefaultModel if model not set
 		if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("ai.provider")); dm != "" {
-			repl.configOptions.Set("chat.prompt", dm)
+			repl.configOptions.Set("ai.model", dm)
 		}
 	}
 	if repl.configOptions.Get("ai.baseurl") == "" && envCfg.BaseURL != "" {
@@ -2813,7 +2813,7 @@ func (r *REPL) autoDetectPromptDir() {
 // showCurrentModel displays the current model based on the provider
 func (r *REPL) showCurrentModel() {
 	provider := r.configOptions.Get("ai.provider")
-	model := r.configOptions.Get("chat.prompt")
+	model := r.configOptions.Get("ai.model")
 	if provider == "" {
 		fmt.Printf("Current model: %s\r\n", model)
 		return
@@ -2823,7 +2823,7 @@ func (r *REPL) showCurrentModel() {
 
 // setModel changes the model for the current provider
 func (r *REPL) setModel(model string) error {
-	r.configOptions.Set("chat.prompt", model)
+	r.configOptions.Set("ai.model", model)
 	prov := r.configOptions.Get("ai.provider")
 	if prov == "" {
 		fmt.Printf("Model set to %s\r\n", model)
@@ -2904,7 +2904,7 @@ func (r *REPL) setProvider(provider string) error {
 
 	// Resolve a default model for the new provider from env/provider defaults
 	if dm := r.resolveDefaultModelForProvider(provider); dm != "" {
-		r.configOptions.Set("chat.prompt", dm)
+		r.configOptions.Set("ai.model", dm)
 	}
 
 	fmt.Printf("Provider set to %s\r\n", provider)
@@ -2973,14 +2973,14 @@ func (r *REPL) listModels() (string, error) {
 	}
 
 	output.WriteString(fmt.Sprintf("Total models: %d\r\n", len(models)))
-	output.WriteString("Use '/set chat.prompt <model-id>' to change the model\r\n")
+	output.WriteString("Use '/set ai.model <model-id>' to change the model\r\n")
 
 	return output.String(), nil
 }
 
 // getCurrentModelForProvider returns the current model ID for the active provider
 func (r *REPL) getCurrentModelForProvider() string {
-	return r.configOptions.Get("chat.prompt")
+	return r.configOptions.Get("ai.model")
 }
 
 // handleCompactCommand processes the /compact command

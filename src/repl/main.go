@@ -178,7 +178,7 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	if v := opts.Get("ai.provider"); v != "" {
 		config.PROVIDER = v
 	}
-	if v := opts.Get("chat.prompt"); v != "" {
+	if v := opts.Get("ai.model"); v != "" {
 		config.Model = v
 	}
 	if v := opts.Get("ai.baseurl"); v != "" {
@@ -340,8 +340,8 @@ func main() {
 		case "-m":
 			if i+1 < len(args) {
 				setModel(config, args[i+1])
-				// Also set generic model option for REPL
-				configOptions.Set("chat.prompt", args[i+1])
+			// Also set generic model option for REPL
+			configOptions.Set("ai.model", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {

@@ -264,7 +264,7 @@ func (r *REPL) saveSession(sessionName string) error {
 	sess := sessionData{
 		Messages: r.messages,
 		Provider: r.configOptions.Get("ai.provider"),
-		Model:    r.configOptions.Get("chat.prompt"),
+		Model:    r.configOptions.Get("ai.model"),
 		BaseURL:  r.configOptions.Get("ai.baseurl"),
 	}
 	data, err := json.MarshalIndent(sess, "", "  ")
@@ -314,7 +314,7 @@ func (r *REPL) loadSession(sessionName string) error {
 	}
 	r.messages = sess.Messages
 	r.configOptions.Set("ai.provider", sess.Provider)
-	r.configOptions.Set("chat.prompt", sess.Model)
+	r.configOptions.Set("ai.model", sess.Model)
 	r.configOptions.Set("ai.baseurl", sess.BaseURL)
 	fmt.Printf("Session '%s' loaded (provider=%s, model=%s, baseurl=%s)\r\n", sessionName, sess.Provider, sess.Model, sess.BaseURL)
 	return nil

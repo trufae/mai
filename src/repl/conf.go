@@ -59,7 +59,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat.log", BooleanOption, "Enable conversation logging", "true")
 	// Memory option: load consolidated memory from ~/.mai/memory.txt into conversation context
 	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
-	co.RegisterOption("chat.prompt", StringOption, "AI model to use", "")
+	co.RegisterOption("ai.model", StringOption, "AI model to use", "")
 	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "false")
 	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
 	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
@@ -353,7 +353,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			// Store inline system prompt via config API; no local cache
 			r.configOptions.Set("llm.systemprompt", val)
 			return "", nil
-		case "chat.prompt":
+		case "ai.model":
 			return "", r.setModel(val)
 		case "ai.provider":
 			provider := strings.ToLower(val)
@@ -491,7 +491,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return output.String(), nil
-	case "chat.prompt":
+	case "ai.model":
 		// Already handled above
 		return output.String(), nil
 	case "ai.provider":
@@ -627,7 +627,7 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Tools processing reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
 		output.WriteString("System prompt removed\r\n")
-	case "chat.prompt":
+	case "ai.model":
 		output.WriteString("Model setting reverted to default\r\n")
 	case "ai.provider":
 		output.WriteString("Provider setting reverted to default\r\n")
