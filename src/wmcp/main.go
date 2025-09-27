@@ -1625,10 +1625,6 @@ func debugLog(debug bool, format string, args ...interface{}) {
 
 func main() {
 	// Parse command line flags
-	baseURL := ":8989"
-	yoloMode := false
-	outputReport := ""
-	debugMode := false
 	configPath := ""
 	skipConfig := false
 
@@ -1641,7 +1637,50 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Process command line arguments
+	// First pass: extract config-related flags
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		if len(arg) > 0 && arg[0] == '-' {
+			switch arg {
+			case "-c":
+				if i+1 < len(args) {
+					configPath = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -c requires a file path")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-n":
+				skipConfig = true
+			}
+		}
+	}
+
+	// Load configuration if not skipped
+	var config *Config
+	var configErr error
+	if !skipConfig {
+		config, configErr = LoadConfig(configPath)
+		if configErr != nil {
+			log.Printf("Warning: Failed to load config: %v", configErr)
+			config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+		}
+	} else {
+		config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+	}
+
+	// Set defaults from config
+	baseURL := config.MaiOptions.BaseURL
+	if baseURL == "" {
+		baseURL = ":8989"
+	}
+	yoloMode := config.MaiOptions.YoloMode
+	outputReport := config.MaiOptions.OutputReport
+	debugMode := config.MaiOptions.DebugMode
+
+	// Second pass: process other command line arguments (can override config)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 
@@ -1658,16 +1697,10 @@ func main() {
 			case "-d":
 				debugMode = true
 			case "-c":
-				if i+1 < len(args) {
-					configPath = args[i+1]
-					i++
-				} else {
-					fmt.Println("Error: -c requires a file path")
-					showHelp()
-					os.Exit(1)
-				}
+				// Already handled in first pass
+				i++ // Skip the value
 			case "-n":
-				skipConfig = true
+				// Already handled in first pass
 			case "-b":
 				if i+1 < len(args) {
 					baseURL = args[i+1]
@@ -1694,19 +1727,6 @@ func main() {
 		} else {
 			cmdArgs = append(cmdArgs, arg)
 		}
-	}
-
-	// Load configuration if not skipped
-	var config *Config
-	var configErr error
-	if !skipConfig {
-		config, configErr = LoadConfig(configPath)
-		if configErr != nil {
-			log.Printf("Warning: Failed to load config: %v", configErr)
-			config = &Config{MCPServers: make(map[string]MCPServerConfig)}
-		}
-	} else {
-		config = &Config{MCPServers: make(map[string]MCPServerConfig)}
 	}
 
 	// Check if we have any commands to run or servers in config

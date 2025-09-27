@@ -1,4 +1,10 @@
 {
+  "maiOptions": {
+    "baseURL": ":8989",
+    "yoloMode": false,
+    "outputReport": "",
+    "debugMode": false
+  },
   "mcpServers": {
     "mcp-omnisearch": {
       "type": "stdio",

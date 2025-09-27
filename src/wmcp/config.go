@@ -7,9 +7,18 @@ import (
 	"path/filepath"
 )
 
+// MaiOptions represents configuration options for the mai-wmcp service
+type MaiOptions struct {
+	BaseURL      string `json:"baseURL,omitempty"`
+	YoloMode     bool   `json:"yoloMode,omitempty"`
+	OutputReport string `json:"outputReport,omitempty"`
+	DebugMode    bool   `json:"debugMode,omitempty"`
+}
+
 // Config represents the main configuration structure
 type Config struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+	MaiOptions MaiOptions                 `json:"maiOptions,omitempty"`
 }
 
 // MCPServerConfig represents the configuration for a single MCP server
@@ -46,6 +55,11 @@ func LoadConfig(configPath string) (*Config, error) {
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %v", err)
+	}
+
+	// Set defaults for MaiOptions if not specified
+	if config.MaiOptions.BaseURL == "" {
+		config.MaiOptions.BaseURL = ":8989"
 	}
 
 	// Validate the config
