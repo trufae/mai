@@ -319,7 +319,7 @@ func (s *MCPService) initializeServer(server *MCPServer) error {
 				"prompts": map[string]interface{}{},
 			},
 			"clientInfo": map[string]interface{}{
-				"name":    "ai-mcpd",
+				"name":    "mai-wmcp",
 				"version": "1.0.0",
 			},
 		},
@@ -1594,11 +1594,11 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	version = "1.0.0"
+	version = "1.1.0"
 )
 
 func showHelp() {
-	fmt.Println("Usage: ./mcpd [options] \"command1\" \"command2\" ...")
+	fmt.Println("Usage: mai-wmcp [options] \"command1\" \"command2\" ...")
 	fmt.Println("Options:")
 	fmt.Println("  -v\tShow version information")
 	fmt.Println("  -h\tShow this help message")
@@ -1608,12 +1608,12 @@ func showHelp() {
 	fmt.Println("  -d\tEnable debug logging (shows HTTP requests and JSON payloads)")
 	fmt.Println("  -c FILE\tPath to config file (default: ~/.mai-wmcp.json)")
 	fmt.Println("  -n\tSkip loading config file")
-	fmt.Println("Example: ./mcpd \"r2pm -r r2mcp\" \"timemcp\"")
-	fmt.Println("Example with config: ./mcpd -c /path/to/config.json")
+	fmt.Println("Example: mai-wmcp \"r2pm -r r2mcp\" \"timemcp\"")
+	fmt.Println("Example with config: mai-wmcp -c /path/to/config.json")
 }
 
 func showVersion() {
-	fmt.Printf("mcpd version %s\n", version)
+	fmt.Printf("mai-wmcp version %s\n", version)
 }
 
 // debugLog prints debug logs when debug mode is enabled
