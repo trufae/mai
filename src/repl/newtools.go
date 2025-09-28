@@ -423,7 +423,11 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			break
 		}
 		debug(tool)
-		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"))
+		timeout, err := r.configOptions.GetNumber("mcp.timeout")
+		if err != nil || timeout <= 0 {
+			timeout = 60
+		}
+		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), int(timeout))
 		if err != nil {
 			fmt.Println(err)
 			// break

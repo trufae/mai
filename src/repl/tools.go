@@ -58,7 +58,7 @@ func GetAvailableTools(f Format) (string, error) {
 }
 
 // callTool executes a specified tool with provided arguments and returns the output
-func callTool(tool *Tool, debug bool) (string, error) {
+func callTool(tool *Tool, debug bool, timeoutSeconds int) (string, error) {
 	// Validate the tool name
 	if tool.Name == "" {
 		return "", fmt.Errorf("empty tool name provided")
@@ -83,7 +83,6 @@ func callTool(tool *Tool, debug bool) (string, error) {
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
-	timeout := 60
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
 
 	// Add debug flag if enabled
@@ -92,7 +91,7 @@ func callTool(tool *Tool, debug bool) (string, error) {
 	}
 
 	// Set a timeout for the command execution
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
 	// Set the command context with timeout
@@ -103,7 +102,7 @@ func callTool(tool *Tool, debug bool) (string, error) {
 	err := cmd.Run()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return "", fmt.Errorf("tool execution timed out after %d seconds: %s", timeout, tool.Name)
+			return "", fmt.Errorf("tool execution timed out after %d seconds: %s", timeoutSeconds, tool.Name)
 		}
 		return "", fmt.Errorf("error executing tool %s: %v: %s", tool.Name, err, stderr.String())
 	}
@@ -124,7 +123,7 @@ func ExecuteTool(toolName string, args ...string) (string, error) {
 		Name: toolName,
 		Args: args,
 	}
-	return callTool(tool, false)
+	return callTool(tool, false, 60)
 }
 
 // getToolPrompt returns the content of the tool.md prompt file
@@ -404,7 +403,11 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 		if display != "quiet" {
 			fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
 		}
-		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"))
+		timeout, err := r.configOptions.GetNumber("mcp.timeout")
+		if err != nil || timeout <= 0 {
+			timeout = 60
+		}
+		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), int(timeout))
 		if err != nil {
 			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), err.Error())
 			continue

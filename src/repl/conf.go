@@ -109,6 +109,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("mcp.grammar", BooleanOption, "Use JSON schema/grammar for tool planning output", "true")
 	co.RegisterOption("mcp.display", StringOption, "Tool loop display: verbose, plan, progress, reason, quiet", "verbose")
 	co.RegisterOption("mcp.reason", StringOption, "Reasoning level: low, medium, high", "low")
+	co.RegisterOption("mcp.timeout", NumberOption, "Timeout in seconds for tool execution", "60")
 
 	// User details options
 	co.RegisterOption("user.details", BooleanOption, "Include user details (CWD, username, OS, language, time) in conversation context", "false")
