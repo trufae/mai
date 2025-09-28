@@ -343,52 +343,9 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 // TODO: move into repl.go?
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) (string, error) {
-	// Special handling for specific configOptions
-	if len(args) >= 3 {
-		val := strings.Join(args[2:], " ")
-		switch args[1] {
-		case "ai.deterministic":
-			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("ai.deterministic", val)
-			return "", nil
-		case "llm.rawmode":
-			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("llm.rawmode", val)
-			return "", nil
-		case "dir.promptfile":
-			return "", r.loadSystemPrompt(val)
-		case "llm.systemprompt":
-			// Store inline system prompt via config API; no local cache
-			r.configOptions.Set("llm.systemprompt", val)
-			return "", nil
-		case "ai.model":
-			return "", r.setModel(val)
-		case "ai.provider":
-			provider := strings.ToLower(val)
-			return "", r.setProvider(provider)
-		case "chat.replies":
-			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("chat.replies", val)
-			return "", nil
-		case "chat.system":
-			// Update option; REPL binds keep provider config in sync
-			r.configOptions.Set("chat.system", val)
-			return "", nil
-		case "chat.format":
-			// Accept plain, labeled, tokens
-			valLower := strings.ToLower(val)
-			if valLower != "plain" && valLower != "labeled" && valLower != "tokens" {
-				// still set, but warn
-				fmt.Printf("Warning: unknown chat.format '%s'\n", val)
-			}
-			r.configOptions.Set("chat.format", valLower)
-			return "", nil
-
-		}
-	}
 	if len(args) < 2 {
 		var output strings.Builder
-		output.WriteString("Usage: /set <option> [value]\r\n")
+		output.WriteString("Usage: /set <option> [value] or /set <option>=<value>\r\n")
 		output.WriteString("Available options:\r\n")
 		for _, option := range r.configOptions.GetAvailableOptions() {
 			optType := r.configOptions.GetOptionType(option)
@@ -397,25 +354,72 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		return output.String(), nil
 	}
 
-	option := args[1]
+	input := args[1]
+	var key, value string
+	if idx := strings.Index(input, "="); idx != -1 {
+		key = strings.TrimSpace(input[:idx])
+		value = strings.TrimSpace(input[idx+1:])
+		if value == "" {
+			// Act like /unset
+			return r.handleUnsetCommand([]string{"/unset", key})
+		}
+	} else {
+		key = strings.TrimSpace(input)
+		if len(args) >= 3 {
+			value = strings.TrimSpace(strings.Join(args[2:], " "))
+		}
+	}
 
-	// If option ends with '.', list all keys that start with that prefix
-	if strings.HasSuffix(option, ".") {
+	// Handle special options
+	switch key {
+	case "ai.deterministic":
+		r.configOptions.Set("ai.deterministic", value)
+		return "", nil
+	case "llm.rawmode":
+		r.configOptions.Set("llm.rawmode", value)
+		return "", nil
+	case "dir.promptfile":
+		return "", r.loadSystemPrompt(value)
+	case "llm.systemprompt":
+		r.configOptions.Set("llm.systemprompt", value)
+		return "", nil
+	case "ai.model":
+		return "", r.setModel(value)
+	case "ai.provider":
+		provider := strings.ToLower(value)
+		return "", r.setProvider(provider)
+	case "chat.replies":
+		r.configOptions.Set("chat.replies", value)
+		return "", nil
+	case "chat.system":
+		r.configOptions.Set("chat.system", value)
+		return "", nil
+	case "chat.format":
+		valLower := strings.ToLower(value)
+		if valLower != "plain" && valLower != "labeled" && valLower != "tokens" {
+			fmt.Printf("Warning: unknown chat.format '%s'\n", value)
+		}
+		r.configOptions.Set("chat.format", valLower)
+		return "", nil
+	}
+
+	// If key ends with '.', list all keys that start with that prefix
+	if strings.HasSuffix(key, ".") {
 		var output strings.Builder
-		prefix := option
+		prefix := key
 		output.WriteString(fmt.Sprintf("Configuration options starting with '%s':\r\n", prefix))
 		found := false
 		for _, opt := range r.configOptions.GetAvailableOptions() {
 			if strings.HasPrefix(opt, prefix) {
-				value := r.configOptions.Get(opt)
+				val := r.configOptions.Get(opt)
 				var status string
-				if value == "" {
+				if val == "" {
 					status = "not set"
 					if info, exists := r.configOptions.GetOptionInfo(opt); exists && info.Default != "" {
 						status = fmt.Sprintf("default: %s", info.Default)
 					}
 				} else {
-					status = value
+					status = val
 				}
 				optType := r.configOptions.GetOptionType(opt)
 				output.WriteString(fmt.Sprintf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType))
@@ -429,22 +433,22 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 	}
 
 	// Check if the option exists
-	if _, exists := r.configOptions.GetOptionInfo(option); !exists {
+	if _, exists := r.configOptions.GetOptionInfo(key); !exists {
 		var output strings.Builder
-		output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", option))
+		output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", key))
 
 		// Suggest similar keys
 		var suggestions []string
-		for _, key := range r.configOptions.GetAvailableOptions() {
-			if strings.Contains(key, option) || strings.Contains(option, key) {
-				suggestions = append(suggestions, key)
+		for _, k := range r.configOptions.GetAvailableOptions() {
+			if strings.Contains(k, key) || strings.Contains(key, k) {
+				suggestions = append(suggestions, k)
 			}
 		}
 		if len(suggestions) == 0 {
 			// Find keys with common prefix
-			for _, key := range r.configOptions.GetAvailableOptions() {
-				if strings.HasPrefix(key, strings.Split(option, ".")[0]+".") {
-					suggestions = append(suggestions, key)
+			for _, k := range r.configOptions.GetAvailableOptions() {
+				if strings.HasPrefix(k, strings.Split(key, ".")[0]+".") {
+					suggestions = append(suggestions, k)
 				}
 			}
 		}
@@ -459,36 +463,29 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		return output.String(), nil
 	}
 
-	if len(args) < 3 {
-		// Display current value if no value argument is provided
-		value := r.configOptions.Get(option)
-
-		// Get option type and status
-		optType := r.configOptions.GetOptionType(option)
+	if value == "" {
+		// Display current value if no value provided
+		val := r.configOptions.Get(key)
+		optType := r.configOptions.GetOptionType(key)
 		var status string
-		if value == "" {
+		if val == "" {
 			status = "not set"
-
-			// Check for default value
-			if info, exists := r.configOptions.GetOptionInfo(option); exists && info.Default != "" {
+			if info, exists := r.configOptions.GetOptionInfo(key); exists && info.Default != "" {
 				status = fmt.Sprintf("default: %s", info.Default)
 			}
 		} else {
-			status = value
+			status = val
 		}
-
-		return fmt.Sprintf("%s = %s (type: %s)\r\n", option, status, optType), nil
+		return fmt.Sprintf("%s = %s (type: %s)\r\n", key, status, optType), nil
 	}
 
-	value := args[2]
-
 	// Set the option value with validation
-	if err := r.configOptions.Set(option, value); err != nil {
+	if err := r.configOptions.Set(key, value); err != nil {
 		var output strings.Builder
 		output.WriteString(fmt.Sprintf("Error: %v\r\n", err))
 
 		// Show expected format for the type
-		if optType := r.configOptions.GetOptionType(option); optType != "" {
+		if optType := r.configOptions.GetOptionType(key); optType != "" {
 			switch optType {
 			case BooleanOption:
 				output.WriteString("Boolean options accept: true, false\r\n")
@@ -502,7 +499,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 
 	// Handle special options that require updating REPL output/state
 	var output strings.Builder
-	switch option {
+	switch key {
 	case "llm.stream":
 		streamStatus := "enabled"
 		if !r.configOptions.GetBool("llm.stream") {
@@ -510,11 +507,11 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 		output.WriteString(fmt.Sprintf("Streaming mode %s\r\n", streamStatus))
 	case "chat.replies":
-		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	case "llm.think":
-		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	case "chat.log":
-		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	case "scr.markdown":
 		markdownStatus := "enabled"
 		if !r.configOptions.GetBool("scr.markdown") {
@@ -537,7 +534,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		// Already handled above
 		return output.String(), nil
 	default:
-		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", option, value))
+		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	}
 
 	return output.String(), nil
