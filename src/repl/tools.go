@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -59,7 +58,7 @@ func GetAvailableTools(f Format) (string, error) {
 }
 
 // callTool executes a specified tool with provided arguments and returns the output
-func callTool(tool *Tool) (string, error) {
+func callTool(tool *Tool, debug bool) (string, error) {
 	// Validate the tool name
 	if tool.Name == "" {
 		return "", fmt.Errorf("empty tool name provided")
@@ -101,7 +100,7 @@ func callTool(tool *Tool) (string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return "", fmt.Errorf("tool execution timed out after %d seconds: %s", timeout, tool.Name)
@@ -125,7 +124,7 @@ func ExecuteTool(toolName string, args ...string) (string, error) {
 		Name: toolName,
 		Args: args,
 	}
-	return callTool(tool)
+	return callTool(tool, false)
 }
 
 // getToolPrompt returns the content of the tool.md prompt file
@@ -405,7 +404,7 @@ func (r *REPL) QueryWithTools(messages []llm.Message, input string) (string, err
 		if display != "quiet" {
 			fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
 		}
-		result, err := callTool(tool)
+		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"))
 		if err != nil {
 			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), err.Error())
 			continue

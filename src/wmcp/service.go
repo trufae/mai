@@ -253,6 +253,54 @@ func (s *MCPService) loadPrompts(server *MCPServer) error {
 	return nil
 }
 
+// isToolAvailable checks if a tool with the given name is available across all servers
+func (s *MCPService) isToolAvailable(toolName string) bool {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for _, server := range s.servers {
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			if tool.Name == toolName {
+				server.mutex.RUnlock()
+				return true
+			}
+		}
+		server.mutex.RUnlock()
+	}
+	return false
+}
+
+// promptToolNotFoundDecision prompts the user when a tool doesn't exist
+func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
+	fmt.Printf("\n===== TOOL NOT FOUND =====\n")
+	fmt.Printf("Tool '%s' does not exist.\n\n", toolName)
+	fmt.Printf("Options:\n")
+	fmt.Printf("[1] Respond that the tool doesn't exist\n")
+	fmt.Printf("[2] Let me enter a custom response\n")
+	fmt.Printf("[3] Show available tools and let me adjust the request\n")
+	fmt.Printf("[4] Respond with a message to guide the model\n")
+	fmt.Printf("\nYour decision: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	switch response {
+	case "1":
+		return YoloToolNotFound
+	case "2":
+		return YoloCustomResponse
+	case "3":
+		return YoloModify
+	case "4":
+		return YoloGuideModel
+	default:
+		fmt.Println("Invalid option, defaulting to tool not found")
+		return YoloToolNotFound
+	}
+}
+
 // promptYoloDecision prompts the user for a yolo decision on tool execution
 func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) YoloDecision {
 	fmt.Printf("\n===== TOOL EXECUTION CONFIRMATION =====\n")
@@ -610,6 +658,129 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 		var callParams CallToolParams
 		paramsBytes, _ := json.Marshal(request.Params)
 		json.Unmarshal(paramsBytes, &callParams)
+
+		// Check if tool exists first
+		if !s.isToolAvailable(callParams.Name) {
+			// Tool doesn't exist, prompt user for what to do
+			decision := s.promptToolNotFoundDecision(callParams.Name)
+
+			switch decision {
+			case YoloToolNotFound:
+				return nil, fmt.Errorf("tool '%s' does not exist", callParams.Name)
+			case YoloCustomResponse:
+				// Prompt for custom response
+				fmt.Print("Enter your custom response: ")
+				reader := bufio.NewReader(os.Stdin)
+				customResponse, _ := reader.ReadString('\n')
+				customResponse = strings.TrimSpace(customResponse)
+				if customResponse == "" {
+					return nil, fmt.Errorf("tool '%s' does not exist", callParams.Name)
+				}
+				// Return a special result that indicates this is a custom response
+				return &JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result: CallToolResult{
+						Content: []Content{{Type: "text", Text: customResponse}},
+					},
+					ID: request.ID,
+				}, nil
+			case YoloModify:
+				// Show available tools and let user modify
+				fmt.Println("\nAvailable tools:")
+				s.mutex.RLock()
+				toolCount := 0
+				for _, server := range s.servers {
+					server.mutex.RLock()
+					for _, tool := range server.Tools {
+						fmt.Printf("  %s - %s\n", tool.Name, tool.Description)
+						toolCount++
+					}
+					server.mutex.RUnlock()
+				}
+				s.mutex.RUnlock()
+
+				if toolCount == 0 {
+					fmt.Println("  No tools available")
+					return nil, fmt.Errorf("tool '%s' does not exist and no alternatives available", callParams.Name)
+				}
+
+				fmt.Print("Enter new tool name and arguments (or 'cancel' to abort): ")
+				reader := bufio.NewReader(os.Stdin)
+				input, _ := reader.ReadString('\n')
+				input = strings.TrimSpace(input)
+				if input == "cancel" || input == "" {
+					return nil, fmt.Errorf("tool execution cancelled by user")
+				}
+
+				// Parse input: "toolname arg1=value arg2=value"
+				parts := strings.Fields(input)
+				if len(parts) == 0 {
+					return nil, fmt.Errorf("invalid input")
+				}
+
+				newToolName := parts[0]
+				newArgs := make(map[string]interface{})
+
+				// Copy existing args as defaults
+				for k, v := range callParams.Arguments {
+					newArgs[k] = v
+				}
+
+				// Parse additional arguments
+				for _, part := range parts[1:] {
+					if !strings.Contains(part, "=") {
+						return nil, fmt.Errorf("invalid parameter format: %s (expected key=value)", part)
+					}
+					kv := strings.SplitN(part, "=", 2)
+					k, v := kv[0], kv[1]
+
+					// Try to parse as JSON for complex values
+					if strings.HasPrefix(v, "{") || strings.HasPrefix(v, "[") {
+						var vv interface{}
+						if err := json.Unmarshal([]byte(v), &vv); err == nil {
+							newArgs[k] = vv
+							continue
+						}
+					}
+
+					// Try number
+					if num, err := strconv.ParseFloat(v, 64); err == nil {
+						newArgs[k] = num
+						continue
+					}
+
+					// Try bool
+					if b, err := strconv.ParseBool(v); err == nil {
+						newArgs[k] = b
+						continue
+					}
+
+					// Default to string
+					newArgs[k] = v
+				}
+
+				// Update the request with modified parameters
+				callParams.Name = newToolName
+				callParams.Arguments = newArgs
+				request.Params = callParams
+
+				// Check if the new tool exists
+				if !s.isToolAvailable(newToolName) {
+					return nil, fmt.Errorf("modified tool '%s' also does not exist", newToolName)
+				}
+
+				// Continue with the modified request (will go through normal permission checking)
+			case YoloGuideModel:
+				guideMessage := "The tool you requested doesn't exist. Please check the available tools and try again with a valid tool name."
+				return &JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result: CallToolResult{
+						Content: []Content{{Type: "text", Text: guideMessage}},
+					},
+					ID: request.ID,
+				}, nil
+			}
+		}
 
 		// Convert arguments to JSON string for comparison
 		paramsJSON, _ := json.Marshal(callParams.Arguments)

@@ -117,6 +117,9 @@ const (
 	YoloRejectForever
 	YoloPermitAllToolsForever
 	YoloModify
+	YoloToolNotFound
+	YoloCustomResponse
+	YoloGuideModel
 )
 
 // Prompt decision type
