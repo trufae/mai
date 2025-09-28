@@ -1,7 +1,7 @@
 include ../../config.mk
 
 all:
-	go build -o mai .
+	go build -o mai-repl .
 
 indent fmt:
 	go fmt . && cd llm && go fmt .

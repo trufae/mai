@@ -428,6 +428,37 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		return output.String(), nil
 	}
 
+	// Check if the option exists
+	if _, exists := r.configOptions.GetOptionInfo(option); !exists {
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", option))
+
+		// Suggest similar keys
+		var suggestions []string
+		for _, key := range r.configOptions.GetAvailableOptions() {
+			if strings.Contains(key, option) || strings.Contains(option, key) {
+				suggestions = append(suggestions, key)
+			}
+		}
+		if len(suggestions) == 0 {
+			// Find keys with common prefix
+			for _, key := range r.configOptions.GetAvailableOptions() {
+				if strings.HasPrefix(key, strings.Split(option, ".")[0]+".") {
+					suggestions = append(suggestions, key)
+				}
+			}
+		}
+		if len(suggestions) > 0 {
+			output.WriteString("Did you mean one of these?\r\n")
+			for _, sug := range suggestions {
+				output.WriteString(fmt.Sprintf("  %s\r\n", sug))
+			}
+		} else {
+			output.WriteString("Use '/set' without arguments to list all available options.\r\n")
+		}
+		return output.String(), nil
+	}
+
 	if len(args) < 3 {
 		// Display current value if no value argument is provided
 		value := r.configOptions.Get(option)
@@ -567,6 +598,36 @@ func (r *REPL) handleGetCommand(args []string) (string, error) {
 		}
 		if !found {
 			output.WriteString(fmt.Sprintf("No configuration options found starting with '%s'\r\n", prefix))
+		}
+		return output.String(), nil
+	}
+
+	// Check if the option exists
+	if _, exists := r.configOptions.GetOptionInfo(option); !exists {
+		output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", option))
+
+		// Suggest similar keys
+		var suggestions []string
+		for _, key := range r.configOptions.GetAvailableOptions() {
+			if strings.Contains(key, option) || strings.Contains(option, key) {
+				suggestions = append(suggestions, key)
+			}
+		}
+		if len(suggestions) == 0 {
+			// Find keys with common prefix
+			for _, key := range r.configOptions.GetAvailableOptions() {
+				if strings.HasPrefix(key, strings.Split(option, ".")[0]+".") {
+					suggestions = append(suggestions, key)
+				}
+			}
+		}
+		if len(suggestions) > 0 {
+			output.WriteString("Did you mean one of these?\r\n")
+			for _, sug := range suggestions {
+				output.WriteString(fmt.Sprintf("  %s\r\n", sug))
+			}
+		} else {
+			output.WriteString("Use '/get' without arguments to list all available options.\r\n")
 		}
 		return output.String(), nil
 	}
