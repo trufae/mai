@@ -13,6 +13,7 @@ type MaiOptions struct {
 	YoloMode     bool   `json:"yoloMode,omitempty"`
 	OutputReport string `json:"outputReport,omitempty"`
 	DebugMode    bool   `json:"debugMode,omitempty"`
+	DrunkMode    bool   `json:"drunkMode,omitempty"`
 }
 
 // Config represents the main configuration structure

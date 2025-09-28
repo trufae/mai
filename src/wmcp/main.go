@@ -17,14 +17,15 @@ const (
 func showHelp() {
 	fmt.Println(`Usage: mai-wmcp [options] "command1" "command2" ...
 Options:
-  -v	Show version information
-  -h	Show this help message
-  -b URL	Base URL to listen on (default: :8989)
-  -y	Yolo mode (skip tool confirmations)
-  -o FILE	Output report to FILE
-  -d	Enable debug logging (shows HTTP requests and JSON payloads)
-  -c FILE	Path to config file (default: ~/.mai-wmcp.json)
-  -n	Skip loading config file
+   -v	Show version information
+   -h	Show this help message
+   -b URL	Base URL to listen on (default: :8989)
+   -y	Yolo mode (skip tool confirmations)
+   -k	Drunk mode (permissive tool matching and parameter assignment)
+   -o FILE	Output report to FILE
+   -d	Enable debug logging (shows HTTP requests and JSON payloads)
+   -c FILE	Path to config file (default: ~/.mai-wmcp.json)
+   -n	Skip loading config file
 Example: mai-wmcp "r2pm -r r2mcp" "timemcp"
 Example with config: mai-wmcp -c /path/to/config.json`)
 }
@@ -87,6 +88,7 @@ func main() {
 		baseURL = ":8989"
 	}
 	yoloMode := config.MaiOptions.YoloMode
+	drunkMode := config.MaiOptions.DrunkMode
 	outputReport := config.MaiOptions.OutputReport
 	debugMode := config.MaiOptions.DebugMode
 
@@ -104,6 +106,8 @@ func main() {
 				os.Exit(0)
 			case "-y":
 				yoloMode = true
+			case "-k":
+				drunkMode = true
 			case "-d":
 				debugMode = true
 			case "-c":
@@ -149,7 +153,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := NewMCPService(yoloMode, outputReport)
+	service := NewMCPService(yoloMode, drunkMode, outputReport)
 
 	// Set debug flag
 	service.debugMode = debugMode

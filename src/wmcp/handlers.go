@@ -15,6 +15,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// normalizeToolName normalizes a tool name for drunk mode comparison
+func normalizeToolName(name string) string {
+	// Remove underscores and convert to lowercase
+	return strings.ToLower(strings.ReplaceAll(name, "_", ""))
+}
+
 // debugLog prints debug logs when debug mode is enabled
 func debugLog(debug bool, format string, args ...interface{}) {
 	if debug {
@@ -458,9 +464,18 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	if !exists {
 		for name, _server := range s.servers {
 			for _, tool := range _server.Tools {
-				if toolName == tool.Name {
+				toolMatch := toolName == tool.Name
+				if s.drunkMode && !toolMatch {
+					// In drunk mode, try normalized matching
+					toolMatch = normalizeToolName(toolName) == normalizeToolName(tool.Name)
+				}
+				if toolMatch {
 					serverName = name
 					server = _server
+					// Update toolName to the actual tool name if it was normalized
+					if s.drunkMode && toolName != tool.Name {
+						toolName = tool.Name
+					}
 					exists = true
 					break
 				}
@@ -621,6 +636,49 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	debugLog(s.debugMode, "Parsed arguments: %v", arguments)
+
+	// Apply drunk mode parameter assignment if enabled
+	if s.drunkMode && len(arguments) > 0 {
+		// Find the tool to get its parameters
+		var foundTool *Tool
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			if tool.Name == toolName {
+				foundTool = &tool
+				break
+			}
+		}
+		server.mutex.RUnlock()
+
+		if foundTool != nil && len(foundTool.Parameters) > 0 {
+			// Get all argument keys
+			argKeys := make([]string, 0, len(arguments))
+			for k := range arguments {
+				argKeys = append(argKeys, k)
+			}
+
+			if len(argKeys) == 1 && len(foundTool.Parameters) > 0 {
+				// Single argument: assign to first parameter
+				firstParam := foundTool.Parameters[0]
+				newArgs := make(map[string]interface{})
+				newArgs[firstParam.Name] = arguments[argKeys[0]]
+				arguments = newArgs
+				debugLog(s.debugMode, "Drunk mode: assigned single arg to first param %s", firstParam.Name)
+			} else {
+				// Multiple arguments: assign in order to parameters, filling gaps
+				newArgs := make(map[string]interface{})
+				argIndex := 0
+				for _, param := range foundTool.Parameters {
+					if argIndex < len(argKeys) {
+						newArgs[param.Name] = arguments[argKeys[argIndex]]
+						argIndex++
+					}
+				}
+				arguments = newArgs
+				debugLog(s.debugMode, "Drunk mode: reassigned args in order to params")
+			}
+		}
+	}
 
 	// Create tool call request
 	toolRequest := JSONRPCRequest{

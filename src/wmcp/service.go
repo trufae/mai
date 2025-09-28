@@ -14,10 +14,11 @@ import (
 	"time"
 )
 
-func NewMCPService(yoloMode bool, reportFile string) *MCPService {
+func NewMCPService(yoloMode bool, drunkMode bool, reportFile string) *MCPService {
 	return &MCPService{
 		servers:       make(map[string]*MCPServer),
 		yoloMode:      yoloMode,
+		drunkMode:     drunkMode,
 		toolPerms:     make(map[string]ToolPermission),
 		promptPerms:   make(map[string]PromptPermission),
 		reportEnabled: reportFile != "",

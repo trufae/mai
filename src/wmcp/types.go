@@ -187,6 +187,7 @@ type MCPService struct {
 	servers         map[string]*MCPServer
 	mutex           sync.RWMutex
 	yoloMode        bool
+	drunkMode       bool
 	debugMode       bool
 	toolPerms       map[string]ToolPermission // Map tool name or tool+params hash to permission
 	toolPermsLock   sync.RWMutex
