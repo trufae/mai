@@ -1384,7 +1384,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		// When logging is disabled, we don't append any previous messages
 	}
 
-	if r.configOptions.GetBool("mcp.use") || r.configOptions.GetBool("mcp.old") {
+	if r.configOptions.GetBool("mcp.use") {
 		StartTimer()
 		tool, err := r.QueryWithToolsUnified(messages, input)
 		if err != nil {

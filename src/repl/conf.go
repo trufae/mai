@@ -102,7 +102,6 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("scr.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 
 	// Tooling options
-	co.RegisterOption("mcp.old", BooleanOption, "Process user input using tools.go functions", "false")
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
 	co.RegisterOption("mcp.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
 	// Unified tool-calling controls
@@ -539,12 +538,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			markdownStatus = "disabled"
 		}
 		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
-	case "mcp.old":
-		toolsStatus := "enabled"
-		if !r.configOptions.GetBool("mcp.old") {
-			toolsStatus = "disabled"
-		}
-		output.WriteString(fmt.Sprintf("Tools processing %s\r\n", toolsStatus))
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return output.String(), nil
@@ -710,8 +703,6 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Logging reverted to default\r\n")
 	case "scr.markdown":
 		output.WriteString("Markdown rendering reverted to default\r\n")
-	case "mcp.old":
-		output.WriteString("Tools processing reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
 		output.WriteString("System prompt removed\r\n")
 	case "ai.model":
