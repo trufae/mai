@@ -189,11 +189,6 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
-	// Set default mcp.config if not set
-	if repl.configOptions.Get("mcp.config") == "" {
-		repl.configOptions.Set("mcp.config", "wmcp/sample-config.json")
-	}
-
 	// Set the stop demo callback to transition out of the "thinking" action
 	// when the first token is received. Previously this stopped the demo loop
 	// entirely which caused subsequent streaming tokens to be buffered but
