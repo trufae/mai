@@ -1386,7 +1386,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	if r.configOptions.GetBool("mcp.use") {
 		StartTimer()
-		tool, err := r.QueryWithToolsUnified(messages, input)
+		tool, err := r.ReactLoop(messages, input)
 		if err != nil {
 			return fmt.Errorf("tool execution failed: %v", err)
 		}

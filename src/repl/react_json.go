@@ -195,13 +195,6 @@ const geminiToolsSchema = `
 }
 `
 
-func debug(m any) {
-	return
-	fmt.Println("==========================")
-	fmt.Println(m)
-	fmt.Println("==========================")
-}
-
 func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string, chatHistory string) string {
 	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<rules>%s</rules><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><history>%s</history>",
 		userInput, toolPrompt, ctx, toolList, chatHistory)
@@ -244,7 +237,6 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 		}
 	}
 	var response PlanResponse
-	// debug fmt.Println(responseJson)
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
 		if err2 != nil {
@@ -329,7 +321,9 @@ func FillLineWithTriangles() string {
 	}
 	return result
 }
-func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, error) {
+
+// AITODO: rename to ReactJson()
+func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 
 	var planTemplate = ""
 	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.display")))
@@ -422,7 +416,6 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 			context += "Reasoning: " + step.Reasoning
 			break
 		}
-		debug(tool)
 		timeout, err := r.configOptions.GetNumber("mcp.timeout")
 		if err != nil || timeout <= 0 {
 			timeout = 60
@@ -446,16 +439,6 @@ func (r *REPL) QueryWithNewTools(messages []llm.Message, input string) (string, 
 		fmt.Println("\x1b[33m" + FillLineWithTriangles() + "\x1b[0m")
 	}
 
-	// return input + context + progress, nil
 	return input + context + progress + "\n## Resolution Instructions\n\nBe concise in your response", nil
 }
 
-// QueryWithToolsUnified selects between schema/grammar-guided tool loop and
-// markdown-based loop based on the `mcp.grammar` option. This provides a
-// single entry point for tool-calling behavior.
-func (r *REPL) QueryWithToolsUnified(messages []llm.Message, input string) (string, error) {
-	if r.configOptions.GetBool("mcp.grammar") {
-		return r.QueryWithNewTools(messages, input)
-	}
-	return r.QueryWithTools(messages, input)
-}

@@ -421,6 +421,13 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 		r.configOptions.Set("chat.format", valLower)
 		return "", nil
+	case "mcp.reason":
+		valLower := strings.ToLower(value)
+		if valLower != "low" && valLower != "medium" && valLower != "high" {
+			return fmt.Sprintf("Error: invalid value '%s' for mcp.reason. Must be one of: low, medium, high\r\n", value), nil
+		}
+		r.configOptions.Set("mcp.reason", valLower)
+		return "", nil
 	}
 
 	// If key ends with '.', list all keys that start with that prefix
