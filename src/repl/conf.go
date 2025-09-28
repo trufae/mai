@@ -188,8 +188,14 @@ func (c *ConfigOptions) Set(key, value string) error {
 		switch info.Type {
 		case BooleanOption:
 			normalizedValue := strings.ToLower(value)
+			// Accept '1' and '0' as aliases for true/false
+			if normalizedValue == "1" {
+				normalizedValue = "true"
+			} else if normalizedValue == "0" {
+				normalizedValue = "false"
+			}
 			if normalizedValue != "true" && normalizedValue != "false" {
-				return fmt.Errorf("invalid boolean value: %s (must be 'true' or 'false')", value)
+				return fmt.Errorf("invalid boolean value: %s (must be 'true', 'false', '1' or '0')", value)
 			}
 			c.values[key] = normalizedValue
 		case NumberOption:
@@ -341,10 +347,19 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	return "", fmt.Errorf("prompt not found: %s", promptName)
 }
 
-// TODO: move into repl.go?
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) (string, error) {
-	if len(args) < 2 {
+	// Join all args after the command into a single input string. This
+	// ensures values containing spaces or uses like "key= value" are
+	// handled consistently instead of relying on tokenization.
+	var input string
+	if len(args) >= 2 {
+		input = strings.TrimSpace(strings.Join(args[1:], " "))
+	} else {
+		input = ""
+	}
+
+	if input == "" {
 		var output strings.Builder
 		output.WriteString("Usage: /set <option> [value] or /set <option>=<value>\r\n")
 		output.WriteString("Available options:\r\n")
@@ -355,19 +370,23 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		return output.String(), nil
 	}
 
-	input := args[1]
 	var key, value string
+	// Prefer explicit key=value syntax if present in the joined input
 	if idx := strings.Index(input, "="); idx != -1 {
 		key = strings.TrimSpace(input[:idx])
 		value = strings.TrimSpace(input[idx+1:])
+		// Treat trailing '=' with no value as an unset request
 		if value == "" {
-			// Act like /unset
 			return r.handleUnsetCommand([]string{"/unset", key})
 		}
 	} else {
-		key = strings.TrimSpace(input)
-		if len(args) >= 3 {
-			value = strings.TrimSpace(strings.Join(args[2:], " "))
+		// No '=' in input: first token is the key, remainder is the value
+		parts := strings.Fields(input)
+		key = strings.TrimSpace(parts[0])
+		if len(parts) >= 2 {
+			value = strings.TrimSpace(strings.Join(parts[1:], " "))
+		} else {
+			value = ""
 		}
 	}
 
