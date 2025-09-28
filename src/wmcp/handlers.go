@@ -152,6 +152,28 @@ func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
 	serverName := vars["server"]
 	promptName := vars["prompt"]
 
+	// Check for custom prompt
+	customPrompt := r.URL.Query().Get("custom_prompt")
+	if customPrompt != "" {
+		// Return custom prompt as JSON response
+		customResult := GetPromptResult{
+			Messages: []PromptMessage{
+				{
+					Role: "user",
+					Content: []PromptMessageContent{
+						{
+							Type: "text",
+							Text: customPrompt,
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(customResult)
+		return
+	}
+
 	// Always log HTTP requests
 	log.Printf("HTTP %s %s - Server: %s, Prompt: %s", r.Method, r.URL.String(), serverName, promptName)
 
@@ -242,6 +264,15 @@ func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
 
 	response, err := s.sendRequest(server, req)
 	if err != nil {
+		// Check for special prompt actions
+		if err.Error() == "PROMPT_CUSTOM_REQUEST" {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("Please provide your custom prompt content in the request body or as a query parameter 'custom_prompt'."))
+			return
+		} else if err.Error() == "PROMPT_LIST_REQUEST" {
+			s.listPromptsHandler(w, r)
+			return
+		}
 		http.Error(w, fmt.Sprintf("Failed to get prompt: %v", err), http.StatusBadRequest)
 		return
 	}

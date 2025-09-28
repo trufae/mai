@@ -119,10 +119,31 @@ const (
 	YoloModify
 )
 
+// Prompt decision type
+type PromptDecision int
+
+const (
+	PromptApprove PromptDecision = iota
+	PromptReject
+	PromptPermitPromptForever
+	PromptPermitPromptWithArgsForever
+	PromptRejectForever
+	PromptPermitAllPromptsForever
+	PromptCustom
+	PromptList
+)
+
 // Tool permission record
 type ToolPermission struct {
 	ToolName   string
 	Parameters string // JSON string of parameters for exact matching
+	Approved   bool
+}
+
+// Prompt permission record
+type PromptPermission struct {
+	PromptName string
+	Arguments  string // JSON string of arguments for exact matching
 	Approved   bool
 }
 
@@ -160,14 +181,16 @@ type MCPServer struct {
 
 // MCPService manages multiple MCP servers
 type MCPService struct {
-	servers       map[string]*MCPServer
-	mutex         sync.RWMutex
-	yoloMode      bool
-	debugMode     bool
-	toolPerms     map[string]ToolPermission // Map tool name or tool+params hash to permission
-	toolPermsLock sync.RWMutex
-	reportEnabled bool
-	reportFile    string
-	report        Report
-	reportLock    sync.RWMutex
+	servers         map[string]*MCPServer
+	mutex           sync.RWMutex
+	yoloMode        bool
+	debugMode       bool
+	toolPerms       map[string]ToolPermission // Map tool name or tool+params hash to permission
+	toolPermsLock   sync.RWMutex
+	promptPerms     map[string]PromptPermission // Map prompt name or prompt+args hash to permission
+	promptPermsLock sync.RWMutex
+	reportEnabled   bool
+	reportFile      string
+	report          Report
+	reportLock      sync.RWMutex
 }

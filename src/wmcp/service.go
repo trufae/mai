@@ -19,6 +19,7 @@ func NewMCPService(yoloMode bool, reportFile string) *MCPService {
 		servers:       make(map[string]*MCPServer),
 		yoloMode:      yoloMode,
 		toolPerms:     make(map[string]ToolPermission),
+		promptPerms:   make(map[string]PromptPermission),
 		reportEnabled: reportFile != "",
 		reportFile:    reportFile,
 		report:        Report{Entries: []ReportEntry{}},
@@ -429,6 +430,107 @@ func (s *MCPService) storeToolPermission(toolName string, paramsJSON string, dec
 	}
 }
 
+// promptDecision prompts the user for a prompt decision on prompt execution
+func (s *MCPService) promptPromptDecision(promptName string, argsJSON string) PromptDecision {
+	fmt.Printf("\n===== PROMPT EXECUTION CONFIRMATION =====\n")
+	fmt.Printf("Prompt: %s\n", promptName)
+	fmt.Printf("Arguments: %s\n\n", argsJSON)
+	fmt.Printf("Options:\n")
+	fmt.Printf("[a] Approve execution\n")
+	fmt.Printf("[r] Reject execution\n")
+	fmt.Printf("[p] Permit this prompt forever\n")
+	fmt.Printf("[g] Permit this prompt with these arguments forever\n")
+	fmt.Printf("[x] Reject this prompt forever\n")
+	fmt.Printf("[y] Approve all prompts forever (Yolo mode)\n")
+	fmt.Printf("[c] Write your custom prompt in response\n")
+	fmt.Printf("[l] Get a list of the available prompts\n")
+	fmt.Printf("\nYour decision: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	switch response {
+	case "a":
+		return PromptApprove
+	case "r":
+		return PromptReject
+	case "p":
+		return PromptPermitPromptForever
+	case "g":
+		return PromptPermitPromptWithArgsForever
+	case "x":
+		return PromptRejectForever
+	case "y":
+		return PromptPermitAllPromptsForever
+	case "c":
+		return PromptCustom
+	case "l":
+		return PromptList
+	default:
+		fmt.Println("Invalid option, defaulting to reject")
+		return PromptReject
+	}
+}
+
+// checkPromptPermission checks if a prompt is allowed to run based on stored permissions
+func (s *MCPService) checkPromptPermission(promptName string, argsJSON string) bool {
+	s.promptPermsLock.RLock()
+	defer s.promptPermsLock.RUnlock()
+
+	// Check if all prompts are approved globally
+	if perm, exists := s.promptPerms["y"]; exists && perm.Approved {
+		return true
+	}
+
+	// Check exact prompt+args match
+	key := promptName + "#" + argsJSON
+	if perm, exists := s.promptPerms[key]; exists {
+		return perm.Approved
+	}
+
+	// Check prompt-only match
+	if perm, exists := s.promptPerms[promptName]; exists {
+		return perm.Approved
+	}
+
+	// No permission record found
+	return false
+}
+
+// storePromptPermission stores a prompt permission decision
+func (s *MCPService) storePromptPermission(promptName string, argsJSON string, decision PromptDecision) {
+	s.promptPermsLock.Lock()
+	defer s.promptPermsLock.Unlock()
+
+	switch decision {
+	case PromptPermitPromptForever:
+		s.promptPerms[promptName] = PromptPermission{
+			PromptName: promptName,
+			Approved:   true,
+		}
+	case PromptPermitPromptWithArgsForever:
+		key := promptName + "#" + argsJSON
+		s.promptPerms[key] = PromptPermission{
+			PromptName: promptName,
+			Arguments:  argsJSON,
+			Approved:   true,
+		}
+	case PromptRejectForever:
+		s.promptPerms[promptName] = PromptPermission{
+			PromptName: promptName,
+			Approved:   false,
+		}
+	case PromptPermitAllPromptsForever:
+		// Also enable YOLO mode for future requests
+		// Special key for approving all prompts
+		s.promptPerms["y"] = PromptPermission{
+			PromptName: "y",
+			Approved:   true,
+		}
+	}
+}
+
 // addReportEntry adds an entry to the report
 func (s *MCPService) addReportEntry(server string, tool string, params interface{}, result interface{}, err error) {
 	if !s.reportEnabled {
@@ -459,6 +561,49 @@ func (s *MCPService) addReportEntry(server string, tool string, params interface
 
 // sendRequest sends a JSONRPC request to the server and returns the response
 func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
+	// Handle prompt execution confirmation for prompts/get requests when NOT in yolo mode
+	if !s.yoloMode && request.Method == "prompts/get" {
+		// Extract prompt name and args
+		var getPromptParams GetPromptParams
+		paramsBytes, _ := json.Marshal(request.Params)
+		json.Unmarshal(paramsBytes, &getPromptParams)
+
+		// Convert arguments to JSON string for comparison
+		argsJSON, _ := json.Marshal(getPromptParams.Arguments)
+
+		// Check if we already have a permission decision
+		allowed := s.checkPromptPermission(getPromptParams.Name, string(argsJSON))
+		if !allowed {
+			// No existing permission, ask user
+			decision := s.promptPromptDecision(getPromptParams.Name, string(argsJSON))
+
+			switch decision {
+			case PromptApprove:
+				// Continue with request
+				break
+			case PromptReject:
+				return nil, fmt.Errorf("prompt execution rejected by user")
+			case PromptPermitPromptForever, PromptPermitAllPromptsForever:
+				s.yoloMode = true
+				break
+			case PromptPermitPromptWithArgsForever, PromptRejectForever:
+				// Store the decision
+				s.storePromptPermission(getPromptParams.Name, string(argsJSON), decision)
+
+				// If it was a reject decision, return error
+				if decision == PromptRejectForever {
+					return nil, fmt.Errorf("prompt execution rejected by user policy")
+				}
+			case PromptCustom:
+				// Return a special error that the handler can catch to provide custom prompt
+				return nil, fmt.Errorf("PROMPT_CUSTOM_REQUEST")
+			case PromptList:
+				// Return a special error that the handler can catch to list prompts
+				return nil, fmt.Errorf("PROMPT_LIST_REQUEST")
+			}
+		}
+	}
+
 	// Handle tool execution confirmation for tools/call requests when NOT in yolo mode
 	if !s.yoloMode && request.Method == "tools/call" {
 		// Extract tool name and params
