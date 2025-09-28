@@ -22,6 +22,79 @@ func normalizeToolName(name string) string {
 	return strings.ToLower(strings.ReplaceAll(name, "_", ""))
 }
 
+// findBestToolMatch tries to resolve a requested tool name to an actual tool
+// name from the provided slice. Matching is strict by default; when drunk
+// mode is enabled it will try normalized equality and fuzzy substring-based
+// matches. It returns the matched tool name and true, or empty/false when
+// nothing matched.
+func findBestToolMatch(tools []Tool, requested string, drunk bool) (string, bool) {
+	// Fast path: exact match
+	for _, t := range tools {
+		if t.Name == requested {
+			return t.Name, true
+		}
+	}
+
+	if !drunk {
+		return "", false
+	}
+
+	reqNorm := normalizeToolName(requested)
+	bestScore := 1 << 60
+	bestName := ""
+
+	for _, t := range tools {
+		act := t.Name
+		actNorm := normalizeToolName(act)
+
+		// normalized exact
+		if actNorm == reqNorm {
+			return act, true
+		}
+
+		// prefer matches where one contains the other; shorter difference is better
+		if strings.Contains(actNorm, reqNorm) {
+			score := 100 + (len(actNorm) - len(reqNorm))
+			if score < bestScore {
+				bestScore = score
+				bestName = act
+			}
+			continue
+		}
+		if strings.Contains(reqNorm, actNorm) {
+			score := 200 + (len(reqNorm) - len(actNorm))
+			if score < bestScore {
+				bestScore = score
+				bestName = act
+			}
+			continue
+		}
+
+		// fallback: prefix/suffix heuristics
+		if strings.HasPrefix(actNorm, reqNorm) || strings.HasSuffix(actNorm, reqNorm) {
+			score := 300 + (len(actNorm) - len(reqNorm))
+			if score < bestScore {
+				bestScore = score
+				bestName = act
+			}
+			continue
+		}
+		if strings.HasPrefix(reqNorm, actNorm) || strings.HasSuffix(reqNorm, actNorm) {
+			score := 400 + (len(reqNorm) - len(actNorm))
+			if score < bestScore {
+				bestScore = score
+				bestName = act
+			}
+			continue
+		}
+	}
+
+	if bestName != "" {
+		return bestName, true
+	}
+	return "", false
+}
+
 // debugLog prints debug logs when debug mode is enabled
 func debugLog(debug bool, format string, args ...interface{}) {
 	if debug {
@@ -463,25 +536,15 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	server, exists := s.servers[serverName]
 	s.mutex.RUnlock()
 	if !exists {
+		// Try to discover the server/tool by name. When drunkMode is enabled
+		// allow fuzzy matches via findBestToolMatch.
 		for name, _server := range s.servers {
-			for _, tool := range _server.Tools {
-				toolMatch := toolName == tool.Name
-				if s.drunkMode && !toolMatch {
-					// In drunk mode, try normalized matching
-					toolMatch = normalizeToolName(toolName) == normalizeToolName(tool.Name)
-				}
-				if toolMatch {
-					serverName = name
-					server = _server
-					// Update toolName to the actual tool name if it was normalized
-					if s.drunkMode && toolName != tool.Name {
-						toolName = tool.Name
-					}
-					exists = true
-					break
-				}
-			}
-			if exists {
+			if matched, ok := findBestToolMatch(_server.Tools, toolName, s.drunkMode); ok {
+				serverName = name
+				server = _server
+				// Update toolName to the actual resolved tool name
+				toolName = matched
+				exists = true
 				break
 			}
 		}
