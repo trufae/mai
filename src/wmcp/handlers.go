@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -473,8 +475,84 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
 
 	if !exists {
-		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
-		return
+		// Prompt the user for what to do when the requested tool/server isn't found
+		decision := s.promptToolNotFoundDecision(toolName)
+
+		switch decision {
+		case YoloToolNotFound:
+			http.Error(w, fmt.Sprintf("Tool '%s' not found", toolName), http.StatusNotFound)
+			return
+		case YoloCustomResponse:
+			fmt.Print("Enter your custom response: ")
+			reader := bufio.NewReader(os.Stdin)
+			customResponse, _ := reader.ReadString('\n')
+			customResponse = strings.TrimSpace(customResponse)
+			if customResponse == "" {
+				http.Error(w, fmt.Sprintf("Tool '%s' not found", toolName), http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(customResponse))
+			return
+		case YoloModify:
+			// Show available tools and prompt the user to choose a replacement
+			fmt.Println("\nAvailable tools:")
+			s.mutex.RLock()
+			for _, srv := range s.servers {
+				srv.mutex.RLock()
+				for _, t := range srv.Tools {
+					fmt.Printf("  %s - %s\n", t.Name, t.Description)
+				}
+				srv.mutex.RUnlock()
+			}
+			s.mutex.RUnlock()
+
+			fmt.Print("Enter new tool name (or 'cancel' to abort): ")
+			reader := bufio.NewReader(os.Stdin)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "cancel" || input == "" {
+				http.Error(w, "tool execution cancelled by user", http.StatusBadRequest)
+				return
+			}
+
+			newToolName := input
+			// locate server that provides newToolName
+			s.mutex.RLock()
+			found := false
+			for name, srv := range s.servers {
+				srv.mutex.RLock()
+				for _, t := range srv.Tools {
+					if t.Name == newToolName {
+						serverName = name
+						server = srv
+						exists = true
+						found = true
+						break
+					}
+				}
+				srv.mutex.RUnlock()
+				if found {
+					break
+				}
+			}
+			s.mutex.RUnlock()
+
+			if !found {
+				http.Error(w, fmt.Sprintf("tool '%s' not found", newToolName), http.StatusNotFound)
+				return
+			}
+			// Update toolName and continue execution
+			toolName = newToolName
+		case YoloGuideModel:
+			guideMsg := fmt.Sprintf("Tool '%s' not found. Provide clearer tool name or use available tools list.", toolName)
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(guideMsg))
+			return
+		default:
+			http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
+			return
+		}
 	}
 
 	// Parse arguments
