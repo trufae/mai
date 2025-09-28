@@ -120,6 +120,7 @@ const (
 	YoloToolNotFound
 	YoloCustomResponse
 	YoloGuideModel
+	YoloCustomToolResponse
 )
 
 // Prompt decision type

@@ -315,6 +315,7 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 	fmt.Printf("[x] Reject this tool forever\n")
 	fmt.Printf("[y] Approve all tools forever (Yolo mode)\n")
 	fmt.Printf("[m] Modify tool name/parameters and run\n")
+	fmt.Printf("[c] Provide custom response text\n")
 	fmt.Printf("\nYour decision: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -336,6 +337,8 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 		return YoloPermitAllToolsForever
 	case "m":
 		return YoloModify
+	case "c":
+		return YoloCustomToolResponse
 	default:
 		fmt.Println("Invalid option, defaulting to reject")
 		return YoloReject
@@ -839,8 +842,42 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 					case YoloModify:
 						// If user asks to modify again, return an error to avoid deep loops
 						return nil, fmt.Errorf("multiple modifications not supported in one prompt")
+					case YoloCustomToolResponse:
+						// Prompt for custom response
+						fmt.Print("Enter your custom response: ")
+						reader := bufio.NewReader(os.Stdin)
+						customResponse, _ := reader.ReadString('\n')
+						customResponse = strings.TrimSpace(customResponse)
+						if customResponse == "" {
+							return nil, fmt.Errorf("tool execution rejected by user")
+						}
+						// Return a special result that indicates this is a custom response
+						return &JSONRPCResponse{
+							JSONRPC: "2.0",
+							Result: CallToolResult{
+								Content: []Content{{Type: "text", Text: customResponse}},
+							},
+							ID: request.ID,
+						}, nil
 					}
 				}
+			case YoloCustomToolResponse:
+				// Prompt for custom response
+				fmt.Print("Enter your custom response: ")
+				reader := bufio.NewReader(os.Stdin)
+				customResponse, _ := reader.ReadString('\n')
+				customResponse = strings.TrimSpace(customResponse)
+				if customResponse == "" {
+					return nil, fmt.Errorf("tool execution rejected by user")
+				}
+				// Return a special result that indicates this is a custom response
+				return &JSONRPCResponse{
+					JSONRPC: "2.0",
+					Result: CallToolResult{
+						Content: []Content{{Type: "text", Text: customResponse}},
+					},
+					ID: request.ID,
+				}, nil
 			}
 		}
 	}
