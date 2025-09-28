@@ -171,7 +171,9 @@ func main() {
 		} else {
 			serverName = ""
 			toolName = arg1
-			params = parseParams(flag.Args()[1:])
+			// When server is not provided, args are: call <tool> [params...]
+			// so parameters start at index 2
+			params = parseParams(flag.Args()[2:])
 			/*
 				if nargs < 3 {
 					fmt.Println("Error: 'call' requires server and tool name")
@@ -257,10 +259,17 @@ func printUsage() {
 func parseParams(args []string) map[string]string {
 	params := make(map[string]string)
 
+	// Support both named parameters (name=value) and positional arguments.
+	// Positional arguments (without '=') are encoded as numeric keys: "0", "1", ...
+	posIndex := 0
 	for _, arg := range args {
 		parts := strings.SplitN(arg, "=", 2)
 		if len(parts) == 2 {
 			params[parts[0]] = parts[1]
+		} else {
+			// positional
+			params[fmt.Sprintf("%d", posIndex)] = arg
+			posIndex++
 		}
 	}
 

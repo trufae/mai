@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -651,9 +652,30 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		server.mutex.RUnlock()
 
 		if foundTool != nil && len(foundTool.Parameters) > 0 {
-			// Get all argument keys
-			argKeys := make([]string, 0, len(arguments))
+			// Get all argument keys and order them deterministically.
+			// Numeric keys ("0","1",...) are sorted by numeric order and used first
+			// to support positional parameters from clients. Non-numeric keys are
+			// then appended in lexicographical order.
+			numericKeys := make([]int, 0)
+			numericMap := make(map[int]string)
+			nonNumericKeys := make([]string, 0)
+
 			for k := range arguments {
+				if i, err := strconv.Atoi(k); err == nil {
+					numericKeys = append(numericKeys, i)
+					numericMap[i] = k
+				} else {
+					nonNumericKeys = append(nonNumericKeys, k)
+				}
+			}
+			sort.Ints(numericKeys)
+			sort.Strings(nonNumericKeys)
+
+			argKeys := make([]string, 0, len(arguments))
+			for _, i := range numericKeys {
+				argKeys = append(argKeys, numericMap[i])
+			}
+			for _, k := range nonNumericKeys {
 				argKeys = append(argKeys, k)
 			}
 
