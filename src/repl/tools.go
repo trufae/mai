@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -86,6 +87,11 @@ func callTool(tool *Tool) (string, error) {
 	timeout := 60
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
 
+	// Add debug flag if enabled
+	if debug {
+		cmdArgs = append([]string{"-d"}, cmdArgs...)
+	}
+
 	// Set a timeout for the command execution
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -95,7 +101,7 @@ func callTool(tool *Tool) (string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return "", fmt.Errorf("tool execution timed out after %d seconds: %s", timeout, tool.Name)

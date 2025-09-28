@@ -210,10 +210,26 @@ func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList
 func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string, chatHistory string) (PlanResponse, error) {
 	query := buildToolsMessage(toolPrompt, input, ctx, toolList, chatHistory)
 	messages := []llm.Message{{Role: "user", Content: query}}
+
+	// Debug output: show the reasoning prompt sent to LLM
+	if r.configOptions.GetBool("mcp.debug") {
+		fmt.Fprintf(os.Stderr, "\n\033[1;36m[DEBUG MCP] Reasoning Prompt Sent to LLM:\033[0m\n")
+		fmt.Fprintf(os.Stderr, "%s\n", query)
+		fmt.Fprintf(os.Stderr, "\033[1;36m[DEBUG MCP] End of Prompt\033[0m\n\n")
+	}
+
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)
 	}
+
+	// Debug output: show the raw response from LLM
+	if r.configOptions.GetBool("mcp.debug") {
+		fmt.Fprintf(os.Stderr, "\033[1;35m[DEBUG MCP] Raw JSON Response from LLM:\033[0m\n")
+		fmt.Fprintf(os.Stderr, "%s\n", responseJson)
+		fmt.Fprintf(os.Stderr, "\033[1;35m[DEBUG MCP] End of Raw Response\033[0m\n\n")
+	}
+
 	if strings.HasPrefix(responseJson, "```") {
 		res, _ := extractJSONBlock(responseJson)
 		responseJson = res

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -80,6 +81,13 @@ Return a concise JSON object only, with the fields:
 	// We send just a single user message to keep the selection focused
 	req := []llm.Message{{Role: "user", Content: query.String()}}
 
+	// Debug output: show the MCP prompt selection query
+	if r.configOptions.GetBool("mcp.debug") {
+		fmt.Fprintf(os.Stderr, "\033[1;34m[DEBUG MCP] MCP Prompt Selection Query:\033[0m\n")
+		fmt.Fprintf(os.Stderr, "%s\n", query.String())
+		fmt.Fprintf(os.Stderr, "\033[1;34m[DEBUG MCP] End of MCP Prompt Selection Query\033[0m\n\n")
+	}
+
 	resp, err := r.currentClient.SendMessage(req, false, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to query LLM for mcpprompts selection: %w", err)
@@ -91,7 +99,13 @@ Return a concise JSON object only, with the fields:
 	resp = strings.ReplaceAll(resp, "<think>", "")
 	resp = strings.ReplaceAll(resp, "</think>", "")
 	jsonText, _ := extractJSONBlock(resp)
-	fmt.Println(jsonText)
+
+	// Debug output for MCP prompt selection
+	if r.configOptions.GetBool("mcp.debug") {
+		fmt.Fprintf(os.Stderr, "\033[1;32m[DEBUG MCP] MCP Prompt Selection JSON:\033[0m\n")
+		fmt.Fprintf(os.Stderr, "%s\n", jsonText)
+		fmt.Fprintf(os.Stderr, "\033[1;32m[DEBUG MCP] End of MCP Prompt Selection\033[0m\n\n")
+	}
 	//jsonText = stripJSONComments(jsonText)
 	if strings.TrimSpace(jsonText) == "" {
 		// If the model did not reply JSON, attempt minimal extraction: look for server/name in text
