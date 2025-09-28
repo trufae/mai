@@ -326,20 +326,21 @@ func (r *REPL) showCommands() string {
 	}
 
 	// Display special commands that aren't in the registry
-	output.WriteString("  #              - List available prompt files (.md)\r\n")
-	output.WriteString("  #<n> <text>    - Use content from prompt file with text\r\n")
-	output.WriteString("  $              - List available template files\r\n")
-	output.WriteString("  $<n> <text>    - Use template with interactive prompts and optional text\r\n")
-	output.WriteString("  !<command>     - Execute shell command\r\n")
-	output.WriteString("  _              - Print the last assistant reply\r\n")
+	output.WriteString("  @<path>         - File path with tab completion (anywhere in input)\r\n")
+	output.WriteString("  #               - List available prompt files (.md)\r\n")
+	output.WriteString("  #<n> <text>     - Use content from prompt file with text\r\n")
+	output.WriteString("  $               - List available template files\r\n")
+	output.WriteString("  $<n> <text>     - Use template with interactive prompts and optional text\r\n")
+	output.WriteString("  !<command>      - Execute shell command\r\n")
+	output.WriteString("  _               - Print the last assistant reply\r\n")
 
+	output.WriteString("Shortcuts:\r\n")
 	// Display keyboard shortcuts
-	output.WriteString("  Ctrl+C         - Cancel current request\r\n")
-	output.WriteString("  Ctrl+D         - Exit REPL (when line is empty)\r\n")
-	output.WriteString("  Ctrl+W         - Delete last word\r\n")
-	output.WriteString("  Up/Down arrows - Navigate history\r\n")
-	output.WriteString("  Tab            - Command/path completion\r\n")
-	output.WriteString("  @<path>        - File path with tab completion (can appear anywhere in input)\r\n")
+	output.WriteString("  Ctrl+C          - Cancel current request\r\n")
+	output.WriteString("  Ctrl+D          - Exit REPL (when line is empty)\r\n")
+	output.WriteString("  Ctrl+W          - Delete last word\r\n")
+	output.WriteString("  Up/Down arrows  - Navigate history\r\n")
+	output.WriteString("  Tab             - Command/path completion\r\n")
 	output.WriteString("\r\n")
 	return output.String()
 }
@@ -524,11 +525,6 @@ func (r *REPL) readLine() (string, error) {
 
 			// Update REPL's cursor position from readline's cursor position
 			r.cursorPos = r.readline.GetCursorPos()
-
-			// Debug logging - uncomment if needed
-			// fmt.Printf("\r\nDEBUG: Current content: '%s'\r\n", currentContent)
-			// fmt.Printf("DEBUG: Prefix: '%s'\r\n", r.completePrefix)
-			// fmt.Printf("DEBUG: State: %d, Idx: %d\r\n", r.completeState, r.completeIdx)
 
 			// Set up a builder for tab completion
 			var line strings.Builder
