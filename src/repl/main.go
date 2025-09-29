@@ -221,6 +221,7 @@ func showHelp() {
 -a <string>      set the user agent for HTTP requests
 -b <url>         specify a custom base URL for API requests
 -c <key=value>   set configuration option
+-d               enable debug mode
 -h               show this help message
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
@@ -230,6 +231,7 @@ func showHelp() {
 -q               quit after running given actions
 -s <string>      send string directly to AI (can be used multiple times)
 -t               enable tools processing
+-T               enable tools with grammar disabled
 -U               update project by running git pull ; make in project directory
 
 Files:
@@ -412,6 +414,11 @@ func main() {
 			configOptions.Set("mcp.use", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
+		case "-T":
+			configOptions.Set("mcp.use", "true")
+			configOptions.Set("mcp.grammar", "false")
+			args = append(args[:i], args[i+1:]...)
+			i--
 		case "-1":
 			config.NoStream = true
 			// Keep REPL in sync with stdin mode: disable streaming in options
@@ -489,6 +496,10 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -c requires a config key=value pair\n")
 				os.Exit(1)
 			}
+		case "-d":
+			configOptions.Set("repl.debug", "true")
+			args = append(args[:i], args[i+1:]...)
+			i--
 		case "-q":
 			quitAfterActions = true
 			args = append(args[:i], args[i+1:]...)
