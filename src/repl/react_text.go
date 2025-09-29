@@ -2,44 +2,31 @@ package main
 
 import (
 	"fmt"
-	"github.com/trufae/mai/src/repl/llm"
 	"github.com/trufae/mai/src/repl/art"
+	"github.com/trufae/mai/src/repl/llm"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
 const toolsPrompt = `
-Use Reasoning: low
+You are a terminal assistant that can run tools to solve the user's request.
 
-Tool Agent Instructions:
-- Understand the request, sketch a short plan, and avoid repeating steps.
-- Pick the most efficient tool sequence. Skip tools if they are not required.
-- Track progress after every action and stop when the goal is satisfied.
+Available tools:
+{tools}
 
-Respond using ONLY the tag blocks below. Do not add markdown formatting or prose outside these tags.
+Always respond using these uppercase fields:
 
-<tool_plan>
-one concise step per line describing the plan you intend to follow
-</tool_plan>
-<tool_reasoning>
-optional extra notes for context (leave empty if none)
-</tool_reasoning>
-<tool_call>
-ToolRequired=true|false
-Action=Think|Iterate|Done|Solve|Error
-Tool=name.of.tool (omit or set to none if no tool call is needed)
-NextStep=describe what happens next
-Reasoning=short justification
-argument=value for each tool parameter on separate lines
-</tool_call>
+THINK: <short reasoning for the next action>
+ACTION: TOOL <tool-name> <arg>=<value> ...
 
-Assignments may use either "key=value" or "key: value" notation. Keep the response compact so small models can follow it consistently.
+If no tool is required, finish with:
 
-Below you will find the user prompt and the list of tools
+THINK: <why nothing else is needed>
+ACTION: DONE
+ANSWER: <final reply for the user>
 
-----
+Output only these fields, no markdown, no extra prose.
 `
 
 // getToolPrompt returns the content of the tool.md prompt file
@@ -79,8 +66,19 @@ func adjustReasoningPrompt(prompt string, level string) string {
 
 // buildMessageWithTools formats a message with tool information
 func buildMessageWithTools(toolPrompt string, userInput string, ctx string, toolList string) string {
-	return fmt.Sprintf("%s\n<prompt>\n%s\n</prompt>\n<context>%s</context>\n<tools>\n%s\n</tools>",
-		toolPrompt, userInput, ctx, toolList)
+	prompt := strings.Replace(toolPrompt, "{tools}", toolList, -1)
+	var builder strings.Builder
+	builder.WriteString(prompt)
+	builder.WriteString("\n\nTASK:\n")
+	builder.WriteString(userInput)
+	trimmedCtx := strings.TrimSpace(ctx)
+	builder.WriteString("\n\nCONTEXT:\n")
+	if trimmedCtx == "" {
+		builder.WriteString("none")
+	} else {
+		builder.WriteString(trimmedCtx)
+	}
+	return builder.String()
 }
 
 func mapToArray(m map[string]interface{}) []string {
@@ -117,112 +115,150 @@ func stripJSONComments(input string) string {
 	return strings.TrimSpace(noBlock)
 }
 
-// parseMarkdownResponse parses the markdown-formatted response into PlanResponse
+// parseMarkdownResponse parses the response into PlanResponse
 func parseMarkdownResponse(text string) (PlanResponse, string, error) {
-	planContent := strings.TrimSpace(extractTaggedSection(text, "tool_plan", "|tool_plan|"))
-	planLines := strings.Split(planContent, "\n")
-	reNumPrefix := regexp.MustCompile(`^\d+[\).:\-]*\s*`)
-	plan := make([]string, 0, len(planLines))
-	for _, raw := range planLines {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
-			line = strings.TrimSpace(line[2:])
-		}
-		line = strings.TrimSpace(reNumPrefix.ReplaceAllString(line, ""))
-		if line != "" {
-			plan = append(plan, line)
-		}
-	}
-
-	explainText := strings.TrimSpace(extractTaggedSection(text, "tool_reasoning", "|tool_call_reasoning|"))
-	callContent := strings.TrimSpace(extractTaggedSection(text, "tool_call", "|tool_call|"))
-	if callContent == "" {
-		return PlanResponse{}, "", fmt.Errorf("invalid response format: missing <tool_call> block")
-	}
-
-	lines := strings.Split(callContent, "\n")
 	response := PlanResponse{
-		Plan:      plan,
+		Plan:      []string{},
 		PlanIndex: 0,
 		ToolArgs:  map[string]interface{}{},
 	}
 	toolArgs := response.ToolArgs.(map[string]interface{})
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" || line == "----" {
+
+	lines := strings.Split(text, "\n")
+	var answerBuilder strings.Builder
+	answerActive := false
+
+	extractContent := func(line string) string {
+		if idx := strings.Index(line, ":"); idx >= 0 {
+			return strings.TrimSpace(line[idx+1:])
+		}
+		parts := strings.Fields(line)
+		if len(parts) > 1 {
+			return strings.TrimSpace(strings.Join(parts[1:], " "))
+		}
+		return ""
+	}
+
+	appendAnswer := func(text string) {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			return
+		}
+		if answerBuilder.Len() > 0 {
+			answerBuilder.WriteString("\n")
+		}
+		answerBuilder.WriteString(trimmed)
+	}
+
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			if answerActive && answerBuilder.Len() > 0 {
+				answerBuilder.WriteString("\n")
+			}
 			continue
 		}
-		// Legacy "toolname + param=value" format
-		if strings.Contains(line, "+") && !strings.Contains(line, "=") && !strings.Contains(line, ":") {
-			parts := strings.SplitN(line, "+", 2)
-			if len(parts) == 2 {
-				response.SelectedTool = strings.TrimSpace(parts[0])
-				paramsStr := strings.TrimSpace(parts[1])
-				for _, p := range strings.Fields(paramsStr) {
-					kv := strings.SplitN(p, "=", 2)
-					if len(kv) == 2 {
-						toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		upper := strings.ToUpper(line)
+		switch {
+		case strings.HasPrefix(upper, "THINK"):
+			answerActive = false
+			thought := extractContent(line)
+			if thought == "" {
+				thought = line
+			}
+			response.Progress = thought
+			response.Reasoning = thought
+			response.NextStep = thought
+		case strings.HasPrefix(upper, "ACTION"):
+			answerActive = false
+			actionLine := extractContent(line)
+			if actionLine == "" {
+				actionLine = line
+			}
+			upperAction := strings.ToUpper(actionLine)
+			if strings.HasPrefix(upperAction, "DONE") {
+				response.Action = "Done"
+				continue
+			}
+			fields := strings.Fields(actionLine)
+			if len(fields) > 0 {
+				if strings.EqualFold(fields[0], "TOOL") {
+					if len(fields) > 1 {
+						response.SelectedTool = fields[1]
+					}
+					for _, arg := range fields[2:] {
+						if strings.Contains(arg, "=") {
+							kv := strings.SplitN(arg, "=", 2)
+							if len(kv) == 2 {
+								toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+							}
+						}
+					}
+					response.Action = "Iterate"
+					response.ToolRequired = true
+					continue
+				}
+				// Allow syntax like ACTION: mai-mcp/tool arg=value
+				response.SelectedTool = fields[0]
+				for _, arg := range fields[1:] {
+					if strings.Contains(arg, "=") {
+						kv := strings.SplitN(arg, "=", 2)
+						if len(kv) == 2 {
+							toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+						}
 					}
 				}
+				response.Action = "Iterate"
+				response.ToolRequired = true
+				continue
 			}
-			continue
-		}
-
-		key := ""
-		value := ""
-		if idx := strings.IndexAny(line, ":="); idx != -1 {
-			key = strings.TrimSpace(line[:idx])
-			value = strings.TrimSpace(line[idx+1:])
-		} else {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				key = strings.TrimSpace(fields[0])
-				value = strings.TrimSpace(strings.Join(fields[1:], " "))
+		case strings.HasPrefix(upper, "TOOL"):
+			// Backward compatibility with TOOL: ... format
+			answerActive = false
+			toolLine := extractContent(line)
+			if toolLine == "" {
+				toolLine = strings.TrimSpace(strings.TrimPrefix(line, "TOOL"))
 			}
-		}
-		if key == "" {
-			continue
-		}
-		lowerKey := strings.ToLower(key)
-		switch lowerKey {
-		case "toolrequired", "tool_required":
-			val := strings.ToLower(value)
-			response.ToolRequired = val == "true" || val == "yes" || val == "1"
-		case "action":
-			response.Action = value
-		case "reasoning":
-			response.Reasoning = value
-		case "nextstep", "next_step":
-			response.NextStep = value
-		case "tool", "toolname", "selectedtool":
-			if strings.EqualFold(value, "none") || strings.EqualFold(value, "null") || strings.EqualFold(value, "") {
-				response.SelectedTool = ""
-			} else {
-				response.SelectedTool = value
+			fields := strings.Fields(toolLine)
+			if len(fields) > 0 {
+				response.SelectedTool = fields[0]
+				for _, arg := range fields[1:] {
+					if strings.Contains(arg, "=") {
+						kv := strings.SplitN(arg, "=", 2)
+						if len(kv) == 2 {
+							toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+						}
+					}
+				}
+				response.Action = "Iterate"
+				response.ToolRequired = true
 			}
-		case "planindex", "plan_index":
-			if idx, err := strconv.Atoi(value); err == nil {
-				response.PlanIndex = idx
+		case strings.EqualFold(line, "DONE") || strings.HasPrefix(upper, "DONE"):
+			answerActive = false
+			response.Action = "Done"
+		case strings.HasPrefix(upper, "ANSWER"):
+			answerActive = true
+			answer := extractContent(line)
+			if answer != "" {
+				appendAnswer(answer)
 			}
-		case "progress":
-			response.Progress = value
 		default:
-			toolArgs[key] = value
+			if answerActive {
+				appendAnswer(line)
+			} else if response.Reasoning == "" {
+				response.Reasoning = line
+			} else {
+				response.Reasoning += "\n" + line
+			}
 		}
 	}
 
-	if response.Progress == "" {
-		if response.Reasoning != "" {
-			response.Progress = response.Reasoning
-		} else {
-			response.Progress = response.NextStep
-		}
+	// Mark tool requirement if a tool was selected
+	if response.SelectedTool != "" {
+		response.ToolRequired = true
 	}
 
-	return response, explainText, nil
+	return response, strings.TrimSpace(answerBuilder.String()), nil
 }
 
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
@@ -241,18 +277,32 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 	// strip out any internal reasoning between <think>...</think> before processing
 	reThink := regexp.MustCompile(`(?s)\s*<think>.*?</think>\s*`)
 	responseText = reThink.ReplaceAllString(responseText, "")
+	if r.configOptions.GetBool("repl.debug") {
+		art.DebugBanner("Stripped Response", responseText)
+	}
 	if responseText == "" {
 		return PlanResponse{}, "", fmt.Errorf("cancel empty response from the llm")
 	}
 	// debug(responseText)
 	response, explainText, err := parseMarkdownResponse(responseText)
 	if err != nil {
+		if r.configOptions.GetBool("repl.debug") {
+			art.DebugBanner("Parse Error", err.Error())
+		}
 		return PlanResponse{}, "", err
+	}
+	if r.configOptions.GetBool("repl.debug") {
+		debugInfo := fmt.Sprintf("Action: %s\nSelectedTool: %s\nToolArgs: %v\nPlan: %v\nPlanIndex: %d\nProgress: %s\nReasoning: %s\nNextStep: %s\nToolRequired: %t",
+			response.Action, response.SelectedTool, response.ToolArgs, response.Plan, response.PlanIndex, response.Progress, response.Reasoning, response.NextStep, response.ToolRequired)
+		art.DebugBanner("Parsed Response", debugInfo)
 	}
 	return response, explainText, nil
 }
 
 func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
+	if r.configOptions.GetBool("repl.debug") {
+		art.DebugBanner("ReactText Start", fmt.Sprintf("Input: %s", input))
+	}
 	// TODO: Do something with the previous messages
 	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.display")))
 	if display == "" {
@@ -264,23 +314,47 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	// Apply reasoning level directive
 	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("mcp.reason"))
 
-	toolList, err := GetAvailableTools(Quiet) // Markdown)
-	if err != nil {
-		fmt.Println("Cannot retrieve tools, doing nothing")
-		return input, nil
+	toolList, err := GetAvailableTools(Quiet)
+	if err != nil || strings.TrimSpace(toolList) == "" {
+		if r.configOptions.GetBool("repl.debug") {
+			art.DebugBanner("Tool List Warning", fmt.Sprintf("quiet mode failed: %v", err))
+		}
+		toolList, err = GetAvailableTools(Markdown)
+		if err != nil {
+			fmt.Println("Cannot retrieve tools, doing nothing")
+			return input, nil
+		}
 	}
-	if strings.TrimSpace(toolList) == "" {
+	lines := strings.Split(toolList, "\n")
+	cleanLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" {
+			continue
+		}
+		trim = strings.TrimPrefix(trim, "- ")
+		trim = strings.TrimPrefix(trim, "* ")
+		cleanLines = append(cleanLines, trim)
+	}
+	if len(cleanLines) == 0 {
 		fmt.Println("No tools available, doing nothing")
 		return input, nil
 	}
+	toolList = strings.Join(cleanLines, "\n")
 	context := ""
 	stepCount := 0
 	reasoning := ""
 	clearScreen := true
 	for {
 		stepCount++
+		if r.configOptions.GetBool("repl.debug") {
+			art.DebugBanner("React Loop Step", fmt.Sprintf("Step %d", stepCount))
+		}
 		step, expl, err := r.toolStep(toolPrompt, input, context, toolList)
 		if err != nil {
+			if r.configOptions.GetBool("repl.debug") {
+				art.DebugBanner("ToolStep Error", err.Error())
+			}
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
 			if strings.Contains(err.Error(), "cancel") {
 				break
@@ -324,12 +398,27 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			}
 		}
 		fmt.Printf("\033[0m")
-
-		if step.Action == "" || step.Action == "Solve" || step.Action == "Done" {
+		action := strings.TrimSpace(step.Action)
+		if action == "" && step.SelectedTool == "" && expl != "" {
+			action = "Done"
+		}
+		finished := strings.EqualFold(action, "done") || strings.EqualFold(action, "solve")
+		if finished {
+			if r.configOptions.GetBool("repl.debug") {
+				art.DebugBanner("Loop Exit", fmt.Sprintf("Action: %s", action))
+			}
+			if expl != "" {
+				context += "\n\n## Answer\n\n" + expl
+				if display != "quiet" {
+					fmt.Printf("\n%s\n", expl)
+				}
+			}
 			fmt.Println("(tools) Problem solved")
 			break
 		}
-		fmt.Println("Action: " + step.Action)
+		if action != "" && display != "quiet" {
+			fmt.Println("Action: " + action)
+		}
 		/*
 			if !step.ToolRequired {
 				if expl != "" {
@@ -339,12 +428,19 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			}
 		*/
 		if step.SelectedTool == "" {
+			if r.configOptions.GetBool("repl.debug") {
+				art.DebugBanner("No Tool Selected", "Model must reply with ACTION: TOOL or ACTION: DONE")
+			}
+			input += "\nThe response must include `ACTION: TOOL <tool-name>` with arguments or `ACTION: DONE` when answering.\n"
 			continue
 		}
 		toolName := strings.ReplaceAll(step.SelectedTool, ".", "/")
 		tool := &Tool{
 			Name: toolName,
 			Args: mapToArray(step.ToolArgs.(map[string]interface{})),
+		}
+		if r.configOptions.GetBool("repl.debug") {
+			art.DebugBanner("Tool Prepared", tool.ToString())
 		}
 		if display != "quiet" {
 			fmt.Printf("\r\n\033[0mUsing Tool: %s\r\n\033[0m", tool.ToString())
@@ -355,9 +451,15 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		}
 		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), int(timeout))
 		if err != nil {
+			if r.configOptions.GetBool("repl.debug") {
+				art.DebugBanner("Tool Call Error", err.Error())
+			}
 			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), err.Error())
 			continue
 			// return "", err
+		}
+		if r.configOptions.GetBool("repl.debug") {
+			art.DebugBanner("Tool Result", result)
 		}
 		/*
 			fmt.Println ("<calltoolResult>")
@@ -366,8 +468,11 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		*/
 		// results = append(results, result)
 		// toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**Next Step**: %s\n**ToolName**: %s\n**Contents**: %s\n", stepCount, step.Reasoning, step.NextStep, tool.Name, result)
-		toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**ToolName**: %s\n**Contents**:\n\n```\n%s\n```\n\n", stepCount, step.NextStep, tool.Name, result)
-		toolResponse += fmt.Sprintf("reason: %s\n", step.Reasoning)
+		reasonField := step.Reasoning
+		if reasonField == "" {
+			reasonField = step.Progress
+		}
+		toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**ToolName**: %s\n**Contents**:\n\n```\n%s\n```\n\n", stepCount, reasonField, tool.Name, result)
 		// fmt.Println (toolResponse)
 		if expl != "" {
 			context += "\n\n## Context\n\n" + expl
@@ -378,12 +483,16 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		reasoning += "- " + step.Progress + "\n"
 		context += toolResponse
 		// input += planString + toolResponse
+		clearScreen = false
 	}
 	if reasoning != "" && display != "quiet" {
 		reasoning = "<reasoning>\n" + reasoning + "</reasoning>\n"
 	}
 	if display != "quiet" {
 		fmt.Println(strings.ReplaceAll(reasoning, "\n", "\r\n"))
+	}
+	if r.configOptions.GetBool("repl.debug") {
+		art.DebugBanner("ReactText Return", fmt.Sprintf("Input: %s\nContext: %s", input, context))
 	}
 	return input + context, nil
 	// return input + context + reasoning, nil
