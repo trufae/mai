@@ -256,21 +256,11 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		// Choose candidate endpoints to try; prefer /api/generate when a schema
-		var candidates []string
-		if p.config.Schema != nil {
-			candidates = []string{
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
-			}
-		} else {
-			candidates = []string{
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
-				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
-			}
+		candidates := []string{
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
 		}
 
 		if stream {
@@ -505,7 +495,32 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 
 		isDone := false
 		raw := ""
-		if p.config.Rawdog {
+
+		// Check for OpenAI-style streaming (data: prefix)
+		if strings.Contains(line, "data: ") {
+			data := strings.Split(line, "data: ")[1]
+			if data == "[DONE]" {
+				break
+			}
+
+			var response struct {
+				Choices []struct {
+					Delta struct {
+						Content string `json:"content""`
+					} `json:"delta""`
+				} `json:"choices""`
+			}
+
+			if err := json.Unmarshal([]byte(data), &response); err != nil {
+				continue
+			}
+
+			if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
+				raw = response.Choices[0].Delta.Content
+			}
+			// OpenAI-style doesn't have a done flag, so we continue until [DONE]
+			isDone = false
+		} else if p.config.Rawdog {
 			var response struct {
 				Response string `json:"response""`
 				Done     bool   `json:"done""`
