@@ -121,6 +121,7 @@ func NewConfigOptions() *ConfigOptions {
 
 	// MCP integration
 	co.RegisterOption("mcp.config", StringOption, "Path to MCP configuration file", "")
+	co.RegisterOption("mcp.args", StringOption, "Command-line arguments to pass to mai-wmcp", "")
 	co.RegisterOption("mcp.debug", BooleanOption, "Enable debug output for MCP communication between agent, model, and servers", "false")
 	co.RegisterOption("mcp.baseurl", StringOption, "Base URL for MCP server connection", "http://localhost:8989")
 

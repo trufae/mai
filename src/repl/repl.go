@@ -64,6 +64,37 @@ type REPL struct {
 	wmcpPort         int
 }
 
+// parseShellArgs parses a string into shell-like arguments, handling quotes
+func parseShellArgs(s string) []string {
+	var args []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case !inQuotes && (c == '"' || c == '\''):
+			inQuotes = true
+			quoteChar = c
+		case inQuotes && c == quoteChar:
+			inQuotes = false
+			quoteChar = 0
+		case !inQuotes && c == ' ':
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteByte(c)
+		}
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args
+}
+
 // buildLLMConfig constructs a provider config from environment defaults and current options.
 // This avoids storing a persistent config in the REPL and ensures providers
 // always receive up-to-date settings (provider, model, schema, headers, etc.).
@@ -265,8 +296,15 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 
 	repl.loadAgentsFile()
 
-	// Spawn mai-wmcp if mcp.config is set
+	// Spawn mai-wmcp if mcp.config or mcp.args is set
+	var wmcpArgs []string
 	if v := repl.configOptions.Get("mcp.config"); v != "" {
+		wmcpArgs = []string{"-c", v}
+	} else if v := repl.configOptions.Get("mcp.args"); v != "" {
+		wmcpArgs = parseShellArgs(v)
+	}
+
+	if len(wmcpArgs) > 0 {
 		listener, err := net.Listen("tcp", "localhost:0")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error finding random port for wmcp: %v\n", err)
@@ -275,7 +313,9 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 			listener.Close()
 			repl.wmcpPort = port
 			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
-			cmd := exec.Command("mai-wmcp", "-c", v, "-b", fmt.Sprintf("localhost:%d", port))
+			// Append the base URL argument
+			wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
+			cmd := exec.Command("mai-wmcp", wmcpArgs...)
 			err = cmd.Start()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error starting wmcp: %v\n", err)
