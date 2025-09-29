@@ -262,6 +262,16 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		return "", fmt.Errorf("empty response from %s server", p.GetName())
 	}
 
+	// Check if response is in streaming format (starts with "data: ")
+	if strings.Contains(string(respBody), "data: ") {
+		reader := strings.NewReader(string(respBody))
+		content, err := p.parseStream(reader)
+		if err != nil {
+			return "", err
+		}
+		return content, nil
+	}
+
 	var response struct {
 		Choices []struct {
 			Message struct {
