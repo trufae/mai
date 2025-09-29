@@ -28,49 +28,49 @@ type OllamaModelsResponse struct {
 }
 
 func NewOllamaProvider(config *Config) *OllamaProvider {
-    return &OllamaProvider{
-        config: config,
-    }
+	return &OllamaProvider{
+		config: config,
+	}
 }
 
 // tryPostCandidatesNonStream POSTs to each candidate URL until one succeeds
 func tryPostCandidatesNonStream(ctx context.Context, candidates []string, headers map[string]string, body []byte) ([]byte, error) {
-    var lastErr error
-    for _, cand := range candidates {
-        cand = strings.TrimSpace(cand)
-        if cand == "" || cand == "/" {
-            continue
-        }
-        respBody, err := llmMakeRequest(ctx, "POST", cand, headers, body)
-        if err == nil {
-            return respBody, nil
-        }
-        lastErr = err
-    }
-    if lastErr != nil {
-        return nil, lastErr
-    }
-    return nil, fmt.Errorf("no valid endpoints")
+	var lastErr error
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" || cand == "/" {
+			continue
+		}
+		respBody, err := llmMakeRequest(ctx, "POST", cand, headers, body)
+		if err == nil {
+			return respBody, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no valid endpoints")
 }
 
 // tryPostCandidatesStream POSTs to each candidate streaming endpoint until one succeeds
 func tryPostCandidatesStream(ctx context.Context, candidates []string, headers map[string]string, body []byte, parser func(io.Reader, func()) (string, error)) (string, error) {
-    var lastErr error
-    for _, cand := range candidates {
-        cand = strings.TrimSpace(cand)
-        if cand == "" || cand == "/" {
-            continue
-        }
-        res, err := llmMakeStreamingRequestWithCallback(ctx, "POST", cand, headers, body, parser, nil)
-        if err == nil {
-            return res, nil
-        }
-        lastErr = err
-    }
-    if lastErr != nil {
-        return "", lastErr
-    }
-    return "", fmt.Errorf("no valid streaming endpoints")
+	var lastErr error
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" || cand == "/" {
+			continue
+		}
+		res, err := llmMakeStreamingRequestWithCallback(ctx, "POST", cand, headers, body, parser, nil)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("no valid streaming endpoints")
 }
 
 func (p *OllamaProvider) GetName() string {
@@ -85,18 +85,18 @@ func (p *OllamaProvider) DefaultModel() string {
 }
 
 func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
-    // Try multiple endpoints and parsing strategies to be tolerant of
-    // different local/model server implementations (e.g., shimmy).
-    // Use buildURL so an empty BaseURL does not produce relative paths like
-    // "/v1/models" which would cause request errors.
-    headers := map[string]string{}
-    candidates := []string{
-        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/tags"),
-        // common alternatives
-        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/models"),
-        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/models"),
-        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/models"),
-    }
+	// Try multiple endpoints and parsing strategies to be tolerant of
+	// different local/model server implementations (e.g., shimmy).
+	// Use buildURL so an empty BaseURL does not produce relative paths like
+	// "/v1/models" which would cause request errors.
+	headers := map[string]string{}
+	candidates := []string{
+		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/tags"),
+		// common alternatives
+		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/models"),
+		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/models"),
+		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/models"),
+	}
 
 	// Build a parsing helper that tries several JSON shapes
 	tryParse := func(body []byte) ([]Model, bool) {

@@ -243,6 +243,17 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		}
 	})
 
+	// When repl.debug is toggled, display a colorful debug banner so it's
+	// obvious to the user that REPL internal debug logging is enabled.
+	repl.configOptions.RegisterOptionListener("repl.debug", func(value string) {
+		v := strings.ToLower(strings.TrimSpace(value))
+		if v == "true" || v == "1" || v == "yes" {
+			DebugBanner("REPL Debug", "REPL internal debug logging enabled")
+		} else {
+			DebugBanner("REPL Debug", "REPL internal debug logging disabled")
+		}
+	})
+
 	// Initialize command registry
 	repl.initCommands()
 

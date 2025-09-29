@@ -360,7 +360,28 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	defer cancel()
 
 	// Single entry point for all providers; providers handle images support.
-	return c.provider.SendMessage(ctx, messagesToSend, stream && !c.config.NoStream, images)
+	// Delegate to provider and capture response so we can debug-print it
+	resp, err := c.provider.SendMessage(ctx, messagesToSend, stream && !c.config.NoStream, images)
+
+	if c.config != nil && c.config.Debug {
+		fmt.Fprintf(os.Stderr, "DEBUG: Response from provider (%s):\n", c.config.PROVIDER)
+		// Attempt to pretty-print JSON responses
+		var parsed interface{}
+		if json.Unmarshal([]byte(resp), &parsed) == nil {
+			if b, e := json.MarshalIndent(parsed, "", "  "); e == nil {
+				fmt.Fprintln(os.Stderr, string(b))
+			} else {
+				fmt.Fprintln(os.Stderr, resp)
+			}
+		} else {
+			// Non-JSON: print raw with simple indentation
+			for _, line := range strings.Split(resp, "\n") {
+				fmt.Fprintf(os.Stderr, "  %s\n", line)
+			}
+		}
+	}
+
+	return resp, err
 }
 
 // ListModels returns a list of available models for the current provider
