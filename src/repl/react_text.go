@@ -120,7 +120,7 @@ func buildMessageWithTools(toolPrompt string, userInput string, ctx string, tool
 	prompt := strings.Replace(toolPrompt, "{tools}", toolList, -1)
 	var builder strings.Builder
 	builder.WriteString(prompt)
-	builder.WriteString("\n\nTASK:\n")
+	builder.WriteString("\n\nUSER QUERY TASK TO RESOLVE:\n")
 	builder.WriteString(userInput)
 	trimmedCtx := strings.TrimSpace(ctx)
 	builder.WriteString("\n\nCONTEXT:\n")
@@ -200,6 +200,7 @@ func formatToolContext(step int, reason string, toolDesc string, output string) 
 	if result != "" {
 		lines = append(lines, result)
 	}
+	lines = append(lines, "--")
 	return strings.Join(lines, "\n")
 }
 
