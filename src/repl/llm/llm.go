@@ -328,7 +328,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	// we use that for prettier output; otherwise fall back to stderr.
 	if c.config != nil && c.config.Debug {
 		var buf bytes.Buffer
-		for i, m := range messagesToSend {
+		for _, m := range messagesToSend {
 			// Attempt to pretty-print the content
 			var contentStr string
 			switch v := m.Content.(type) {
@@ -341,7 +341,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 					contentStr = fmt.Sprintf("<unprintable content: %T>", v)
 				}
 			}
-			fmt.Fprintf(&buf, "  - [%d] role=%s\n", i, m.Role)
+			// fmt.Fprintf(&buf, "  - [%d] role=%s\n", i, m.Role)
 			// When not using rawdog, show a user/content split if present
 			if !c.config.Rawdog && m.Role == "user" {
 				var parsed interface{}
