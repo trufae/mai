@@ -390,6 +390,51 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 	}
 
+	// If key ends with '.', list all keys that start with that prefix
+	if strings.HasSuffix(key, ".") {
+		var output strings.Builder
+		prefix := key
+		output.WriteString(fmt.Sprintf("Configuration options starting with '%s':\r\n", prefix))
+		found := false
+		for _, opt := range r.configOptions.GetAvailableOptions() {
+			if strings.HasPrefix(opt, prefix) {
+				val := r.configOptions.Get(opt)
+				var status string
+				if val == "" {
+					status = "not set"
+					if info, exists := r.configOptions.GetOptionInfo(opt); exists && info.Default != "" {
+						status = fmt.Sprintf("default: %s", info.Default)
+					}
+				} else {
+					status = val
+				}
+				optType := r.configOptions.GetOptionType(opt)
+				output.WriteString(fmt.Sprintf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType))
+				found = true
+			}
+		}
+		if !found {
+			output.WriteString(fmt.Sprintf("No configuration options found starting with '%s'\r\n", prefix))
+		}
+		return output.String(), nil
+	}
+
+	if value == "" {
+		// Display current value if no value provided
+		val := r.configOptions.Get(key)
+		optType := r.configOptions.GetOptionType(key)
+		var status string
+		if val == "" {
+			status = "not set"
+			if info, exists := r.configOptions.GetOptionInfo(key); exists && info.Default != "" {
+				status = fmt.Sprintf("default: %s", info.Default)
+			}
+		} else {
+			status = val
+		}
+		return fmt.Sprintf("%s = %s (type: %s)\r\n", key, status, optType), nil
+	}
+
 	// Handle special options
 	switch key {
 	case "ai.deterministic":
@@ -430,35 +475,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		return "", nil
 	}
 
-	// If key ends with '.', list all keys that start with that prefix
-	if strings.HasSuffix(key, ".") {
-		var output strings.Builder
-		prefix := key
-		output.WriteString(fmt.Sprintf("Configuration options starting with '%s':\r\n", prefix))
-		found := false
-		for _, opt := range r.configOptions.GetAvailableOptions() {
-			if strings.HasPrefix(opt, prefix) {
-				val := r.configOptions.Get(opt)
-				var status string
-				if val == "" {
-					status = "not set"
-					if info, exists := r.configOptions.GetOptionInfo(opt); exists && info.Default != "" {
-						status = fmt.Sprintf("default: %s", info.Default)
-					}
-				} else {
-					status = val
-				}
-				optType := r.configOptions.GetOptionType(opt)
-				output.WriteString(fmt.Sprintf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType))
-				found = true
-			}
-		}
-		if !found {
-			output.WriteString(fmt.Sprintf("No configuration options found starting with '%s'\r\n", prefix))
-		}
-		return output.String(), nil
-	}
-
 	// Check if the option exists
 	if _, exists := r.configOptions.GetOptionInfo(key); !exists {
 		var output strings.Builder
@@ -488,22 +504,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			output.WriteString("Use '/set' without arguments to list all available options.\r\n")
 		}
 		return output.String(), nil
-	}
-
-	if value == "" {
-		// Display current value if no value provided
-		val := r.configOptions.Get(key)
-		optType := r.configOptions.GetOptionType(key)
-		var status string
-		if val == "" {
-			status = "not set"
-			if info, exists := r.configOptions.GetOptionInfo(key); exists && info.Default != "" {
-				status = fmt.Sprintf("default: %s", info.Default)
-			}
-		} else {
-			status = val
-		}
-		return fmt.Sprintf("%s = %s (type: %s)\r\n", key, status, optType), nil
 	}
 
 	// Set the option value with validation
