@@ -14,14 +14,15 @@ func main() {
 	// Create the weather service
 	weatherService := NewWeatherService()
 
-	// Create the weather tool
 	weatherTool := CreateWeatherTool()
+	forecastTool := CreateForecastTool()
+	moonTool := CreateMoonTool()
 
-	// Create the MCP server with the weather tool
-	server := mcplib.NewMCPServer([]mcplib.ToolDefinition{weatherTool})
+	server := mcplib.NewMCPServer([]mcplib.ToolDefinition{weatherTool, forecastTool, moonTool})
 
-	// Register the weather tool handler
 	server.RegisterTool("getWeather", WeatherToolHandler(weatherService))
+	server.RegisterTool("getWeatherForecast", ForecastToolHandler(weatherService))
+	server.RegisterTool("getMoonPhase", MoonToolHandler(weatherService))
 
 	// Start the server
 	if *listen != "" {
