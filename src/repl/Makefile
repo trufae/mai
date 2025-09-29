@@ -5,6 +5,7 @@ all:
 
 indent fmt:
 	go fmt . && cd llm && go fmt .
+	go fmt art/*.go
 
 install:
 	mkdir -p $(DESTDIR)/$(PREFIX)/bin

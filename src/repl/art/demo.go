@@ -1,4 +1,4 @@
-package main
+package art
 
 import (
 	"fmt"
@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/trufae/mai/src/repl/art"
 )
 
 const DemoSpeed = 60 // ms per frame
@@ -34,9 +32,9 @@ var (
 	resetColor    = "\x1b[0m"
 )
 
-// startLoop kept for backward compatibility; it simply sets the action
+// StartLoop kept for backward compatibility; it simply sets the action
 // and ensures the demo loop is running.
-func startLoop(initialMessage string) {
+func StartLoop(initialMessage string) {
 	SetAction(initialMessage)
 }
 
@@ -69,11 +67,8 @@ func FeedText(text string) {
 	mu.Unlock()
 }
 
-// addMoreText preserved for backward compatibility
-func addMoreText(text string) { FeedText(text) }
-
-// stopLoop stops the demo loop
-func stopLoop() {
+// StopLoop stops the demo loop
+func StopLoop() {
 	mu.Lock()
 	if !demoRunning {
 		mu.Unlock()
@@ -90,9 +85,6 @@ func stopLoop() {
 	case <-time.After(1 * time.Second):
 	}
 }
-
-// getTerminalWidth returns a conservative default width.
-func getTerminalWidth(fd uintptr) int { return art.GetTerminalWidth(fd) }
 
 // demoLoop runs the scrolling display. It prints the action label followed
 // by a horizontally-scrolling window of the demoBuffer. The window scrolls
@@ -124,12 +116,12 @@ func demoLoop() {
 		mu.Unlock()
 
 		// Determine available width after action and a separating space
-		width := getTerminalWidth(os.Stderr.Fd())
+		width := GetTerminalWidth(os.Stderr.Fd())
 		prefix := action
 		if prefix != "" {
 			prefix = prefix + " "
 		}
-		avail := width - displayWidth(stripANSI(prefix))
+		avail := width - DisplayWidth(stripANSI(prefix))
 		if avail <= 0 {
 			avail = 10
 		}
@@ -142,7 +134,7 @@ func demoLoop() {
 		cumulative := 0
 		end := offset
 		for end < len(runes) {
-			w := runeWidth(runes[end])
+			w := RuneWidth(runes[end])
 			if cumulative+w > avail {
 				break
 			}
@@ -222,7 +214,7 @@ func demoLoop() {
 			}
 			b.WriteString(gradient[gi])
 			b.WriteRune(r)
-			displayPos += runeWidth(r)
+			displayPos += RuneWidth(r)
 		}
 		b.WriteString(resetColor)
 
@@ -293,12 +285,6 @@ func stripANSI(s string) string {
 	}
 	return res
 }
-
-// displayWidth calculates the display width of a string, assuming ASCII is 1 column, others 2
-func displayWidth(s string) int { return art.DisplayWidth(s) }
-
-// runeWidth returns the display width of a rune
-func runeWidth(r rune) int { return art.RuneWidth(r) }
 
 // init populates a smoother greyscale gradient used for scrolling text.
 func init() {
