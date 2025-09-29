@@ -65,6 +65,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
 	// Number of most recent messages to include when sending to the LLM (0 = all)
 	co.RegisterOption("chat.tail", NumberOption, "Number of most recent messages to include when sending to the LLM (0=all)", "0")
+	co.RegisterOption("chat.tts", BooleanOption, "Enable text-to-speech for AI responses", "false")
+	co.RegisterOption("chat.ttsvoice", StringOption, "Voice to use for text-to-speech", "Mónica")
 
 	// Directory configuration
 	co.RegisterOption("dir.prompt", StringOption, "Directory to read prompts from", "")

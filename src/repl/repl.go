@@ -1621,6 +1621,15 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 			r.messages = []llm.Message{userMessage, assistantMessage}
 		}
 
+		// Handle TTS if enabled
+		if r.configOptions.GetBool("chat.tts") {
+			voice := r.configOptions.Get("chat.ttsvoice")
+			if voice == "" {
+				voice = "Mónica"
+			}
+			Speak(response, voice)
+		}
+
 		// If followup is enabled, run the #followup prompt once asynchronously
 		if r.configOptions.GetBool("chat.followup") {
 			r.mu.Lock()
