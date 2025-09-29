@@ -277,10 +277,10 @@ func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
 	fmt.Printf("\n===== TOOL NOT FOUND =====\n")
 	fmt.Printf("Tool '%s' does not exist.\n\n", toolName)
 	fmt.Printf("Options:\n")
-	fmt.Printf("[1] Respond that the tool doesn't exist\n")
-	fmt.Printf("[2] Let me enter a custom response\n")
-	fmt.Printf("[3] Show available tools and let me adjust the request\n")
-	fmt.Printf("[4] Respond with a message to guide the model\n")
+	fmt.Printf("[e] Respond that the tool doesn't exist\n")
+	fmt.Printf("[c] Let me enter a custom response\n")
+	fmt.Printf("[s] Show available tools and let me adjust the request\n")
+	fmt.Printf("[g] Respond with a message to guide the model\n")
 	fmt.Printf("\nYour decision: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -288,13 +288,13 @@ func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
 	response = strings.TrimSpace(strings.ToLower(response))
 
 	switch response {
-	case "1":
+	case "e":
 		return YoloToolNotFound
-	case "2":
+	case "c":
 		return YoloCustomResponse
-	case "3":
+	case "s":
 		return YoloModify
-	case "4":
+	case "g":
 		return YoloGuideModel
 	default:
 		fmt.Println("Invalid option, defaulting to tool not found")
