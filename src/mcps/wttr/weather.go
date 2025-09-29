@@ -56,13 +56,13 @@ func (s *WeatherService) GetWeather(location string) (string, error) {
 func CreateWeatherTool() mcplib.ToolDefinition {
 	return mcplib.ToolDefinition{
 		Name:        "getWeather",
-		Description: "Get weather for a location",
+		Description: "Get current temperature and weather information for a location",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"location": map[string]interface{}{
 					"type":        "string",
-					"description": "The location to get weather for",
+					"description": "The city or country location to get weather information",
 				},
 			},
 			"required": []string{"location"},
