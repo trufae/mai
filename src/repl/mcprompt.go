@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/trufae/mai/src/repl/art"
 	"github.com/trufae/mai/src/repl/llm"
 	"os/exec"
 	"strings"
@@ -82,7 +83,7 @@ Return a concise JSON object only, with the fields:
 
 	// Debug output: show the MCP prompt selection query
 	if r.configOptions.GetBool("mcp.debug") {
-		DebugBanner("MCP Prompt Selection", query.String())
+		art.DebugBanner("MCP Prompt Selection", query.String())
 	}
 
 	resp, err := r.currentClient.SendMessage(req, false, nil)
@@ -99,7 +100,7 @@ Return a concise JSON object only, with the fields:
 
 	// Debug output for MCP prompt selection
 	if r.configOptions.GetBool("mcp.debug") {
-		DebugBanner("MCP Prompt Selection JSON", jsonText)
+		art.DebugBanner("MCP Prompt Selection JSON", jsonText)
 	}
 	//jsonText = stripJSONComments(jsonText)
 	if strings.TrimSpace(jsonText) == "" {

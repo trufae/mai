@@ -274,6 +274,9 @@ func main() {
 
 	config := loadConfig()
 
+	// Debug banner art is provided by the `art` package; llm now calls
+	// that API directly so no runtime hookup is necessary here.
+
 	// Slice to store script strings from -s flags
 	var scriptStrings []string
 

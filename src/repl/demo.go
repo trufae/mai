@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/term"
+	"github.com/trufae/mai/src/repl/art"
 )
 
 const DemoSpeed = 60 // ms per frame
@@ -92,15 +92,7 @@ func stopLoop() {
 }
 
 // getTerminalWidth returns a conservative default width.
-func getTerminalWidth(fd uintptr) int {
-	if w, _, err := term.GetSize(int(fd)); err == nil && w > 0 {
-		return w
-	}
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-		return w
-	}
-	return 80
-}
+func getTerminalWidth(fd uintptr) int { return art.GetTerminalWidth(fd) }
 
 // demoLoop runs the scrolling display. It prints the action label followed
 // by a horizontally-scrolling window of the demoBuffer. The window scrolls
@@ -303,25 +295,10 @@ func stripANSI(s string) string {
 }
 
 // displayWidth calculates the display width of a string, assuming ASCII is 1 column, others 2
-func displayWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		if r < 128 {
-			w++
-		} else {
-			w += 2
-		}
-	}
-	return w
-}
+func displayWidth(s string) int { return art.DisplayWidth(s) }
 
 // runeWidth returns the display width of a rune
-func runeWidth(r rune) int {
-	if r < 128 {
-		return 1
-	}
-	return 2
-}
+func runeWidth(r rune) int { return art.RuneWidth(r) }
 
 // init populates a smoother greyscale gradient used for scrolling text.
 func init() {

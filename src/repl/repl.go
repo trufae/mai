@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/trufae/mai/src/repl/art"
 	"github.com/trufae/mai/src/repl/llm"
 )
 
@@ -248,9 +249,9 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	repl.configOptions.RegisterOptionListener("repl.debug", func(value string) {
 		v := strings.ToLower(strings.TrimSpace(value))
 		if v == "true" || v == "1" || v == "yes" {
-			DebugBanner("REPL Debug", "REPL internal debug logging enabled")
+			art.DebugBanner("REPL Debug", "REPL internal debug logging enabled")
 		} else {
-			DebugBanner("REPL Debug", "REPL internal debug logging disabled")
+			art.DebugBanner("REPL Debug", "REPL internal debug logging disabled")
 		}
 	})
 

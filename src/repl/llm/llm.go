@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/trufae/mai/src/repl/art"
 )
 
 // Demo callbacks used by the REPL/demo UI. These are package-level so that
@@ -319,9 +321,12 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 		}
 	}
 
-	// If debug is enabled in the config, print the raw messages about to be sent
+	// If debug is enabled in the config, prepare a debug view of the
+	// messages about to be sent. If the REPL provides a DebugBannerFunc
+	// we use that for prettier output; otherwise fall back to stderr.
 	if c.config != nil && c.config.Debug {
-		fmt.Fprintf(os.Stderr, "DEBUG: Messages sent to provider (%s):\n", c.config.PROVIDER)
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "Messages sent to provider (%s):\n", c.config.PROVIDER)
 		for i, m := range messagesToSend {
 			// Attempt to pretty-print the content
 			var contentStr string
@@ -335,25 +340,23 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 					contentStr = fmt.Sprintf("<unprintable content: %T>", v)
 				}
 			}
-			fmt.Fprintf(os.Stderr, "  - [%d] role=%s\n", i, m.Role)
+			fmt.Fprintf(&buf, "  - [%d] role=%s\n", i, m.Role)
 			// When not using rawdog, show a user/content split if present
 			if !c.config.Rawdog && m.Role == "user" {
-				// Try to detect a structured user+content format inside the string
-				// e.g., some callers may send JSON-like objects. If contentStr is JSON
-				// attempt to unmarshal and show top-level keys.
 				var parsed interface{}
 				if json.Unmarshal([]byte(contentStr), &parsed) == nil {
 					if b, err := MarshalNoEscape(parsed); err == nil {
-						fmt.Fprintf(os.Stderr, "    content: %s\n", string(b))
+						fmt.Fprintf(&buf, "    content: %s\n", string(b))
 						continue
 					}
 				}
 			}
 			// Default: print the content as-is (possibly large)
 			for _, line := range strings.Split(contentStr, "\n") {
-				fmt.Fprintf(os.Stderr, "    %s\n", line)
+				fmt.Fprintf(&buf, "    %s\n", line)
 			}
 		}
+		art.DebugBanner("LLM Debug", buf.String())
 	}
 
 	ctx, cancel := c.newContext()
@@ -364,21 +367,23 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	resp, err := c.provider.SendMessage(ctx, messagesToSend, stream && !c.config.NoStream, images)
 
 	if c.config != nil && c.config.Debug {
-		fmt.Fprintf(os.Stderr, "DEBUG: Response from provider (%s):\n", c.config.PROVIDER)
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "Response from provider (%s):\n", c.config.PROVIDER)
 		// Attempt to pretty-print JSON responses
 		var parsed interface{}
 		if json.Unmarshal([]byte(resp), &parsed) == nil {
 			if b, e := json.MarshalIndent(parsed, "", "  "); e == nil {
-				fmt.Fprintln(os.Stderr, string(b))
+				fmt.Fprintln(&buf, string(b))
 			} else {
-				fmt.Fprintln(os.Stderr, resp)
+				fmt.Fprintln(&buf, resp)
 			}
 		} else {
 			// Non-JSON: print raw with simple indentation
 			for _, line := range strings.Split(resp, "\n") {
-				fmt.Fprintf(os.Stderr, "  %s\n", line)
+				fmt.Fprintf(&buf, "  %s\n", line)
 			}
 		}
+		art.DebugBanner("LLM Response", buf.String())
 	}
 
 	return resp, err

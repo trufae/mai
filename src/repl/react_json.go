@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/trufae/mai/src/repl/art"
 	"github.com/trufae/mai/src/repl/llm"
 	"golang.org/x/term"
 	"os"
@@ -206,7 +207,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 
 	// Debug output: show the reasoning prompt sent to LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		DebugBanner("MCP Reasoning Prompt", query)
+		art.DebugBanner("MCP Reasoning Prompt", query)
 	}
 
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
@@ -216,7 +217,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 
 	// Debug output: show the raw response from LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		DebugBanner("MCP Raw Response", responseJson)
+		art.DebugBanner("MCP Raw Response", responseJson)
 	}
 
 	if strings.HasPrefix(responseJson, "```") {
