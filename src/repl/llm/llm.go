@@ -288,6 +288,8 @@ func createProvider(config *Config) (LLMProvider, error) {
 		return NewOllamaProvider(config), nil
 	case "lmstudio":
 		return NewOpenAIProvider(config), nil
+	case "shimmy":
+		return NewOpenAIProvider(config), nil
 	case "openai":
 		return NewOpenAIProvider(config), nil
 	case "claude":

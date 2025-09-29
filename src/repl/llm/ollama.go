@@ -439,6 +439,9 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	if err != nil {
 		return "", err
 	}
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("empty response from %s server", p.GetName())
+	}
 	if p.config.Debug {
 		art.DebugBanner("Ollama Response", string(respBody))
 	}
@@ -452,6 +455,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
+		fmt.Printf("Failed to parse Ollama response: %s\nError: %v\n", string(respBody), err)
 		return "", err
 	}
 	if response.Error != "" {

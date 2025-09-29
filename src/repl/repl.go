@@ -2867,6 +2867,7 @@ func (r *REPL) getValidProviders() map[string]bool {
 		"ollama":   true,
 		"lmstudio": true,
 		"openai":   true,
+		"shimmy":   true,
 		"claude":   true,
 		"gemini":   true,
 		"google":   true,
@@ -2917,7 +2918,7 @@ func (r *REPL) setProvider(provider string) error {
 
 	if !validProviders[provider] {
 		fmt.Printf("Invalid provider: %s\r\n", provider)
-		fmt.Print("Valid providers: ollama, lmstudio, openai, claude, gemini/google, mistral, deepseek, bedrock/aws, xai\r\n")
+		fmt.Print("Valid providers: ollama, lmstudio, openai, shimmy, claude, gemini/google, mistral, deepseek, bedrock/aws, xai\r\n")
 		return nil
 	}
 

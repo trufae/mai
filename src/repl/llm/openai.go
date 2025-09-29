@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/trufae/mai/src/repl/art"
 	"io"
 	"os"
 	"strings"
@@ -33,12 +34,18 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 		apiKey = GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key")
 	}
 
-	// LM Studio exposes an OpenAI-compatible API locally without requiring
-	// authentication. Default to its local HTTP endpoint when no custom
-	// base URL has been provided so requests don't fall back to the real
-	// OpenAI service.
-	if strings.ToLower(config.PROVIDER) == "lmstudio" && config.BaseURL == "" {
-		config.BaseURL = "http://localhost:1234/v1"
+	// Local OpenAI-compatible servers (LM Studio, shimmy) do not require auth.
+	// Use sensible defaults when no explicit base URL has been provided so we
+	// avoid unintentionally reaching the public OpenAI endpoint.
+	switch strings.ToLower(config.PROVIDER) {
+	case "lmstudio":
+		if config.BaseURL == "" {
+			config.BaseURL = "http://localhost:1234/v1"
+		}
+	case "shimmy":
+		if config.BaseURL == "" {
+			config.BaseURL = "http://localhost:11435/v1"
+		}
 	}
 	return &OpenAIProvider{
 		config: config,
@@ -47,20 +54,26 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 }
 
 func (p *OpenAIProvider) GetName() string {
-	if strings.ToLower(p.config.PROVIDER) == "lmstudio" {
+	switch strings.ToLower(p.config.PROVIDER) {
+	case "lmstudio":
 		return "LMStudio"
+	case "shimmy":
+		return "Shimmy"
+	default:
+		return "OpenAI"
 	}
-	return "OpenAI"
 }
 
 func (p *OpenAIProvider) DefaultModel() string {
 	if v := os.Getenv("OPENAI_MODEL"); v != "" {
 		return v
 	}
-	if strings.ToLower(p.config.PROVIDER) == "lmstudio" {
+	switch strings.ToLower(p.config.PROVIDER) {
+	case "lmstudio", "shimmy":
 		return "local-model"
+	default:
+		return "gpt-4o"
 	}
-	return "gpt-4o"
 }
 
 func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
@@ -79,7 +92,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 		return nil, err
 	}
 
-	// Try multiple parsing strategies so that non-standard or shimmy-like
+	// Try multiple parsing strategies so that non-standard
 	// model endpoints can be handled gracefully.
 	tryParse := func(body []byte) ([]Model, bool) {
 		if len(body) == 0 {
@@ -185,12 +198,16 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	// Add response_format with JSON schema if provided
 	if p.config.Schema != nil {
-		request["response_format"] = map[string]interface{}{
-			"type": "json_schema",
-			"json_schema": map[string]interface{}{
-				"name":   "output_schema",
-				"schema": p.config.Schema,
-			},
+		if strings.ToLower(p.config.PROVIDER) == "shimmy" {
+			request["format"] = p.config.Schema
+		} else {
+			request["response_format"] = map[string]interface{}{
+				"type": "json_schema",
+				"json_schema": map[string]interface{}{
+					"name":   "output_schema",
+					"schema": p.config.Schema,
+				},
+			}
 		}
 	}
 
@@ -223,6 +240,9 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	// Build chat completions endpoint URL
 	apiURL := buildURL("https://api.openai.com/v1/chat/completions", p.config.BaseURL, "", "", "/chat/completions")
 
+	if p.config.Debug {
+		art.DebugBanner("OpenAI Request", string(jsonData))
+	}
 	if stream {
 		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL,
 			headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
@@ -232,8 +252,14 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
 		headers, jsonData)
+	if p.config.Debug {
+		art.DebugBanner("OpenAI Response", string(respBody))
+	}
 	if err != nil {
 		return "", err
+	}
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("empty response from %s server", p.GetName())
 	}
 
 	var response struct {
