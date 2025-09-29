@@ -84,51 +84,15 @@ func DebugBanner(title, text string) {
 		artPattern = "◤◢"
 		artCols = DisplayWidth(artPattern)
 		bodyCols = width - artCols
-		if bodyCols < 10 {
-			bodyCols = width - artCols
-		}
 	}
-
-	// Wrap the text into lines fitting bodyCols (use display widths)
-	words := strings.Fields(text)
-	lines := []string{}
-	cur := ""
-	for _, w := range words {
-		if DisplayWidth(cur)+1+DisplayWidth(w) <= bodyCols {
-			if cur == "" {
-				cur = w
-			} else {
-				cur = cur + " " + w
-			}
-		} else {
-			if cur != "" {
-				lines = append(lines, cur)
-			}
-			// if single word longer than bodyCols, break it by rune display width
-			if DisplayWidth(w) > bodyCols {
-				runes := []rune(w)
-				part := ""
-				for _, r := range runes {
-					if DisplayWidth(part)+RuneWidth(r) > bodyCols {
-						lines = append(lines, part)
-						part = string(r)
-					} else {
-						part += string(r)
-					}
-				}
-				if part != "" {
-					cur = part
-				} else {
-					cur = ""
-				}
-			} else {
-				cur = w
-			}
-		}
+	if bodyCols < 1 {
+		bodyCols = width
 	}
-	if cur != "" {
-		lines = append(lines, cur)
+	bodyContentCols := bodyCols - 1
+	if bodyContentCols < 1 {
+		bodyContentCols = bodyCols
 	}
+	lines := wrapText(text, bodyContentCols)
 
 	// rotate pattern by one rune: use slicing to keep types as string
 	var artPattern2 = artPattern
@@ -146,16 +110,121 @@ func DebugBanner(title, text string) {
 		// art block with ribbonFg on ribbonBg
 		fmt.Fprintf(os.Stderr, "\x1b[38;5;%dm\x1b[48;5;%dm%s\x1b[0m", ribbonFg, ribbonBg, ribbon[i%2])
 
-		// body block: darker background and white text, padded to bodyCols
-		padded := ln
-		padN := bodyCols - DisplayWidth(padded)
-		if padN < 0 {
-			padN = 0
+		contentWidth := DisplayWidth(ln)
+		pad := bodyContentCols - contentWidth
+		if pad < 0 {
+			pad = 0
 		}
-		padded += strings.Repeat(" ", padN)
-		fmt.Fprintf(os.Stderr, "\x1b[48;5;%dm\x1b[38;5;15m%s\x1b[0m", bodyBgDark, padded)
+		body := " " + ln + strings.Repeat(" ", pad)
+		if extra := bodyCols - DisplayWidth(body); extra > 0 {
+			body += strings.Repeat(" ", extra)
+		}
+		fmt.Fprintf(os.Stderr, "\x1b[48;5;%dm\x1b[38;5;15m%s\x1b[0m", bodyBgDark, body)
 		fmt.Fprint(os.Stderr, "\n")
 	}
 	// final reset
 	fmt.Fprint(os.Stderr, reset)
+}
+
+func wrapText(text string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return nil
+	}
+	var (
+		lines []string
+		line  strings.Builder
+		lw    int
+	)
+	flush := func() {
+		if line.Len() == 0 {
+			return
+		}
+		lines = append(lines, line.String())
+		line.Reset()
+		lw = 0
+	}
+	appendFragment := func(fragment string) {
+		fw := DisplayWidth(fragment)
+		if fw == 0 {
+			return
+		}
+		if lw == 0 {
+			line.WriteString(fragment)
+			lw = fw
+			if lw >= width {
+				flush()
+			}
+			return
+		}
+		if lw+1+fw <= width {
+			line.WriteByte(' ')
+			line.WriteString(fragment)
+			lw += 1 + fw
+			if lw >= width {
+				flush()
+			}
+			return
+		}
+		flush()
+		line.WriteString(fragment)
+		lw = fw
+		if lw >= width {
+			flush()
+		}
+	}
+	for _, word := range words {
+		if DisplayWidth(word) <= width {
+			appendFragment(word)
+			continue
+		}
+		for _, part := range breakWord(word, width) {
+			appendFragment(part)
+		}
+	}
+	flush()
+	return lines
+}
+
+func breakWord(word string, width int) []string {
+	if width <= 0 {
+		return []string{word}
+	}
+	var (
+		parts    []string
+		segment  strings.Builder
+		segWidth int
+	)
+	flush := func() {
+		if segment.Len() == 0 {
+			return
+		}
+		parts = append(parts, segment.String())
+		segment.Reset()
+		segWidth = 0
+	}
+	for _, r := range word {
+		rw := RuneWidth(r)
+		if rw > width {
+			flush()
+			parts = append(parts, string(r))
+			continue
+		}
+		if segWidth > 0 && segWidth+rw > width {
+			flush()
+		}
+		segment.WriteRune(r)
+		segWidth += rw
+		if segWidth == width {
+			flush()
+		}
+	}
+	flush()
+	if len(parts) == 0 {
+		parts = append(parts, word)
+	}
+	return parts
 }

@@ -286,7 +286,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 				Content string `json:"content"`
 			} `json:"message"`
 		}
-
+		fmt.Println(respBody)
 		if err := json.Unmarshal(respBody, &response); err != nil {
 			return "", err
 		}
