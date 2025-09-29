@@ -32,6 +32,14 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 	if strings.ToLower(config.PROVIDER) == "openai" {
 		apiKey = GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key")
 	}
+
+	// LM Studio exposes an OpenAI-compatible API locally without requiring
+	// authentication. Default to its local HTTP endpoint when no custom
+	// base URL has been provided so requests don't fall back to the real
+	// OpenAI service.
+	if strings.ToLower(config.PROVIDER) == "lmstudio" && config.BaseURL == "" {
+		config.BaseURL = "http://localhost:1234/v1"
+	}
 	return &OpenAIProvider{
 		config: config,
 		apiKey: apiKey,
