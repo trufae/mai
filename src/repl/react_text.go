@@ -1,13 +1,46 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
+	"github.com/trufae/mai/src/repl/art"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
+
+const toolsPrompt = `
+Use Reasoning: low
+
+Tool Agent Instructions:
+- Understand the request, sketch a short plan, and avoid repeating steps.
+- Pick the most efficient tool sequence. Skip tools if they are not required.
+- Track progress after every action and stop when the goal is satisfied.
+
+Respond using ONLY the tag blocks below. Do not add markdown formatting or prose outside these tags.
+
+<tool_plan>
+one concise step per line describing the plan you intend to follow
+</tool_plan>
+<tool_reasoning>
+optional extra notes for context (leave empty if none)
+</tool_reasoning>
+<tool_call>
+ToolRequired=true|false
+Action=Think|Iterate|Done|Solve|Error
+Tool=name.of.tool (omit or set to none if no tool call is needed)
+NextStep=describe what happens next
+Reasoning=short justification
+argument=value for each tool parameter on separate lines
+</tool_call>
+
+Assignments may use either "key=value" or "key: value" notation. Keep the response compact so small models can follow it consistently.
+
+Below you will find the user prompt and the list of tools
+
+----
+`
 
 // getToolPrompt returns the content of the tool.md prompt file
 func (repl *REPL) getToolPrompt(foo string) (string, error) {
@@ -58,6 +91,21 @@ func mapToArray(m map[string]interface{}) []string {
 	return result
 }
 
+// extractTaggedSection returns the content inside the first matching tag pair.
+// It supports multiple tag names (useful for backward compatibility) and is
+// case-insensitive.
+func extractTaggedSection(text string, tags ...string) string {
+	for _, tag := range tags {
+		pattern := fmt.Sprintf(`(?is)<\s*%s\s*>(.*?)</\s*%s\s*>`, regexp.QuoteMeta(tag), regexp.QuoteMeta(tag))
+		re := regexp.MustCompile(pattern)
+		match := re.FindStringSubmatch(text)
+		if len(match) >= 2 {
+			return match[1]
+		}
+	}
+	return ""
+}
+
 // stripJSONComments removes single-line (//) and block (/* */) comments from JSON input.
 func stripJSONComments(input string) string {
 	// Remove single-line comments (// ...)
@@ -69,16 +117,127 @@ func stripJSONComments(input string) string {
 	return strings.TrimSpace(noBlock)
 }
 
+// parseMarkdownResponse parses the markdown-formatted response into PlanResponse
+func parseMarkdownResponse(text string) (PlanResponse, string, error) {
+	planContent := strings.TrimSpace(extractTaggedSection(text, "tool_plan", "|tool_plan|"))
+	planLines := strings.Split(planContent, "\n")
+	reNumPrefix := regexp.MustCompile(`^\d+[\).:\-]*\s*`)
+	plan := make([]string, 0, len(planLines))
+	for _, raw := range planLines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+			line = strings.TrimSpace(line[2:])
+		}
+		line = strings.TrimSpace(reNumPrefix.ReplaceAllString(line, ""))
+		if line != "" {
+			plan = append(plan, line)
+		}
+	}
+
+	explainText := strings.TrimSpace(extractTaggedSection(text, "tool_reasoning", "|tool_call_reasoning|"))
+	callContent := strings.TrimSpace(extractTaggedSection(text, "tool_call", "|tool_call|"))
+	if callContent == "" {
+		return PlanResponse{}, "", fmt.Errorf("invalid response format: missing <tool_call> block")
+	}
+
+	lines := strings.Split(callContent, "\n")
+	response := PlanResponse{
+		Plan:      plan,
+		PlanIndex: 0,
+		ToolArgs:  map[string]interface{}{},
+	}
+	toolArgs := response.ToolArgs.(map[string]interface{})
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || line == "----" {
+			continue
+		}
+		// Legacy "toolname + param=value" format
+		if strings.Contains(line, "+") && !strings.Contains(line, "=") && !strings.Contains(line, ":") {
+			parts := strings.SplitN(line, "+", 2)
+			if len(parts) == 2 {
+				response.SelectedTool = strings.TrimSpace(parts[0])
+				paramsStr := strings.TrimSpace(parts[1])
+				for _, p := range strings.Fields(paramsStr) {
+					kv := strings.SplitN(p, "=", 2)
+					if len(kv) == 2 {
+						toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+					}
+				}
+			}
+			continue
+		}
+
+		key := ""
+		value := ""
+		if idx := strings.IndexAny(line, ":="); idx != -1 {
+			key = strings.TrimSpace(line[:idx])
+			value = strings.TrimSpace(line[idx+1:])
+		} else {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				key = strings.TrimSpace(fields[0])
+				value = strings.TrimSpace(strings.Join(fields[1:], " "))
+			}
+		}
+		if key == "" {
+			continue
+		}
+		lowerKey := strings.ToLower(key)
+		switch lowerKey {
+		case "toolrequired", "tool_required":
+			val := strings.ToLower(value)
+			response.ToolRequired = val == "true" || val == "yes" || val == "1"
+		case "action":
+			response.Action = value
+		case "reasoning":
+			response.Reasoning = value
+		case "nextstep", "next_step":
+			response.NextStep = value
+		case "tool", "toolname", "selectedtool":
+			if strings.EqualFold(value, "none") || strings.EqualFold(value, "null") || strings.EqualFold(value, "") {
+				response.SelectedTool = ""
+			} else {
+				response.SelectedTool = value
+			}
+		case "planindex", "plan_index":
+			if idx, err := strconv.Atoi(value); err == nil {
+				response.PlanIndex = idx
+			}
+		case "progress":
+			response.Progress = value
+		default:
+			toolArgs[key] = value
+		}
+	}
+
+	if response.Progress == "" {
+		if response.Reasoning != "" {
+			response.Progress = response.Reasoning
+		} else {
+			response.Progress = response.NextStep
+		}
+	}
+
+	return response, explainText, nil
+}
+
 func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
 	query := buildMessageWithTools(toolPrompt, input, ctx, toolList)
-	// debug(query)
+	if r.configOptions.GetBool("repl.debug") {
+		art.DebugBanner("Tools Query", query)
+	}
 	messages := []llm.Message{{Role: "user", Content: query}}
-	// debug(query)
 	responseText, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
 	}
-	// debug(responseText)
+	if r.configOptions.GetBool("repl.debug") {
+		art.DebugBanner("Tools Response", responseText)
+	}
 	// strip out any internal reasoning between <think>...</think> before processing
 	reThink := regexp.MustCompile(`(?s)\s*<think>.*?</think>\s*`)
 	responseText = reThink.ReplaceAllString(responseText, "")
@@ -86,26 +245,9 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		return PlanResponse{}, "", fmt.Errorf("cancel empty response from the llm")
 	}
 	// debug(responseText)
-	responseJson, explainText := extractJSONBlock(responseText)
-	responseJson = stripJSONComments(responseJson)
-	// debug(explainText)
-	var response PlanResponse
-	if responseJson != "" {
-		err2 := json.Unmarshal([]byte(responseJson), &response)
-		if err2 != nil {
-			// debug(responseJson)
-			if strings.Contains(responseJson, "\"action\": \"Done\"") {
-				response = PlanResponse{
-					NextStep: "Cannot recover from invalid json parsing",
-					Action:   "Done",
-				}
-				explainText = responseJson
-			}
-		}
-		// response.NextStep += "<think>" + explainText + "</think>"
-		//	fmt.Println(response)
-		//	fmt.Println(response.NextStep)
-		return response, explainText, err2
+	response, explainText, err := parseMarkdownResponse(responseText)
+	if err != nil {
+		return PlanResponse{}, "", err
 	}
 	return response, explainText, nil
 }
@@ -116,16 +258,13 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	if display == "" {
 		display = "verbose"
 	}
+	fmt.Println("NONOTE")
 	showPlan := (display == "verbose" || display == "plan")
-	toolPrompt, err := r.getToolPrompt("tool.md")
-	if err != nil {
-		// If can't get the tool prompt, return input unchanged
-		return input, err
-	}
+	toolPrompt := toolsPrompt
 	// Apply reasoning level directive
 	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("mcp.reason"))
 
-	toolList, err := GetAvailableTools(Markdown)
+	toolList, err := GetAvailableTools(Quiet) // Markdown)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
