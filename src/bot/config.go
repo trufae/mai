@@ -31,6 +31,7 @@ type Config struct {
 	CaptureStderr bool     `json:"capture_stderr,omitempty"`
 	Logfile       string   `json:"logfile,omitempty"`
 	LogToStdout   bool     `json:"log_to_stdout,omitempty"`
+	Interactive   bool     `json:"interactive,omitempty"`
 
 	Telegram TelegramConfig `json:"telegram"`
 	IRC      IRCConfig      `json:"irc"`

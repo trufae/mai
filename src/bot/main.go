@@ -18,6 +18,7 @@ func main() {
 	captureStderr := flag.Bool("capture-stderr", false, "capture stderr")
 	logfile := flag.String("logfile", "", "log file path")
 	logToStdout := flag.Bool("log-to-stdout", false, "log to stdout")
+	interactive := flag.Bool("interactive", false, "use interactive REPL mode")
 	ircServer := flag.String("irc-server", "", "IRC server")
 	ircPort := flag.Int("irc-port", 0, "IRC port")
 	ircTLS := flag.Bool("irc-tls", false, "use IRC TLS")
@@ -66,6 +67,9 @@ func main() {
 	}
 	if *logToStdout {
 		config.LogToStdout = *logToStdout
+	}
+	if *interactive {
+		config.Interactive = *interactive
 	}
 	if *ircServer != "" {
 		config.IRC.Server = *ircServer

@@ -4,11 +4,34 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
+)
+
+var (
+	replSession *ReplSession
+	replMu      sync.Mutex
 )
 
 func executeCommand(config Config, input string) (string, int) {
 	if len(config.Program) == 0 {
 		return "No program configured", -1
+	}
+
+	if config.Interactive {
+		replMu.Lock()
+		defer replMu.Unlock()
+		if replSession == nil {
+			var err error
+			replSession, err = NewReplSession(config.Program, config.CaptureStderr)
+			if err != nil {
+				return fmt.Sprintf("Error starting REPL session: %v", err), -1
+			}
+		}
+		output, err := replSession.Execute(input, config.CaptureStderr)
+		if err != nil {
+			return fmt.Sprintf("Error executing in REPL: %v", err), -1
+		}
+		return output, 0
 	}
 
 	cmd := prepareCommand(config, input)
