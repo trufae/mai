@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-    "io"
-    "os"
-    "strings"
+	"io"
+	"os"
+	"strings"
 )
 
 // OpenAIProvider implements the LLM provider interface for OpenAI
@@ -147,7 +147,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	return nil, fmt.Errorf("failed to parse response from models endpoint, raw: %s", string(respBody))
 
-    // nothing more to do; parsing helper already returned results or an error
+	// nothing more to do; parsing helper already returned results or an error
 }
 
 func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {

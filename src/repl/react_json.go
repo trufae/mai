@@ -206,9 +206,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 
 	// Debug output: show the reasoning prompt sent to LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		fmt.Fprintf(os.Stderr, "\n\033[1;36m[DEBUG MCP] Reasoning Prompt Sent to LLM:\033[0m\n")
-		fmt.Fprintf(os.Stderr, "%s\n", query)
-		fmt.Fprintf(os.Stderr, "\033[1;36m[DEBUG MCP] End of Prompt\033[0m\n\n")
+		DebugBanner("MCP Reasoning Prompt", query)
 	}
 
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
@@ -218,9 +216,7 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 
 	// Debug output: show the raw response from LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		fmt.Fprintf(os.Stderr, "\033[1;35m[DEBUG MCP] Raw JSON Response from LLM:\033[0m\n")
-		fmt.Fprintf(os.Stderr, "%s\n", responseJson)
-		fmt.Fprintf(os.Stderr, "\033[1;35m[DEBUG MCP] End of Raw Response\033[0m\n\n")
+		DebugBanner("MCP Raw Response", responseJson)
 	}
 
 	if strings.HasPrefix(responseJson, "```") {
