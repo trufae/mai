@@ -408,35 +408,235 @@ func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // quietToolsHandler returns all tools from all servers in a minimally formatted plain text
+type quietToolEntry struct {
+	Server    string
+	Name      string
+	Purpose   string
+	WhenToUse string
+	Category  string
+	Args      []ToolParameter
+}
+
 func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	w.Header().Set("Content-Type", "text/plain")
 
-	var output strings.Builder
+	categoryOrder := []string{"File", "Analysis", "Inspection", "Metadata", "Editing"}
+	toolsByCategory := make(map[string][]quietToolEntry)
+	serverNames := make([]string, 0, len(s.servers))
+	for serverName := range s.servers {
+		serverNames = append(serverNames, serverName)
+	}
+	sort.Strings(serverNames)
 
-	for serverName, server := range s.servers {
+	for _, serverName := range serverNames {
+		server := s.servers[serverName]
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
-			output.WriteString(fmt.Sprintf("/* %s */\n", tool.Description))
-			output.WriteString(fmt.Sprintf("Tool: %s/%s", serverName, tool.Name))
-			// Use the Parameters array if available
-			if len(tool.Parameters) > 0 {
-				for _, param := range tool.Parameters {
-					output.WriteString(fmt.Sprintf(" %s=<value>", param.Name))
-				}
-			} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
-				for key, _ := range properties {
-					output.WriteString(fmt.Sprintf(" %s=<value>", key))
-				}
+			entry := buildQuietToolEntry(serverName, tool)
+			category := entry.Category
+			if category == "" {
+				category = "Analysis"
 			}
-			output.WriteString("\n")
+			toolsByCategory[category] = append(toolsByCategory[category], entry)
 		}
 		server.mutex.RUnlock()
 	}
 
-	w.Write([]byte(output.String()))
+	var output strings.Builder
+	firstCategory := true
+	for _, category := range categoryOrder {
+		entries := toolsByCategory[category]
+		if len(entries) == 0 {
+			continue
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].Server == entries[j].Server {
+				return entries[i].Name < entries[j].Name
+			}
+			return entries[i].Server < entries[j].Server
+		})
+
+		var section strings.Builder
+		section.WriteString(fmt.Sprintf("## %s\n\n", category))
+
+		for _, entry := range entries {
+			section.WriteString(fmt.Sprintf("ToolName: %s/%s\n", entry.Server, entry.Name))
+			if entry.Purpose != "" {
+				section.WriteString(fmt.Sprintf("Purpose: %s\n", entry.Purpose))
+			} else {
+				section.WriteString("Purpose: (no description provided)\n")
+			}
+			if entry.WhenToUse != "" {
+				section.WriteString(fmt.Sprintf("WhenToUse: %s\n", entry.WhenToUse))
+			} else {
+				section.WriteString("WhenToUse: Use when this capability fits the request\n")
+			}
+			if len(entry.Args) == 0 {
+				section.WriteString("Arguments: (none)\n")
+			} else {
+				section.WriteString("Arguments:\n")
+				for _, arg := range entry.Args {
+					section.WriteString(formatQuietArgument(arg))
+					section.WriteByte('\n')
+				}
+			}
+			section.WriteByte('\n')
+		}
+
+		sectionStr := strings.TrimRight(section.String(), "\n")
+		if !firstCategory {
+			output.WriteByte('\n')
+		}
+		output.WriteString(sectionStr)
+		firstCategory = false
+	}
+
+	result := strings.TrimRight(output.String(), "\n")
+	w.Write([]byte(result))
+}
+
+func buildQuietToolEntry(serverName string, tool Tool) quietToolEntry {
+	purpose, whenHint := sanitizeToolDescription(tool.Description)
+	params := tool.Parameters
+	if len(params) == 0 && tool.InputSchema != nil {
+		params = extractParametersFromSchema(tool.InputSchema)
+	}
+	arguments := make([]ToolParameter, len(params))
+	copy(arguments, params)
+	sort.Slice(arguments, func(i, j int) bool { return arguments[i].Name < arguments[j].Name })
+
+	entry := quietToolEntry{
+		Server:    serverName,
+		Name:      tool.Name,
+		Purpose:   purpose,
+		WhenToUse: formatWhenToUse(purpose, whenHint),
+		Category:  categorizeTool(tool.Name, purpose),
+		Args:      arguments,
+	}
+	return entry
+}
+
+func sanitizeToolDescription(desc string) (string, string) {
+	if desc == "" {
+		return "", ""
+	}
+	clean := desc
+	var hints []string
+	for {
+		start := strings.Index(clean, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(clean[start:], "</think>")
+		if end == -1 {
+			clean = clean[:start]
+			break
+		}
+		end += start
+		thinkText := clean[start+len("<think>") : end]
+		if trimmed := strings.TrimSpace(compactSpaces(thinkText)); trimmed != "" {
+			hints = append(hints, trimmed)
+		}
+		clean = clean[:start] + clean[end+len("</think>"):]
+	}
+
+	purpose := strings.TrimSpace(compactSpaces(clean))
+	whenHint := strings.TrimSpace(compactSpaces(strings.Join(hints, " ")))
+	return purpose, whenHint
+}
+
+func formatWhenToUse(purpose, hint string) string {
+	if hint != "" {
+		return compactSpaces(hint)
+	}
+	return deriveWhenFromPurpose(purpose)
+}
+
+func deriveWhenFromPurpose(purpose string) string {
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		return "Use when this capability fits the request"
+	}
+	words := strings.Fields(purpose)
+	if len(words) == 0 {
+		return "Use when this capability fits the request"
+	}
+	first := strings.ToLower(words[0])
+	switch {
+	case strings.HasSuffix(first, "ies") && len(first) > 3:
+		first = first[:len(first)-3] + "y"
+	case strings.HasSuffix(first, "ses") || strings.HasSuffix(first, "xes") || strings.HasSuffix(first, "zes") || strings.HasSuffix(first, "ches") || strings.HasSuffix(first, "shes"):
+		first = first[:len(first)-2]
+	case strings.HasSuffix(first, "es") && len(first) > 2:
+		first = first[:len(first)-1]
+	case strings.HasSuffix(first, "s") && len(first) > 1:
+		first = first[:len(first)-1]
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(purpose, words[0]))
+	if rest == "" {
+		return compactSpaces(fmt.Sprintf("Use to %s", first))
+	}
+	return compactSpaces(fmt.Sprintf("Use to %s %s", first, strings.TrimSpace(rest)))
+}
+
+func formatQuietArgument(arg ToolParameter) string {
+	name := strings.TrimSpace(arg.Name)
+	if name == "" {
+		name = "argument"
+	}
+	typeLabel := strings.TrimSpace(compactSpaces(arg.Type))
+	if typeLabel == "" {
+		typeLabel = "value"
+	}
+	requiredLabel := "optional"
+	if arg.Required {
+		requiredLabel = "required"
+	}
+	desc := strings.TrimSpace(compactSpaces(arg.Description))
+	if desc != "" {
+		return fmt.Sprintf("- %s=<%s> (%s) : %s", name, typeLabel, requiredLabel, desc)
+	}
+	return fmt.Sprintf("- %s=<%s> (%s)", name, typeLabel, requiredLabel)
+}
+
+func categorizeTool(name, description string) string {
+	text := strings.ToLower(name + " " + description)
+	if containsAny(text, []string{"write", "rename", "set", "update", "replace", "apply", "append", "delete", "remove", "create", "format", "patch", "edit", "modify", "use ", "use_", "toggle", "enable", "disable"}) {
+		return "Editing"
+	}
+	if containsAny(text, []string{"file", "path", "directory", "folder", "filesystem"}) {
+		return "File"
+	}
+	if containsAny(text, []string{"metadata", "status", "config", "capability", "version", "schema", "info"}) {
+		return "Metadata"
+	}
+	if containsAny(text, []string{"list", "analy", "scan", "find", "search", "discover", "enumerate", "xref", "graph", "map"}) {
+		return "Analysis"
+	}
+	if containsAny(text, []string{"show", "display", "get", "dump", "peek", "inspect", "view", "read", "print", "describe", "explain", "decompil", "disassembl"}) {
+		return "Inspection"
+	}
+	return "Analysis"
+}
+
+func containsAny(text string, keywords []string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactSpaces(input string) string {
+	if input == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(input), " ")
 }
 
 // markdownToolsHandler returns all tools from all servers in markdown format

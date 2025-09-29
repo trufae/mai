@@ -10,6 +10,57 @@ import (
 )
 
 const toolsPrompt = `
+You are an assistant that must resolve user prompt using the provided tools.
+
+RULES:
+- Do not output anything else outside these fields.
+- Use the tool descriptions to decide which one is appropriate.
+- Design a plan to resolve the problem and adjust its steps if necessary
+- Analyze the context information and choose the tool necessary to go one step further in your plan
+- Once you have all the information to resolve the user request use ACTION DONE
+
+OUTPUT RESPONSE:
+
+Case 1: You need to call a tool
+
+<|response_begin|>
+THINK: <short reason why>
+ACTION: TOOL <tool-name> <arg>=<value> ...
+<|response_end|>
+
+Case 2: You are finished
+
+<|response_begin|>
+THINK: <short reason why no more tools are needed>
+ACTION: DONE
+ANSWER: <final reply for the user>
+<|response_end|>
+AVAILABLE TOOLS:
+
+<|tools_begin|>
+{tools}
+<|tools_end|>
+
+`
+
+/*
+
+EXAMPLES:
+
+<|example_begin|>
+User: "Open /bin/ls"
+THINK: I need to open the file before analyzing
+ACTION: TOOL openFile filePath=/bin/ls
+<|example_end|>
+
+<|example_begin|>
+User: "What functions does it have?"
+THINK: I should list all discovered functions
+ACTION: TOOL listFunctions
+<|example_end|>
+*/
+
+const oldToolsPrompt = `
 You are a terminal assistant that can run tools to solve the user's request.
 
 Available tools:
@@ -113,6 +164,61 @@ func stripJSONComments(input string) string {
 	reBlock := regexp.MustCompile(`(?s)/\*.*?\*/`)
 	noBlock := reBlock.ReplaceAllString(noLine, "")
 	return strings.TrimSpace(noBlock)
+}
+
+func normalizeInline(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(trimmed), " ")
+}
+
+func appendContextSection(current string, snippet string) string {
+	trimmed := strings.TrimSpace(snippet)
+	if trimmed == "" {
+		return current
+	}
+	if current == "" {
+		return trimmed
+	}
+	return current + "\n" + trimmed
+}
+
+func formatToolContext(step int, reason string, toolDesc string, output string) string {
+	reasonLine := normalizeInline(reason)
+	toolLine := strings.TrimSpace(toolDesc)
+	result := strings.TrimSpace(output)
+	lines := []string{fmt.Sprintf("STEP %d", step)}
+	if reasonLine != "" {
+		lines = append(lines, "THINK: "+reasonLine)
+	}
+	if toolLine != "" {
+		lines = append(lines, "TOOL: "+toolLine)
+	}
+	lines = append(lines, "RESULT:")
+	if result != "" {
+		lines = append(lines, result)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatContextTag(tag string, content string) string {
+	inline := normalizeInline(content)
+	if inline == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s: %s", strings.ToUpper(strings.TrimSpace(tag)), inline)
+}
+
+func formatToolLine(tool *Tool) string {
+	if tool == nil {
+		return ""
+	}
+	if len(tool.Args) == 0 {
+		return tool.Name
+	}
+	return tool.Name + " " + strings.Join(tool.Args, " ")
 }
 
 // parseMarkdownResponse parses the response into PlanResponse
@@ -308,7 +414,6 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	if display == "" {
 		display = "verbose"
 	}
-	fmt.Println("NONOTE")
 	showPlan := (display == "verbose" || display == "plan")
 	toolPrompt := toolsPrompt
 	// Apply reasoning level directive
@@ -408,7 +513,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 				art.DebugBanner("Loop Exit", fmt.Sprintf("Action: %s", action))
 			}
 			if expl != "" {
-				context += "\n\n## Answer\n\n" + expl
+				context = appendContextSection(context, formatContextTag("answer", expl))
 				if display != "quiet" {
 					fmt.Printf("\n%s\n", expl)
 				}
@@ -472,16 +577,17 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		if reasonField == "" {
 			reasonField = step.Progress
 		}
-		toolResponse := fmt.Sprintf("\n\n## Step %d Tool Response\n\n**Reasoning**: %s\n**ToolName**: %s\n**Contents**:\n\n```\n%s\n```\n\n", stepCount, reasonField, tool.Name, result)
-		// fmt.Println (toolResponse)
+		toolResponse := formatToolContext(stepCount, reasonField, formatToolLine(tool), result)
 		if expl != "" {
-			context += "\n\n## Context\n\n" + expl
+			context = appendContextSection(context, formatContextTag("observation", expl))
 			if display != "quiet" && (display == "verbose" || display == "reason") {
 				reasoning += "\n\n## Reasoning\n\n" + expl
 			}
 		}
-		reasoning += "- " + step.Progress + "\n"
-		context += toolResponse
+		if step.Progress != "" {
+			reasoning += "- " + step.Progress + "\n"
+		}
+		context = appendContextSection(context, toolResponse)
 		// input += planString + toolResponse
 		clearScreen = false
 	}
