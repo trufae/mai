@@ -292,11 +292,13 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 					if len(fields) > 1 {
 						response.SelectedTool = fields[1]
 					}
-					for _, arg := range fields[2:] {
-						if strings.Contains(arg, "=") {
-							kv := strings.SplitN(arg, "=", 2)
-							if len(kv) == 2 {
-								toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+					if len(fields) > 2 {
+						for _, arg := range fields[2:] {
+							if strings.Contains(arg, "=") {
+								kv := strings.SplitN(arg, "=", 2)
+								if len(kv) == 2 {
+									toolArgs[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+								}
 							}
 						}
 					}
