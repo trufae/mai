@@ -23,6 +23,6 @@ uninstall:
 	done
 
 fmt indent:
-	for a in * ; do ( go fmt $$a/*.go ) ; done
+	for a in $(shell ls -F | grep /) ; do ( go fmt $$a/*.go ) ; done
 
 .PHONY: all clean install uninstall fmt indent
