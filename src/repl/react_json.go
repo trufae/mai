@@ -379,7 +379,12 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		if reasonLevel != "low" && reasonLevel != "medium" && reasonLevel != "high" {
 			reasonLevel = "low"
 		}
-		dynamicToolsPrompt := toolsPromptPrefix + planTemplate + "\n\nUse Reasoning: " + reasonLevel + "\n" + toolsPromptSuffix
+		customPrompt := strings.TrimSpace(r.configOptions.Get("mcp.prompt"))
+		dynamicToolsPrompt := toolsPromptPrefix + planTemplate
+		if customPrompt != "" {
+			dynamicToolsPrompt += "\n\n" + customPrompt
+		}
+		dynamicToolsPrompt += "\n\nUse Reasoning: " + reasonLevel + "\n" + toolsPromptSuffix
 		if display != "quiet" {
 			fmt.Println("\x1b[0m 🐾| ...")
 		}

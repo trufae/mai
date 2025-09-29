@@ -420,6 +420,11 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	toolPrompt := toolsPrompt
 	// Apply reasoning level directive
 	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("mcp.reason"))
+	// Add custom prompt text if configured
+	customPrompt := strings.TrimSpace(r.configOptions.Get("mcp.prompt"))
+	if customPrompt != "" {
+		toolPrompt += "\n\n" + customPrompt
+	}
 
 	toolList, err := GetAvailableTools(Quiet)
 	if err != nil || strings.TrimSpace(toolList) == "" {
