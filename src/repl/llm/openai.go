@@ -5,10 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-	"sort"
-	"strings"
+    "io"
+    "os"
+    "strings"
 )
 
 // OpenAIProvider implements the LLM provider interface for OpenAI
@@ -29,19 +28,29 @@ type OpenAIModelsResponse struct {
 }
 
 func NewOpenAIProvider(config *Config) *OpenAIProvider {
+	var apiKey string
+	if strings.ToLower(config.PROVIDER) == "openai" {
+		apiKey = GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key")
+	}
 	return &OpenAIProvider{
 		config: config,
-		apiKey: GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key"),
+		apiKey: apiKey,
 	}
 }
 
 func (p *OpenAIProvider) GetName() string {
+	if strings.ToLower(p.config.PROVIDER) == "lmstudio" {
+		return "LMStudio"
+	}
 	return "OpenAI"
 }
 
 func (p *OpenAIProvider) DefaultModel() string {
 	if v := os.Getenv("OPENAI_MODEL"); v != "" {
 		return v
+	}
+	if strings.ToLower(p.config.PROVIDER) == "lmstudio" {
+		return "local-model"
 	}
 	return "gpt-4o"
 }
@@ -51,8 +60,10 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	apiURL := buildURL("https://api.openai.com/v1/models", p.config.BaseURL, "", "", "/models")
 
 	headers := map[string]string{
-		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.apiKey,
+		"Content-Type": "application/json",
+	}
+	if p.apiKey != "" {
+		headers["Authorization"] = "Bearer " + p.apiKey
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -60,28 +71,83 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 		return nil, err
 	}
 
-	var openaiResp OpenAIModelsResponse
-	if err := json.Unmarshal(respBody, &openaiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %v, raw: %s", err, string(respBody))
+	// Try multiple parsing strategies so that non-standard or shimmy-like
+	// model endpoints can be handled gracefully.
+	tryParse := func(body []byte) ([]Model, bool) {
+		if len(body) == 0 {
+			return nil, false
+		}
+
+		// 1) OpenAI style: {"object":"list","data":[{id:..., owned_by:...}, ...]}
+		var openaiResp OpenAIModelsResponse
+		if err := json.Unmarshal(body, &openaiResp); err == nil && len(openaiResp.Data) > 0 {
+			models := make([]Model, 0, len(openaiResp.Data))
+			for _, m := range openaiResp.Data {
+				models = append(models, Model{ID: m.ID, Name: m.ID, Provider: "openai", Description: "Owner: " + m.OwnedBy})
+			}
+			return models, true
+		}
+
+		// 2) Plain list of model IDs: ["gpt-4", "gpt-3.5"]
+		var list []string
+		if err := json.Unmarshal(body, &list); err == nil && len(list) > 0 {
+			models := make([]Model, 0, len(list))
+			for _, id := range list {
+				models = append(models, Model{ID: id, Name: id, Provider: "openai"})
+			}
+			return models, true
+		}
+
+		// 3) Array of objects with id/name fields
+		var objList []map[string]interface{}
+		if err := json.Unmarshal(body, &objList); err == nil && len(objList) > 0 {
+			models := make([]Model, 0, len(objList))
+			for _, item := range objList {
+				var id string
+				if v, ok := item["id"].(string); ok {
+					id = v
+				} else if v, ok := item["name"].(string); ok {
+					id = v
+				}
+				if id == "" {
+					continue
+				}
+				owner := ""
+				if v, ok := item["owned_by"].(string); ok {
+					owner = v
+				}
+				models = append(models, Model{ID: id, Name: id, Provider: "openai", Description: owner})
+			}
+			if len(models) > 0 {
+				return models, true
+			}
+		}
+
+		return nil, false
 	}
 
-	// Filter out non-chat models and sort by ID
-	chatModels := make([]Model, 0, len(openaiResp.Data))
-	for _, m := range openaiResp.Data {
-		chatModels = append(chatModels, Model{
-			ID:          m.ID,
-			Name:        m.ID,
-			Provider:    "openai",
-			Description: "Owner: " + m.OwnedBy,
-		})
+	if models, ok := tryParse(respBody); ok {
+		return models, nil
 	}
 
-	// Sort models alphabetically by ID
-	sort.Slice(chatModels, func(i, j int) bool {
-		return chatModels[i].ID < chatModels[j].ID
-	})
+	// If the response didn't parse as expected, try an alternate common path
+	// e.g., some local servers expose /models (without the v1 prefix).
+	altURLs := []string{"/models", "/v1/models"}
+	for _, suffix := range altURLs {
+		alt := buildURL("https://api.openai.com/v1/models", p.config.BaseURL, "", "", suffix)
+		if alt == apiURL {
+			continue
+		}
+		if body, err := llmMakeRequest(ctx, "GET", alt, headers, nil); err == nil {
+			if models, ok := tryParse(body); ok {
+				return models, nil
+			}
+		}
+	}
 
-	return chatModels, nil
+	return nil, fmt.Errorf("failed to parse response from models endpoint, raw: %s", string(respBody))
+
+    // nothing more to do; parsing helper already returned results or an error
 }
 
 func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
@@ -140,8 +206,10 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	headers := map[string]string{
-		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.apiKey,
+		"Content-Type": "application/json",
+	}
+	if p.apiKey != "" {
+		headers["Authorization"] = "Bearer " + p.apiKey
 	}
 
 	// Build chat completions endpoint URL

@@ -441,4 +441,3 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 
 	return input + context + progress + "\n## Resolution Instructions\n\nBe concise in your response", nil
 }
-

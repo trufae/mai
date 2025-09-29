@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"github.com/trufae/mai/src/repl/llm"
 	"errors"
 	"fmt"
+	"github.com/trufae/mai/src/repl/llm"
 	"os/exec"
 	"regexp"
 	"strings"

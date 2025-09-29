@@ -2859,6 +2859,7 @@ func (r *REPL) showCurrentProvider() {
 func (r *REPL) getValidProviders() map[string]bool {
 	return map[string]bool{
 		"ollama":   true,
+		"lmstudio": true,
 		"openai":   true,
 		"claude":   true,
 		"gemini":   true,

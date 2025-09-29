@@ -20,11 +20,11 @@ type OllamaProvider struct {
 // OllamaModelsResponse is the response structure for Ollama model list endpoint
 type OllamaModelsResponse struct {
 	Models []struct {
-		Name     string `json:"name""`
-		Digest   string `json:"digest""`
-		Size     int64  `json:"size""`
-		Modified int64  `json:"modified""`
-	} `json:"models""`
+		Name     string `json:"name"`
+		Digest   string `json:"digest"`
+		Size     int64  `json:"size"`
+		Modified int64  `json:"modified"`
+	} `json:"models"`
 }
 
 func NewOllamaProvider(config *Config) *OllamaProvider {
@@ -54,48 +54,112 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	headers := map[string]string{}
 
-	respBody, err := llmMakeRequest(ctx, "GET", url, headers, nil)
-	if err != nil {
-		return nil, err
-	}
-	if string(respBody)[0] != "{"[0] {
-		return nil, fmt.Errorf("failed %v", string(respBody))
-	}
-
-	var ollamaResp OllamaModelsResponse
-	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
-		return nil, err
+	// Try multiple endpoints and parsing strategies to be tolerant of
+	// different local/model server implementations (e.g., shimmy).
+	candidates := []string{
+		url,
+		// common alternatives
+		strings.TrimRight(p.config.BaseURL, "/") + "/v1/models",
+		strings.TrimRight(p.config.BaseURL, "/") + "/models",
+		strings.TrimRight(p.config.BaseURL, "/") + "/api/models",
 	}
 
-	models := make([]Model, 0, len(ollamaResp.Models))
-	for _, m := range ollamaResp.Models {
-		// Convert size to a human-readable format for the description
-		sizeDesc := ""
-		if m.Size > 0 {
-			size := float64(m.Size)
-			unit := "B"
-			if size >= 1024*1024*1024 {
-				size /= 1024 * 1024 * 1024
-				unit = "GB"
-			} else if size >= 1024*1024 {
-				size /= 1024 * 1024
-				unit = "MB"
-			} else if size >= 1024 {
-				size /= 1024
-				unit = "KB"
-			}
-			sizeDesc = fmt.Sprintf("Size: %.1f %s", size, unit)
+	// Build a parsing helper that tries several JSON shapes
+	tryParse := func(body []byte) ([]Model, bool) {
+		if len(body) == 0 {
+			return nil, false
 		}
 
-		models = append(models, Model{
-			ID:          m.Name,
-			Name:        m.Name,
-			Provider:    "ollama",
-			Description: sizeDesc,
-		})
+		// 1) Ollama tags response: {"models":[{name,digest,size,modified}, ...]}
+		var oresp OllamaModelsResponse
+		if err := json.Unmarshal(body, &oresp); err == nil && len(oresp.Models) > 0 {
+			out := make([]Model, 0, len(oresp.Models))
+			for _, m := range oresp.Models {
+				sizeDesc := ""
+				if m.Size > 0 {
+					size := float64(m.Size)
+					unit := "B"
+					if size >= 1024*1024*1024 {
+						size /= 1024 * 1024 * 1024
+						unit = "GB"
+					} else if size >= 1024*1024 {
+						size /= 1024 * 1024
+						unit = "MB"
+					} else if size >= 1024 {
+						size /= 1024
+						unit = "KB"
+					}
+					sizeDesc = fmt.Sprintf("Size: %.1f %s", size, unit)
+				}
+				out = append(out, Model{ID: m.Name, Name: m.Name, Provider: "ollama", Description: sizeDesc})
+			}
+			return out, true
+		}
+
+		// 2) OpenAI-style response: {"object":"list","data":[{id:...,owned_by:...}, ...]}
+		var openaiResp struct {
+			Data []struct {
+				ID      string `json:"id"`
+				OwnedBy string `json:"owned_by"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &openaiResp); err == nil && len(openaiResp.Data) > 0 {
+			out := make([]Model, 0, len(openaiResp.Data))
+			for _, m := range openaiResp.Data {
+				out = append(out, Model{ID: m.ID, Name: m.ID, Provider: "ollama", Description: "Owner: " + m.OwnedBy})
+			}
+			return out, true
+		}
+
+		// 3) Plain array of names
+		var names []string
+		if err := json.Unmarshal(body, &names); err == nil && len(names) > 0 {
+			out := make([]Model, 0, len(names))
+			for _, n := range names {
+				out = append(out, Model{ID: n, Name: n, Provider: "ollama"})
+			}
+			return out, true
+		}
+
+		// 4) Generic object array
+		var objList []map[string]interface{}
+		if err := json.Unmarshal(body, &objList); err == nil && len(objList) > 0 {
+			out := make([]Model, 0, len(objList))
+			for _, item := range objList {
+				id := ""
+				if v, ok := item["id"].(string); ok {
+					id = v
+				} else if v, ok := item["name"].(string); ok {
+					id = v
+				}
+				if id == "" {
+					continue
+				}
+				out = append(out, Model{ID: id, Name: id, Provider: "ollama"})
+			}
+			if len(out) > 0 {
+				return out, true
+			}
+		}
+
+		return nil, false
 	}
 
-	return models, nil
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" || cand == "/" {
+			continue
+		}
+		respBody, err := llmMakeRequest(ctx, "GET", cand, headers, nil)
+		if err != nil {
+			continue
+		}
+		if models, ok := tryParse(respBody); ok {
+			return models, nil
+		}
+	}
+
+	return nil, fmt.Errorf("invalid response from Ollama API (tried %d endpoints)", len(candidates))
 }
 
 func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
