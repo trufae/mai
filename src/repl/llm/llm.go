@@ -326,7 +326,6 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	// we use that for prettier output; otherwise fall back to stderr.
 	if c.config != nil && c.config.Debug {
 		var buf bytes.Buffer
-		fmt.Fprintf(&buf, "Messages sent to provider (%s):\n", c.config.PROVIDER)
 		for i, m := range messagesToSend {
 			// Attempt to pretty-print the content
 			var contentStr string
@@ -356,7 +355,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 				fmt.Fprintf(&buf, "    %s\n", line)
 			}
 		}
-		art.DebugBanner("LLM Debug", buf.String())
+		art.DebugBanner("LLM Query " + c.config.PROVIDER, buf.String())
 	}
 
 	ctx, cancel := c.newContext()
@@ -368,7 +367,6 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 
 	if c.config != nil && c.config.Debug {
 		var buf bytes.Buffer
-		fmt.Fprintf(&buf, "Response from provider (%s):\n", c.config.PROVIDER)
 		// Attempt to pretty-print JSON responses
 		var parsed interface{}
 		if json.Unmarshal([]byte(resp), &parsed) == nil {
@@ -383,7 +381,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 				fmt.Fprintf(&buf, "  %s\n", line)
 			}
 		}
-		art.DebugBanner("LLM Response", buf.String())
+		art.DebugBanner("LLM Response From " + c.config.PROVIDER, buf.String())
 	}
 
 	return resp, err
