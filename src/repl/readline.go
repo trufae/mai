@@ -392,6 +392,26 @@ func (r *ReadLine) Read() (string, error) {
 			r.startReverseSearch()
 			continue
 
+		case 6: // Ctrl+F (forward cursor)
+			if r.cursorPos < len(r.buffer) {
+				r.cursorPos++
+				if r.cursorPos >= r.scrollPos+r.width {
+					r.scrollPos++
+				}
+				r.refreshLine()
+			}
+			continue
+
+		case 2: // Ctrl+B (backward cursor)
+			if r.cursorPos > 0 {
+				r.cursorPos--
+				if r.cursorPos < r.scrollPos {
+					r.scrollPos--
+				}
+				r.refreshLine()
+			}
+			continue
+
 		case 9: // Tab (completion)
 			// Exit search mode if active before returning tab
 			if r.isSearchMode {
