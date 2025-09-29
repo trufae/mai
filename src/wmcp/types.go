@@ -97,8 +97,8 @@ type CallToolError struct {
 }
 
 type CallToolResult struct {
-	Content []Content      `json:"content",omitempty`
-	Error   *CallToolError `json:"error",omitempty`
+	Content []Content      `json:"content,omitempty"`
+	Error   *CallToolError `json:"error,omitempty"`
 }
 
 type Content struct {

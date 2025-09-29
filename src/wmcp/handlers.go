@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -553,6 +554,72 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	// Always log HTTP requests regardless of debug mode
 	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
 
+	// Parse arguments up front so they can be reused if the tool needs to be adjusted
+	arguments := make(map[string]interface{})
+	debugLog(s.debugMode, "Parsing arguments for tool call")
+
+	if r.Method == "POST" {
+		contentType := r.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			// Parse JSON body
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				log.Printf("ERROR: Failed to read request body for tool %s/%s: %v", serverName, toolName, err)
+				http.Error(w, "Failed to read request body", http.StatusBadRequest)
+				return
+			}
+
+			if len(body) > 0 {
+				if err := json.Unmarshal(body, &arguments); err != nil {
+					log.Printf("ERROR: Failed to parse JSON body for tool %s/%s: %v", serverName, toolName, err)
+					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
+					return
+				}
+			}
+		} else {
+			// Parse form data
+			if err := r.ParseForm(); err != nil {
+				log.Printf("ERROR: Failed to parse form data for tool %s/%s: %v", serverName, toolName, err)
+				http.Error(w, "Failed to parse form data", http.StatusBadRequest)
+				return
+			}
+			for key, values := range r.Form {
+				if len(values) == 1 {
+					// Try to parse as number, otherwise keep as string
+					if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+						arguments[key] = num
+					} else if b, err := strconv.ParseBool(values[0]); err == nil {
+						arguments[key] = b
+					} else {
+						arguments[key] = values[0]
+					}
+				} else {
+					arguments[key] = values
+				}
+			}
+		}
+	} else {
+		if err := r.ParseForm(); err != nil && err != http.ErrNotMultipart {
+			log.Printf("ERROR: Failed to parse query for tool %s/%s: %v", serverName, toolName, err)
+			http.Error(w, "Failed to parse query parameters", http.StatusBadRequest)
+			return
+		}
+		debugLog(s.debugMode, "Query parameters: %v", r.URL.Query())
+		for key, values := range r.Form {
+			if len(values) == 1 {
+				if num, err := strconv.ParseFloat(values[0], 64); err == nil {
+					arguments[key] = num
+				} else if b, err := strconv.ParseBool(values[0]); err == nil {
+					arguments[key] = b
+				} else {
+					arguments[key] = values[0]
+				}
+			} else {
+				arguments[key] = values
+			}
+		}
+	}
+
 	if !exists {
 		// Prompt the user for what to do when the requested tool/server isn't found
 		decision := s.promptToolNotFoundDecision(toolName)
@@ -586,43 +653,43 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			s.mutex.RUnlock()
 
-			fmt.Print("Enter new tool name (or 'cancel' to abort): ")
-			reader := bufio.NewReader(os.Stdin)
-			input, _ := reader.ReadString('\n')
-			input = strings.TrimSpace(input)
-			if input == "cancel" || input == "" {
-				http.Error(w, "tool execution cancelled by user", http.StatusBadRequest)
+			callParams := CallToolParams{Name: toolName, Arguments: arguments}
+			newParams, err := s.promptModifyTool(&callParams)
+			if err != nil {
+				if errors.Is(err, errToolModificationCancelled) {
+					http.Error(w, "tool execution cancelled by user", http.StatusBadRequest)
+					return
+				}
+				http.Error(w, fmt.Sprintf("failed to adjust tool request: %v", err), http.StatusBadRequest)
 				return
 			}
 
-			newToolName := input
-			// locate server that provides newToolName
+			callParams = *newParams
+			toolName = callParams.Name
+			if callParams.Arguments != nil {
+				arguments = callParams.Arguments
+			} else {
+				arguments = make(map[string]interface{})
+			}
+
 			s.mutex.RLock()
 			found := false
 			for name, srv := range s.servers {
-				srv.mutex.RLock()
-				for _, t := range srv.Tools {
-					if t.Name == newToolName {
-						serverName = name
-						server = srv
-						exists = true
-						found = true
-						break
-					}
-				}
-				srv.mutex.RUnlock()
-				if found {
+				if matched, ok := findBestToolMatch(srv.Tools, toolName, s.drunkMode); ok {
+					serverName = name
+					server = srv
+					toolName = matched
+					exists = true
+					found = true
 					break
 				}
 			}
 			s.mutex.RUnlock()
 
 			if !found {
-				http.Error(w, fmt.Sprintf("tool '%s' not found", newToolName), http.StatusNotFound)
+				http.Error(w, fmt.Sprintf("tool '%s' not found", toolName), http.StatusNotFound)
 				return
 			}
-			// Update toolName and continue execution
-			toolName = newToolName
 		case YoloGuideModel:
 			guideMsg := fmt.Sprintf("Tool '%s' not found. Provide clearer tool name or use available tools list.", toolName)
 			w.Header().Set("Content-Type", "text/plain")
@@ -631,71 +698,6 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
 			return
-		}
-	}
-
-	// Parse arguments
-	arguments := make(map[string]interface{})
-	debugLog(s.debugMode, "Parsing arguments for tool call")
-
-	if r.Method == "POST" {
-		contentType := r.Header.Get("Content-Type")
-		if strings.Contains(contentType, "application/json") {
-			// Parse JSON body
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				log.Printf("ERROR: Failed to read request body for tool %s/%s: %v", serverName, toolName, err)
-				http.Error(w, "Failed to read request body", http.StatusBadRequest)
-				return
-			}
-
-			if len(body) > 0 {
-				if err := json.Unmarshal(body, &arguments); err != nil {
-					log.Printf("ERROR: Failed to parse JSON body for tool %s/%s: %v", serverName, toolName, err)
-					http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
-					return
-				}
-			}
-		} else {
-			// Parse form data
-			if err := r.ParseForm(); err != nil {
-				log.Printf("ERROR: Failed to parse form data for tool %s/%s: %v", serverName, toolName, err)
-				http.Error(w, "Failed to parse form data", http.StatusBadRequest)
-				return
-			}
-			arguments = make(map[string]interface{})
-			for key, values := range r.Form {
-				if len(values) == 1 {
-					// Try to parse as number, otherwise keep as string
-					if num, err := strconv.ParseFloat(values[0], 64); err == nil {
-						arguments[key] = num
-					} else if b, err := strconv.ParseBool(values[0]); err == nil {
-						arguments[key] = b
-					} else {
-						arguments[key] = values[0]
-					}
-				} else {
-					arguments[key] = values
-				}
-			}
-		}
-	} else if r.Method == "GET" {
-		// Debug log query parameters if debug mode is enabled
-		debugLog(s.debugMode, "Query parameters: %v", r.URL.Query())
-		// Parse query parameters
-		for key, values := range r.URL.Query() {
-			if len(values) == 1 {
-				// Try to parse as number, otherwise keep as string
-				if num, err := strconv.ParseFloat(values[0], 64); err == nil {
-					arguments[key] = num
-				} else if b, err := strconv.ParseBool(values[0]); err == nil {
-					arguments[key] = b
-				} else {
-					arguments[key] = values[0]
-				}
-			} else {
-				arguments[key] = values
-			}
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -345,6 +346,8 @@ func (s *MCPService) promptYoloDecision(toolName string, paramsJSON string) Yolo
 	}
 }
 
+var errToolModificationCancelled = errors.New("tool modification cancelled")
+
 // promptModifyTool prompts the user to modify the tool name and arguments.
 // Accepts simple syntax: "toolname key=value key2=value"
 // Or a JSON object (must start with '{') with optional fields: {"name":"tool","arguments":{...}}
@@ -352,6 +355,7 @@ func (s *MCPService) promptModifyTool(callParams *CallToolParams) (*CallToolPara
 	fmt.Printf("\nEnter new tool name and arguments.\n")
 	fmt.Printf("Simple: <toolname> key=value key2=value\n")
 	fmt.Printf("Or JSON (must start with '{'): {\"name\":\"tool\", \"arguments\":{...}}\n")
+	fmt.Printf("Type 'cancel' to abort.\n")
 	fmt.Printf("Input: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -362,6 +366,10 @@ func (s *MCPService) promptModifyTool(callParams *CallToolParams) (*CallToolPara
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return nil, fmt.Errorf("empty input")
+	}
+
+	if strings.EqualFold(line, "cancel") {
+		return nil, errToolModificationCancelled
 	}
 
 	// If JSON
@@ -708,69 +716,20 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 					return nil, fmt.Errorf("tool '%s' does not exist and no alternatives available", callParams.Name)
 				}
 
-				fmt.Print("Enter new tool name and arguments (or 'cancel' to abort): ")
-				reader := bufio.NewReader(os.Stdin)
-				input, _ := reader.ReadString('\n')
-				input = strings.TrimSpace(input)
-				if input == "cancel" || input == "" {
-					return nil, fmt.Errorf("tool execution cancelled by user")
+				newParams, err := s.promptModifyTool(&callParams)
+				if err != nil {
+					if errors.Is(err, errToolModificationCancelled) {
+						return nil, fmt.Errorf("tool execution cancelled by user")
+					}
+					return nil, fmt.Errorf("failed to parse modified params: %v", err)
 				}
 
-				// Parse input: "toolname arg1=value arg2=value"
-				parts := strings.Fields(input)
-				if len(parts) == 0 {
-					return nil, fmt.Errorf("invalid input")
-				}
-
-				newToolName := parts[0]
-				newArgs := make(map[string]interface{})
-
-				// Copy existing args as defaults
-				for k, v := range callParams.Arguments {
-					newArgs[k] = v
-				}
-
-				// Parse additional arguments
-				for _, part := range parts[1:] {
-					if !strings.Contains(part, "=") {
-						return nil, fmt.Errorf("invalid parameter format: %s (expected key=value)", part)
-					}
-					kv := strings.SplitN(part, "=", 2)
-					k, v := kv[0], kv[1]
-
-					// Try to parse as JSON for complex values
-					if strings.HasPrefix(v, "{") || strings.HasPrefix(v, "[") {
-						var vv interface{}
-						if err := json.Unmarshal([]byte(v), &vv); err == nil {
-							newArgs[k] = vv
-							continue
-						}
-					}
-
-					// Try number
-					if num, err := strconv.ParseFloat(v, 64); err == nil {
-						newArgs[k] = num
-						continue
-					}
-
-					// Try bool
-					if b, err := strconv.ParseBool(v); err == nil {
-						newArgs[k] = b
-						continue
-					}
-
-					// Default to string
-					newArgs[k] = v
-				}
-
-				// Update the request with modified parameters
-				callParams.Name = newToolName
-				callParams.Arguments = newArgs
+				callParams = *newParams
 				request.Params = callParams
 
 				// Check if the new tool exists
-				if !s.isToolAvailable(newToolName) {
-					return nil, fmt.Errorf("modified tool '%s' also does not exist", newToolName)
+				if !s.isToolAvailable(callParams.Name) {
+					return nil, fmt.Errorf("modified tool '%s' also does not exist", callParams.Name)
 				}
 
 				// Continue with the modified request (will go through normal permission checking)
@@ -816,6 +775,9 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 				// Ask the user for a modified tool name/arguments
 				newCallParams, err := s.promptModifyTool(&callParams)
 				if err != nil {
+					if errors.Is(err, errToolModificationCancelled) {
+						return nil, fmt.Errorf("tool execution cancelled by user")
+					}
 					return nil, fmt.Errorf("failed to parse modified params: %v", err)
 				}
 				callParams = *newCallParams
