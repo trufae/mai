@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/trufae/mai/src/repl/art"
 	"fmt"
 	"io"
 	"os"
@@ -438,9 +439,15 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
 	}
 
+	if p.config.Debug {
+		art.DebugBanner("Ollama Request", string(jsonData))
+	}
 	respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
 	if err != nil {
 		return "", err
+	}
+	if p.config.Debug {
+		art.DebugBanner("Ollama Response", string(respBody))
 	}
 
 	var response struct {
