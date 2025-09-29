@@ -30,6 +30,37 @@ func runStdinMode(config *llm.Config, args []string) {
 	// Prepare messages from input
 	messages := llm.PrepareMessages(input, config)
 
+	// Set MCP schema if enabled
+	if config.UseMCP && config.MCPGrammar {
+		config.Schema = map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"reasoning": map[string]interface{}{
+					"type":        "string",
+					"description": "Step-by-step reasoning for the task",
+				},
+				"tools": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type":        "string",
+								"description": "Name of the tool to call",
+							},
+							"arguments": map[string]interface{}{
+								"type":        "object",
+								"description": "Arguments for the tool",
+							},
+						},
+						"required": []string{"name", "arguments"},
+					},
+				},
+			},
+			"required": []string{"reasoning", "tools"},
+		}
+	}
+
 	// Prepare image if specified
 	var images []string
 	if config.ImagePath != "" {
@@ -50,7 +81,49 @@ func runStdinMode(config *llm.Config, args []string) {
 	res, err := client.SendMessage(messages, false, images)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
+		os.Exit(1)
 	}
+
+	// Process tools if MCP is enabled
+	if config.UseMCP && config.MCPGrammar {
+		var response map[string]interface{}
+		if err := json.Unmarshal([]byte(res), &response); err == nil {
+			if tools, ok := response["tools"].([]interface{}); ok && len(tools) > 0 {
+				// Add the assistant's response to messages
+				messages = append(messages, llm.Message{Role: "assistant", Content: res})
+				for _, t := range tools {
+					if toolMap, ok := t.(map[string]interface{}); ok {
+						if name, ok := toolMap["name"].(string); ok {
+							if args, ok := toolMap["arguments"].(map[string]interface{}); ok {
+								tool := &Tool{
+									Name: name,
+									Args: map2array(args),
+								}
+								timeout := config.MCPTimeout
+								if timeout == 0 {
+									timeout = 60
+								}
+								result, err := callTool(tool, config.MCPDebug, timeout)
+								if err != nil {
+									fmt.Fprintf(os.Stderr, "Tool error: %v\n", err)
+									continue
+								}
+								// Add tool result as user message
+								messages = append(messages, llm.Message{Role: "user", Content: fmt.Sprintf("Tool result for %s: %s", name, result)})
+							}
+						}
+					}
+				}
+				// Send follow-up message
+				res, err = client.SendMessage(messages, false, images)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error in follow-up: %v\n", err)
+					os.Exit(1)
+				}
+			}
+		}
+	}
+
 	fmt.Println(res)
 }
 
@@ -257,6 +330,40 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 		if err := json.Unmarshal([]byte(inline), &schema); err == nil {
 			config.Schema = schema
 		}
+	}
+
+	// MCP options
+	if v := opts.Get("mcp.use"); v != "" {
+		config.UseMCP = opts.GetBool("mcp.use")
+	}
+	if v := opts.Get("mcp.grammar"); v == "" {
+		config.MCPGrammar = true
+	} else {
+		config.MCPGrammar = opts.GetBool("mcp.grammar")
+	}
+	if v := opts.Get("mcp.display"); v == "" {
+		config.MCPDisplay = "verbose"
+	} else {
+		config.MCPDisplay = v
+	}
+	if v := opts.Get("mcp.reason"); v == "" {
+		config.MCPReason = "low"
+	} else {
+		config.MCPReason = v
+	}
+	if v := opts.Get("mcp.timeout"); v != "" {
+		if num, err := opts.GetNumber("mcp.timeout"); err == nil {
+			config.MCPTimeout = int(num)
+		}
+	}
+	if config.MCPTimeout == 0 {
+		config.MCPTimeout = 60
+	}
+	if v := opts.Get("mcp.debug"); v != "" {
+		config.MCPDebug = opts.GetBool("mcp.debug")
+	}
+	if v := opts.Get("mcp.baseurl"); v != "" {
+		config.MCPBaseURL = v
 	}
 }
 

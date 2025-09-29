@@ -65,6 +65,15 @@ type Config struct {
 	// ConversationMessageLimit controls how many recent messages are sent to the LLM.
 	// If zero, all messages are sent. If >0, only the last N messages are included.
 	ConversationMessageLimit int
+
+	// MCP (Model Context Protocol) options for tool usage
+	UseMCP     bool
+	MCPGrammar bool
+	MCPDisplay string
+	MCPReason  string
+	MCPTimeout int
+	MCPDebug   bool
+	MCPBaseURL string
 }
 
 // GetAPIKey resolves an API key by checking an environment variable first,
