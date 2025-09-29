@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"github.com/trufae/mai/src/repl/art"
 	"fmt"
+	"github.com/trufae/mai/src/repl/art"
 	"io"
 	"os"
 	"strings"
@@ -347,6 +347,9 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		if stream {
+			if p.config.Debug {
+				art.DebugBanner("Ollama Request", string(jsonData))
+			}
 			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
 		}
 
@@ -435,13 +438,13 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 	}
 
+	if p.config.Debug {
+		art.DebugBanner("Ollama Request", string(jsonData))
+	}
 	if stream {
 		return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
 	}
 
-	if p.config.Debug {
-		art.DebugBanner("Ollama Request", string(jsonData))
-	}
 	respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
 	if err != nil {
 		return "", err
@@ -494,6 +497,10 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		line := scanner.Text()
 		if line == "" {
 			continue
+		}
+		if p.config.Debug {
+			fmt.Println("")
+			art.DebugBanner("Ollama Stream", string(line))
 		}
 
 		isDone := false
@@ -575,6 +582,10 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err
+	}
+
+	if p.config.Debug {
+		art.DebugBanner("Ollama Response", fullResponse.String())
 	}
 
 	return fullResponse.String(), nil

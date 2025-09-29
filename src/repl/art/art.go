@@ -130,63 +130,73 @@ func wrapText(text string, width int) []string {
 	if width <= 0 {
 		return nil
 	}
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return nil
-	}
-	var (
-		lines []string
-		line  strings.Builder
-		lw    int
-	)
-	flush := func() {
-		if line.Len() == 0 {
-			return
+	inputLines := strings.Split(text, "\n")
+	var allLines []string
+	for _, inputLine := range inputLines {
+		if inputLine == "" {
+			allLines = append(allLines, "")
+			continue
 		}
-		lines = append(lines, line.String())
-		line.Reset()
-		lw = 0
-	}
-	appendFragment := func(fragment string) {
-		fw := DisplayWidth(fragment)
-		if fw == 0 {
-			return
+		words := strings.Fields(inputLine)
+		if len(words) == 0 {
+			allLines = append(allLines, "")
+			continue
 		}
-		if lw == 0 {
+		var (
+			lines []string
+			line  strings.Builder
+			lw    int
+		)
+		flush := func() {
+			if line.Len() == 0 {
+				return
+			}
+			lines = append(lines, line.String())
+			line.Reset()
+			lw = 0
+		}
+		appendFragment := func(fragment string) {
+			fw := DisplayWidth(fragment)
+			if fw == 0 {
+				return
+			}
+			if lw == 0 {
+				line.WriteString(fragment)
+				lw = fw
+				if lw >= width {
+					flush()
+				}
+				return
+			}
+			if lw+1+fw <= width {
+				line.WriteByte(' ')
+				line.WriteString(fragment)
+				lw += 1 + fw
+				if lw >= width {
+					flush()
+				}
+				return
+			}
+			flush()
 			line.WriteString(fragment)
 			lw = fw
 			if lw >= width {
 				flush()
 			}
-			return
 		}
-		if lw+1+fw <= width {
-			line.WriteByte(' ')
-			line.WriteString(fragment)
-			lw += 1 + fw
-			if lw >= width {
-				flush()
+		for _, word := range words {
+			if DisplayWidth(word) <= width {
+				appendFragment(word)
+				continue
 			}
-			return
+			for _, part := range breakWord(word, width) {
+				appendFragment(part)
+			}
 		}
 		flush()
-		line.WriteString(fragment)
-		lw = fw
-		if lw >= width {
-			flush()
-		}
+		allLines = append(allLines, lines...)
 	}
-	for _, word := range words {
-		if DisplayWidth(word) <= width {
-			appendFragment(word)
-			continue
-		}
-		for _, part := range breakWord(word, width) {
-			appendFragment(part)
-		}
-	}
-	flush()
-	return lines
+	return allLines
 }
 
 func breakWord(word string, width int) []string {
