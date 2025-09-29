@@ -1,6 +1,7 @@
 package art
 
 import (
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 	"os"
 )
@@ -16,23 +17,12 @@ func GetTerminalWidth(fd uintptr) int {
 	return 80
 }
 
-// DisplayWidth calculates the display width of a string, assuming ASCII is 1 column, others 2
+// DisplayWidth calculates the display width of a string
 func DisplayWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		if r < 128 {
-			w++
-		} else {
-			w += 2
-		}
-	}
-	return w
+	return runewidth.StringWidth(s)
 }
 
 // RuneWidth returns the display width of a rune
 func RuneWidth(r rune) int {
-	if r < 128 {
-		return 1
-	}
-	return 2
+	return runewidth.RuneWidth(r)
 }

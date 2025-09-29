@@ -355,7 +355,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 				fmt.Fprintf(&buf, "    %s\n", line)
 			}
 		}
-		art.DebugBanner("LLM Query " + c.config.PROVIDER, buf.String())
+		art.DebugBanner("LLM Query "+c.config.PROVIDER, buf.String())
 	}
 
 	ctx, cancel := c.newContext()
@@ -381,7 +381,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 				fmt.Fprintf(&buf, "  %s\n", line)
 			}
 		}
-		art.DebugBanner("LLM Response From " + c.config.PROVIDER, buf.String())
+		art.DebugBanner("LLM Response From "+c.config.PROVIDER, buf.String())
 	}
 
 	return resp, err
