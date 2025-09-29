@@ -28,9 +28,49 @@ type OllamaModelsResponse struct {
 }
 
 func NewOllamaProvider(config *Config) *OllamaProvider {
-	return &OllamaProvider{
-		config: config,
-	}
+    return &OllamaProvider{
+        config: config,
+    }
+}
+
+// tryPostCandidatesNonStream POSTs to each candidate URL until one succeeds
+func tryPostCandidatesNonStream(ctx context.Context, candidates []string, headers map[string]string, body []byte) ([]byte, error) {
+    var lastErr error
+    for _, cand := range candidates {
+        cand = strings.TrimSpace(cand)
+        if cand == "" || cand == "/" {
+            continue
+        }
+        respBody, err := llmMakeRequest(ctx, "POST", cand, headers, body)
+        if err == nil {
+            return respBody, nil
+        }
+        lastErr = err
+    }
+    if lastErr != nil {
+        return nil, lastErr
+    }
+    return nil, fmt.Errorf("no valid endpoints")
+}
+
+// tryPostCandidatesStream POSTs to each candidate streaming endpoint until one succeeds
+func tryPostCandidatesStream(ctx context.Context, candidates []string, headers map[string]string, body []byte, parser func(io.Reader, func()) (string, error)) (string, error) {
+    var lastErr error
+    for _, cand := range candidates {
+        cand = strings.TrimSpace(cand)
+        if cand == "" || cand == "/" {
+            continue
+        }
+        res, err := llmMakeStreamingRequestWithCallback(ctx, "POST", cand, headers, body, parser, nil)
+        if err == nil {
+            return res, nil
+        }
+        lastErr = err
+    }
+    if lastErr != nil {
+        return "", lastErr
+    }
+    return "", fmt.Errorf("no valid streaming endpoints")
 }
 
 func (p *OllamaProvider) GetName() string {
@@ -45,24 +85,18 @@ func (p *OllamaProvider) DefaultModel() string {
 }
 
 func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
-	// Use the configured base URL if available, otherwise construct from host/port
-	url := fmt.Sprintf("http://%s:%s/api/tags", p.config.OllamaHost, p.config.OllamaPort)
-	if p.config.BaseURL != "" {
-		// Adjust the base URL to point to the tags endpoint
-		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/tags"
-	}
-
-	headers := map[string]string{}
-
-	// Try multiple endpoints and parsing strategies to be tolerant of
-	// different local/model server implementations (e.g., shimmy).
-	candidates := []string{
-		url,
-		// common alternatives
-		strings.TrimRight(p.config.BaseURL, "/") + "/v1/models",
-		strings.TrimRight(p.config.BaseURL, "/") + "/models",
-		strings.TrimRight(p.config.BaseURL, "/") + "/api/models",
-	}
+    // Try multiple endpoints and parsing strategies to be tolerant of
+    // different local/model server implementations (e.g., shimmy).
+    // Use buildURL so an empty BaseURL does not produce relative paths like
+    // "/v1/models" which would cause request errors.
+    headers := map[string]string{}
+    candidates := []string{
+        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/tags"),
+        // common alternatives
+        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/models"),
+        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/models"),
+        buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/models"),
+    }
 
 	// Build a parsing helper that tries several JSON shapes
 	tryParse := func(body []byte) ([]Model, bool) {
@@ -220,26 +254,29 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			"Content-Type": "application/json",
 		}
 
-		var url string
-		// If a structured output schema is requested, use the /api/generate endpoint per doc/format.md
+		// Choose candidate endpoints to try; prefer /api/generate when a schema
+		var candidates []string
 		if p.config.Schema != nil {
-			url = fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
-			if p.config.BaseURL != "" {
-				url = strings.TrimRight(p.config.BaseURL, "/") + "/api/generate"
+			candidates = []string{
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
 			}
 		} else {
-			// Default to /api/chat
-			url = fmt.Sprintf("http://%s:%s/api/chat", p.config.OllamaHost, p.config.OllamaPort)
-			if p.config.BaseURL != "" {
-				url = strings.TrimRight(p.config.BaseURL, "/") + "/api/chat"
+			candidates = []string{
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
+				buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
 			}
 		}
 
 		if stream {
-			return llmMakeStreamingRequestWithCallback(ctx, "POST", url, headers, jsonData, p.parseStreamWithCallback, nil)
+			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
 		}
 
-		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+		respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
 		if err != nil {
 			return "", err
 		}
@@ -300,23 +337,22 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		// fmt.Println("(send)" + string(jsonData))
-		// Use the configured base URL if available, otherwise construct from host/port
-		url := fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
-		if p.config.BaseURL != "" {
-			url = strings.TrimRight(p.config.BaseURL, "/") + "/api/generate"
+		// Try multiple endpoints for Rawdog mode too.
+		candidates := []string{
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
 		}
 
-		// stream-mode
 		if stream {
-			return llmMakeStreamingRequestWithCallback(ctx, "POST", url, headers, jsonData, p.parseStreamWithCallback, nil)
+			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
 		}
 
-		// non-stream
-		respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+		respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
 		if err != nil {
 			return "", err
 		}
-		// fmt.Println("(recv)" + string(respBody))
 
 		// fmt.Println(string(respBody))
 		var response struct {
@@ -380,24 +416,29 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		"Content-Type": "application/json",
 	}
 
-	// Use the configured base URL if available, otherwise construct from host/port
-	url := fmt.Sprintf("http://%s:%s/api/chat", p.config.OllamaHost, p.config.OllamaPort)
-	if p.config.BaseURL != "" {
-		url = strings.TrimRight(p.config.BaseURL, "/") + "/api/chat"
-	}
-	// If a structured output schema is requested, use the /api/generate endpoint per doc/format.md
+	// Build candidate endpoints and try them (handles shimmy/ollama/openai-like servers)
+	var candidates []string
 	if p.config.Schema != nil {
-		url = fmt.Sprintf("http://%s:%s/api/generate", p.config.OllamaHost, p.config.OllamaPort)
-		if p.config.BaseURL != "" {
-			url = strings.TrimRight(p.config.BaseURL, "/") + "/api/generate"
+		candidates = []string{
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
+		}
+	} else {
+		candidates = []string{
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
+			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
 		}
 	}
 
 	if stream {
-		return llmMakeStreamingRequestWithCallback(ctx, "POST", url, headers, jsonData, p.parseStreamWithCallback, nil)
+		return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
 	}
 
-	respBody, err := llmMakeRequest(ctx, "POST", url, headers, jsonData)
+	respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
 	if err != nil {
 		return "", err
 	}
