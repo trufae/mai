@@ -45,6 +45,7 @@ type REPL struct {
 	cancel          context.CancelFunc
 	mu              sync.Mutex
 	isStreaming     bool
+	isInterrupted   bool
 	oldState        *term.State
 	completeState   int
 	completeOptions []string
@@ -437,6 +438,7 @@ func (r *REPL) interruptResponse() {
 	r.mu.Lock()
 	r.readline.Interrupted()
 	isStreaming := r.isStreaming
+	r.isInterrupted = true
 	r.mu.Unlock()
 
 	if isStreaming {

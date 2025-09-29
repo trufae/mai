@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const toolsPrompt = `
@@ -409,6 +410,9 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 }
 
 func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
+	r.mu.Lock()
+	r.isInterrupted = false
+	r.mu.Unlock()
 	if r.configOptions.GetBool("repl.debug") {
 		art.DebugBanner("ReactText Start", fmt.Sprintf("Input: %s", input))
 	}
@@ -472,8 +476,19 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			if strings.Contains(err.Error(), "cancel") {
 				break
 			}
-			input += fmt.Sprintf("\n[query error] %s. Try again with a new plan\n", err.Error())
+			input += fmt.Sprintf("\n[query error] %s. Try again with a new plan or STOP and try to solve with the current information\n", err.Error())
+			time.Sleep(1 * time.Second)
 			continue
+		}
+		r.mu.Lock()
+		interrupted := r.isInterrupted
+		r.mu.Unlock()
+		if interrupted {
+			// Force completion with current context
+			step.Action = "Done"
+			if expl == "" {
+				expl = "Interrupted by user. Providing answer based on available information."
+			}
 		}
 		if clearScreen && display != "quiet" {
 			prompt := r.configOptions.Get("repl.prompt")
@@ -608,6 +623,5 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	if r.configOptions.GetBool("repl.debug") {
 		art.DebugBanner("ReactText Return", fmt.Sprintf("Input: %s\nContext: %s", input, context))
 	}
-	return input + context, nil
-	// return input + context + reasoning, nil
+	return input + "\n" + context, nil
 }
