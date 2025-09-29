@@ -440,6 +440,7 @@ func main() {
 			}
 		case "-d":
 			configOptions.Set("repl.debug", "true")
+			configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-q":
