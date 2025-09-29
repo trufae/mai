@@ -66,7 +66,7 @@ func formatJSON(data interface{}, indent int) string {
 			default:
 				// For primitive values, format inline
 				if val != "text" {
-					sb.WriteString(fmt.Sprintf("%v", val))
+					sb.WriteString(fmt.Sprintf("%v\n", val))
 				}
 			}
 		}
