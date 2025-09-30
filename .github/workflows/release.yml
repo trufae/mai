@@ -44,6 +44,9 @@ jobs:
       with:
         go-version: '1.24.4'
 
+    - name: Get version
+      run: echo "VERSION=$(make version)" >> $GITHUB_ENV
+
     - name: Build binaries
       env:
         GOOS: ${{ matrix.GOOS }}
@@ -92,15 +95,15 @@ jobs:
           chmod +x "$PKGDIR"/* || true
         fi
         mkdir -p artifacts
-        zipname="artifacts/mai-${{ matrix.name }}.zip"
+        zipname="artifacts/mai-${{ matrix.GOOS }}-${{ matrix.GOARCH }}-${{ env.VERSION }}.zip"
         (cd package && zip -r -q "../$zipname" mai)
         ls -la artifacts
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: mai-${{ matrix.name }}
-        path: artifacts/mai-${{ matrix.name }}.zip
+        name: mai-${{ matrix.GOOS }}-${{ matrix.GOARCH }}-${{ env.VERSION }}
+        path: artifacts/mai-${{ matrix.GOOS }}-${{ matrix.GOARCH }}-${{ env.VERSION }}.zip
 
     - name: Create GitHub release and upload assets
       if: startsWith(github.ref, 'refs/tags/')
