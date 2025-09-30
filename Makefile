@@ -5,6 +5,10 @@ include config.mk
 all:
 	$(MAKE) -C src
 
+.PHONY: v ver version
+v ver version:
+	@grep Version src/repl/version.go|cut -d '"' -f2
+
 fmt:
 	$(MAKE) -C src/mcps indent
 	go fmt $(shell ls src/repl/*.go )

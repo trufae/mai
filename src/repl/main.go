@@ -175,6 +175,7 @@ func showHelp() {
 -t               enable tools processing
 -T               enable tools with grammar disabled
 -U               update project by running git pull ; make in project directory
+-v               show version
 
 Files:
 .mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
@@ -456,6 +457,9 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: -s requires a string argument\n")
 				os.Exit(1)
 			}
+		case "-v":
+			fmt.Println(Version)
+			return
 		case "-U":
 			// Update project by running git pull ; make in project directory
 			projectDir, err := resolveProjectDirectory()

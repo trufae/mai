@@ -2004,6 +2004,15 @@ func (r *REPL) initCommands() {
 			return r.listProviders()
 		},
 	}
+
+	// Version command
+	r.commands["/version"] = Command{
+		Name:        "/version",
+		Description: "Show version information",
+		Handler: func(r *REPL, args []string) (string, error) {
+			return fmt.Sprintf("mai-repl version %s\r\n", Version), nil
+		},
+	}
 }
 
 // handlePromptCommand handles the # command for prompt expansion
