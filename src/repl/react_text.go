@@ -223,6 +223,31 @@ func formatToolLine(tool *Tool) string {
 	return tool.Name + " " + strings.Join(tool.Args, " ")
 }
 
+func parseToolRequirements(toolList string) map[string][]string {
+	req := make(map[string][]string)
+	lines := strings.Split(toolList, "\n")
+	var currentTool string
+	inArgs := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ToolName: ") {
+			currentTool = strings.TrimPrefix(line, "ToolName: ")
+			inArgs = false
+		} else if strings.HasPrefix(line, "Arguments:") {
+			inArgs = true
+		} else if inArgs && strings.Contains(line, "(required)") {
+			parts := strings.Split(line, "=")
+			if len(parts) > 0 {
+				argName := strings.TrimSpace(parts[0])
+				req[currentTool] = append(req[currentTool], argName)
+			}
+		} else if line == "" || strings.HasPrefix(line, "## ") {
+			inArgs = false
+		}
+	}
+	return req
+}
+
 // parseMarkdownResponse parses the response into PlanResponse
 func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 	response := PlanResponse{
@@ -458,6 +483,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		return input, nil
 	}
 	toolList = strings.Join(cleanLines, "\n")
+	requiredParams := parseToolRequirements(toolList)
 	context := ""
 	stepCount := 0
 	reasoning := ""
@@ -477,7 +503,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 				break
 			}
 			input += fmt.Sprintf("\n[query error] %s. Try again with a new plan or STOP and try to solve with the current information\n", err.Error())
-			time.Sleep(1 * time.Second)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		r.mu.Lock()
@@ -566,6 +592,25 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		tool := &Tool{
 			Name: toolName,
 			Args: mapToArray(step.ToolArgs.(map[string]interface{})),
+		}
+		// Check for missing required parameters
+		if required, exists := requiredParams[toolName]; exists && len(required) > 0 {
+			missing := []string{}
+			argMap := make(map[string]bool)
+			for _, arg := range tool.Args {
+				if eqIdx := strings.Index(arg, "="); eqIdx > 0 {
+					argMap[arg[:eqIdx]] = true
+				}
+			}
+			for _, req := range required {
+				if !argMap[req] {
+					missing = append(missing, req)
+				}
+			}
+			if len(missing) > 0 {
+				input += fmt.Sprintf("\nThe tool %s requires the following parameters which were not provided: %s. Please specify them in the ACTION line.\n", toolName, strings.Join(missing, ", "))
+				continue
+			}
 		}
 		if r.configOptions.GetBool("repl.debug") {
 			art.DebugBanner("Tool Prepared", tool.ToString())
