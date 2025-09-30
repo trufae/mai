@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-package:
+    name: Build and package (${{ matrix.name }})
+    strategy:
+      matrix:
+        include:
+          - name: linux-amd64
+            GOOS: linux
+            GOARCH: amd64
+            runs-on: ubuntu-latest
+          - name: linux-arm64
+            GOOS: linux
+            GOARCH: arm64
+            runs-on: ubuntu-latest
+          - name: darwin-amd64
+            GOOS: darwin
+            GOARCH: amd64
+            runs-on: macos-latest
+          - name: darwin-arm64
+            GOOS: darwin
+            GOARCH: arm64
+            runs-on: macos-latest
+          - name: windows-amd64
+            GOOS: windows
+            GOARCH: amd64
+            runs-on: windows-latest
+
+    runs-on: ${{ matrix.runs-on }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.4'
+
+    - name: Build binaries
+      env:
+        GOOS: ${{ matrix.GOOS }}
+        GOARCH: ${{ matrix.GOARCH }}
+        CGO_ENABLED: '0'
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        # list of binaries: target path -> output name
+        declare -a PKGS=(
+          "src/repl:mai-repl"
+          "src/wmcp:mai-wmcp"
+          "src/tool:mai-tool"
+          "src/vdb:mai-vdb"
+          "src/bot:mai-bot"
+          "src/mcps/code:mai-mcp-code"
+          "src/mcps/gemcode:mai-mcp-gemcode"
+          "src/mcps/wttr:mai-mcp-wttr"
+          "src/mcps/pipe:mai-mcp-pipe"
+          "src/mcps/shell:mai-mcp-shell"
+          "src/mcps/time:mai-mcp-time"
+          "src/mcps/markdown:mai-mcp-markdown"
+        )
+
+        for entry in "${PKGS[@]}"; do
+          IFS=":" read -r pkg out <<< "$entry"
+          outpath="dist/$out"
+          if [ "$GOOS" = "windows" ]; then
+            outpath+='.exe'
+          fi
+          echo "Building $pkg -> $outpath (GOOS=$GOOS GOARCH=$GOARCH)"
+          GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 go build -o "$outpath" "$pkg"
+        done
+
+    - name: Package into single directory
+      run: |
+        set -euo pipefail
+        PKGDIR=package/mai
+        rm -rf package artifacts || true
+        mkdir -p "$PKGDIR"
+        for f in dist/*; do
+          cp "$f" "$PKGDIR/"
+        done
+        # Ensure executables have execute bit on unix
+        if [ "${{ matrix.GOOS }}" != "windows" ]; then
+          chmod +x "$PKGDIR"/* || true
+        fi
+        mkdir -p artifacts
+        zipname="artifacts/mai-${{ matrix.name }}.zip"
+        (cd package && zip -r -q "../$zipname" mai)
+        ls -la artifacts
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mai-${{ matrix.name }}
+        path: artifacts/mai-${{ matrix.name }}.zip
+
+    - name: Create GitHub release and upload assets
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: artifacts/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
