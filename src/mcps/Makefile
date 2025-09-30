@@ -2,6 +2,7 @@ include ../../config.mk
 
 BINS=code
 BINS+=gemcode
+BINS+=markdown
 BINS+=wttr
 BINS+=pipe
 BINS+=shell

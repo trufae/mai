@@ -1,10 +1,13 @@
 name: Release
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - "[0-9]*"
 
 jobs:
   build-and-package:
@@ -45,43 +48,44 @@ jobs:
         go-version: '1.24.4'
 
     - name: Get version
+      shell: bash
       run: echo "VERSION=$(make version)" >> $GITHUB_ENV
 
     - name: Build binaries
+      shell: bash
       env:
         GOOS: ${{ matrix.GOOS }}
         GOARCH: ${{ matrix.GOARCH }}
         CGO_ENABLED: '0'
       run: |
+        make -j
         set -euo pipefail
         mkdir -p dist
-        # list of binaries: target path -> output name
         declare -a PKGS=(
-          "src/repl:mai-repl"
-          "src/wmcp:mai-wmcp"
-          "src/tool:mai-tool"
-          "src/vdb:mai-vdb"
-          "src/bot:mai-bot"
-          "src/mcps/code:mai-mcp-code"
-          "src/mcps/gemcode:mai-mcp-gemcode"
-          "src/mcps/wttr:mai-mcp-wttr"
-          "src/mcps/pipe:mai-mcp-pipe"
-          "src/mcps/shell:mai-mcp-shell"
-          "src/mcps/time:mai-mcp-time"
-          "src/mcps/markdown:mai-mcp-markdown"
+          "src/repl/mai-repl"
+          "src/wmcp/mai-wmcp"
+          "src/tool/mai-tool"
+          "src/vdb/mai-vdb"
+          "src/bot/mai-bot"
+          "src/mcps/code/mai-mcp-code"
+          "src/mcps/gemcode/mai-mcp-gemcode"
+          "src/mcps/wttr/mai-mcp-wttr"
+          "src/mcps/pipe/mai-mcp-pipe"
+          "src/mcps/shell/mai-mcp-shell"
+          "src/mcps/time/mai-mcp-time"
+          "src/mcps/markdown/mai-mcp-markdown"
         )
-
-        for entry in "${PKGS[@]}"; do
-          IFS=":" read -r pkg out <<< "$entry"
+        for pkg in "${PKGS[@]}"; do
+          out="${pkg##*/}"
           outpath="dist/$out"
           if [ "$GOOS" = "windows" ]; then
             outpath+='.exe'
           fi
-          echo "Building $pkg -> $outpath (GOOS=$GOOS GOARCH=$GOARCH)"
-          GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 go build -o "$outpath" "$pkg"
+          cp -f "./$pkg" "./$outpath"
         done
 
     - name: Package into single directory
+      shell: bash
       run: |
         set -euo pipefail
         PKGDIR=package/mai
