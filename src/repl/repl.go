@@ -379,6 +379,7 @@ func (r *REPL) showCommands() string {
 	output.WriteString("  #<n> <text>     - Use content from prompt file with text\r\n")
 	output.WriteString("  %               - List available template files\r\n")
 	output.WriteString("  %<n> <text>     - Use template with interactive prompts and optional text\r\n")
+	output.WriteString("  $<text>         - Prompt the model with shell backticks, redirections and prompts\r\n")
 	output.WriteString("  !<command>      - Execute shell command\r\n")
 	output.WriteString("  _               - Print the last assistant reply\r\n")
 
@@ -494,15 +495,17 @@ func (r *REPL) handleInput() error {
 	var isVerbatim bool
 	if len(input) >= 2 {
 		if input[0] == '\'' && input[len(input)-1] == '\'' {
-			// || (input[0] == '`' && input[len(input)-1] == '`')
 			input = input[1 : len(input)-1]
 			isVerbatim = true
 		}
 	}
 
-	// Handle redirection if not verbatim
+	// Handle redirection if not verbatim and not shell ($) mode.
+	// Shell mode ('$') has its own redirection parsing in handleShellInput,
+	// so avoid stripping redirections here which would prevent shell-mode
+	// handlers from seeing them.
 	var redirectType, redirectTarget string
-	if !isVerbatim {
+	if !isVerbatim && !strings.HasPrefix(input, "$") {
 		if idx := strings.LastIndex(input, " > "); idx != -1 {
 			redirectType = "file"
 			redirectTarget = strings.TrimSpace(input[idx+3:])
@@ -535,10 +538,16 @@ func (r *REPL) handleInput() error {
 		// Add to history
 		r.addToHistory(input)
 		err = r.executeShellCommand(input[1:])
-	} else {
+	} else if strings.HasPrefix(input, "$") {
+		// Add to history
 		r.addToHistory(input)
-		err = r.sendToAI(input, redirectType, redirectTarget)
+		err = r.handleShellInput(input[1:])
+	} else {
+		// Add to history
+		r.addToHistory(input)
+		err = r.sendToAI(input, redirectType, redirectTarget, true, false)
 	}
+
 	if skipMessage {
 		r.handleCommand("/chat undo", "", "")
 		r.handleCommand("/chat undo", "", "")
@@ -1354,7 +1363,7 @@ func (r *REPL) buildUserDetails() string {
 		cwd, username, osName, lang, timeStr)
 }
 
-func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string) error {
+func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string, processSubstitutions bool, forceDisableStreaming bool) error {
 	r.mu.Lock()
 	r.isStreaming = redirectType == ""
 	r.mu.Unlock()
@@ -1366,11 +1375,13 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		r.mu.Unlock()
 	}()
 
-	processedInput, err := r.substituteInput(input)
-	if err != nil {
-		return err
+	if processSubstitutions {
+		processedInput, err := r.substituteInput(input)
+		if err != nil {
+			return err
+		}
+		input = processedInput
 	}
-	input = processedInput
 
 	// Create client
 	client, err := llm.NewLLMClient(r.buildLLMConfig())
@@ -1513,7 +1524,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// reasoning blocks.
 
 	// Send message with streaming based on REPL settings, but disable if redirected
-	streamEnabled := r.configOptions.GetBool("llm.stream") && redirectType == ""
+	streamEnabled := r.configOptions.GetBool("llm.stream") && redirectType == "" && !forceDisableStreaming
 
 	// Reset the markdown processor state before starting a new streaming session
 	if streamEnabled && r.configOptions.GetBool("scr.markdown") {
@@ -1585,14 +1596,38 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 			}
 			fmt.Printf("Response written to %s\r\n", redirectTarget)
 		} else if redirectType == "pipe" {
-			// Pipe response to command
+			// Pipe response to command. Attach command stdout/stderr to the
+			// current terminal so interactive tools (like `less`) can operate
+			// normally. Write the AI response to the command's stdin.
 			cmd := exec.Command("/bin/sh", "-c", redirectTarget)
-			cmd.Stdin = strings.NewReader(response)
-			output, err := cmd.CombinedOutput()
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			stdinPipe, err := cmd.StdinPipe()
 			if err != nil {
-				return fmt.Errorf("failed to execute command %s: %v", redirectTarget, err)
+				return fmt.Errorf("failed to create stdin pipe: %v", err)
 			}
-			fmt.Print(string(output))
+
+			// Start the command
+			err = cmd.Start()
+			if err != nil {
+				return fmt.Errorf("failed to start command %s: %v", redirectTarget, err)
+			}
+
+			// Write the response into the command's stdin and close it
+			_, err = io.WriteString(stdinPipe, response)
+			_ = stdinPipe.Close()
+			if err != nil {
+				// If writing fails, still wait for process and return error
+				_ = cmd.Wait()
+				return fmt.Errorf("failed to write to command %s stdin: %v", redirectTarget, err)
+			}
+
+			// Wait for the command to finish
+			err = cmd.Wait()
+			if err != nil {
+				return fmt.Errorf("command %s failed: %v", redirectTarget, err)
+			}
 		} else {
 			// Normal output
 			if !streamEnabled {
@@ -1710,6 +1745,44 @@ func (r *REPL) getLastAssistantReply() (string, error) {
 	return "", fmt.Errorf("no assistant replies found in conversation history")
 }
 
+// handleShellInput processes input starting with '$' as hybrid AI/shell mode
+func (r *REPL) handleShellInput(input string) error {
+	// Handle redirection first (before backtick processing)
+	var redirectType, redirectTarget string
+	if idx := strings.LastIndex(input, ">"); idx != -1 {
+		redirectType = "file"
+		redirectTarget = strings.TrimSpace(input[idx+1:])
+		input = strings.TrimSpace(input[:idx])
+	} else if idx := strings.LastIndex(input, "|"); idx != -1 {
+		redirectType = "pipe"
+		redirectTarget = strings.TrimSpace(input[idx+1:])
+		input = strings.TrimSpace(input[:idx])
+	}
+
+	// Process backtick substitutions (LLM queries)
+	processedInput, err := ExecuteBacktickSubstitution(input, r)
+	if err != nil {
+		return fmt.Errorf("backtick substitution failed: %v", err)
+	}
+	input = processedInput
+
+	// Send to AI with redirection (streaming disabled for shell mode)
+	return r.sendToAI(input, redirectType, redirectTarget, false, true)
+}
+
+// handleNormalInput processes regular input (not starting with '$')
+func (r *REPL) handleNormalInput(input string) error {
+	// Handle verbatim inputs
+	if len(input) >= 2 {
+		if input[0] == '\'' && input[len(input)-1] == '\'' {
+			input = input[1 : len(input)-1]
+		}
+	}
+
+	// For normal input, skip backtick processing
+	return r.sendToAI(input, "", "", false, false)
+}
+
 // handleSlurpCommand reads from stdin until EOF (Ctrl+D) and returns the content
 func (r *REPL) handleSlurpCommand() error {
 	// Save the current terminal state
@@ -1749,7 +1822,7 @@ func (r *REPL) handleSlurpCommand() error {
 	}
 
 	// Send the input to the AI
-	return r.sendToAI(input, "", "")
+	return r.sendToAI(input, "", "", true, false)
 }
 
 // initCommands initializes the command registry with all available commands
@@ -1788,7 +1861,7 @@ func (r *REPL) initCommands() {
 				buf.Write(data)
 				buf.WriteString("\n")
 			}
-			return "", r.sendToAI(buf.String(), "", "")
+			return "", r.sendToAI(buf.String(), "", "", true, false)
 		},
 	}
 
@@ -2044,7 +2117,7 @@ func (r *REPL) handlePromptCommand(input string) error {
 		fmt.Printf("Error: %v\r\n", err)
 		return nil
 	}
-	return r.sendToAI(expandedInput, "", "")
+	return r.sendToAI(expandedInput, "", "", true, false)
 }
 
 // handleAtFilePathCompletion handles tab completion for file paths with @ prefix
@@ -2524,60 +2597,11 @@ func (r *REPL) executeShellCommand(cmdString string) error {
 		return nil
 	}
 
-	// For other commands, create a shell command
+	// For other commands, run with inherited stdout/stderr
 	cmd := exec.Command("sh", "-c", cmdString)
-
-	// Set up pipes for stdout and stderr
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stdout pipe: %v\r\n", err)
-		return nil
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating stderr pipe: %v\r\n", err)
-		return nil
-	}
-
-	// Start the command
-	err = cmd.Start()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error starting command: %v\r\n", err)
-		return nil
-	}
-
-	// Set up a wait group to coordinate goroutines
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Read stdout
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdoutPipe)
-		for scanner.Scan() {
-			fmt.Printf("%s\r\n", scanner.Text())
-		}
-	}()
-
-	// Read stderr
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			fmt.Fprintf(os.Stderr, "%s\r\n", scanner.Text())
-		}
-	}()
-
-	// Wait for both goroutines to finish
-	wg.Wait()
-
-	// Wait for the command to finish
-	err = cmd.Wait()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Command exited with error: %v\r\n", err)
-	}
-
-	return nil
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // displayConversationLog prints the current conversation messages

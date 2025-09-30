@@ -240,7 +240,7 @@ func (sm *ServerManager) executeInputWithCapture(input string, stream bool, syst
 	os.Stderr = stderrW
 
 	// Run the input through the REPL pipeline
-	callErr := sm.repl.sendToAI(input, "", "")
+	callErr := sm.repl.sendToAI(input, "", "", true, false)
 
 	// Restore streams
 	stdoutW.Close()
