@@ -100,7 +100,11 @@ jobs:
         fi
         mkdir -p artifacts
         zipname="artifacts/mai-${{ matrix.GOOS }}-${{ matrix.GOARCH }}-${{ env.VERSION }}.zip"
-        (cd package && zip -r -q "../$zipname" mai)
+        if [ "${{ matrix.GOOS }}" = "windows" ]; then
+          powershell.exe -Command "Compress-Archive -Path '$PKGDIR' -DestinationPath '$zipname'"
+        else
+          (cd package && zip -r -q "../$zipname" mai)
+        fi
         ls -la artifacts
 
     - name: Upload artifact

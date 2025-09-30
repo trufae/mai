@@ -1,2 +1,5 @@
+GOOS ?= $(shell go env GOOS)
+EXE = $(if $(filter windows,${GOOS}),.exe,)
+
 all:
-	go build -o mai-mcp-time
+	go build -o mai-mcp-time${EXE}
