@@ -728,3 +728,74 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 
 	return output.String(), nil
 }
+
+// handleEnvCommand handles the /env command with the same syntax as /set
+func (r *REPL) handleEnvCommand(args []string) (string, error) {
+	// Join all args after the command into a single input string. This
+	// ensures values containing spaces or uses like "key= value" are
+	// handled consistently instead of relying on tokenization.
+	var input string
+	if len(args) >= 2 {
+		input = strings.TrimSpace(strings.Join(args[1:], " "))
+	} else {
+		input = ""
+	}
+
+	if input == "" {
+		var output strings.Builder
+		output.WriteString("Usage: /env <variable> [value] or /env <variable>=<value>\r\n")
+		output.WriteString("Environment variables:\r\n")
+
+		// Get all environment variables and sort them
+		envVars := os.Environ()
+		sort.Strings(envVars)
+
+		for _, envVar := range envVars {
+			parts := strings.SplitN(envVar, "=", 2)
+			if len(parts) == 2 {
+				key := parts[0]
+				value := parts[1]
+				// Truncate long values for display
+				if len(value) > 50 {
+					value = value[:47] + "..."
+				}
+				output.WriteString(fmt.Sprintf("  %-20s = %s\r\n", key, value))
+			}
+		}
+		return output.String(), nil
+	}
+
+	var key, value string
+	// Prefer explicit key=value syntax if present in the joined input
+	if idx := strings.Index(input, "="); idx != -1 {
+		key = strings.TrimSpace(input[:idx])
+		value = strings.TrimSpace(input[idx+1:])
+		// Treat trailing '=' with no value as an unset request
+		if value == "" {
+			os.Unsetenv(key)
+			return fmt.Sprintf("Unset environment variable %s\r\n", key), nil
+		}
+	} else {
+		// No '=' in input: first token is the key, remainder is the value
+		parts := strings.Fields(input)
+		key = strings.TrimSpace(parts[0])
+		if len(parts) >= 2 {
+			value = strings.TrimSpace(strings.Join(parts[1:], " "))
+		} else {
+			value = ""
+		}
+	}
+
+	if value == "" {
+		// Display current value if no value provided
+		val := os.Getenv(key)
+		if val == "" {
+			return fmt.Sprintf("%s = not set\r\n", key), nil
+		}
+		return fmt.Sprintf("%s = %s\r\n", key, val), nil
+	}
+
+	// Set the environment variable
+	os.Setenv(key, value)
+	return fmt.Sprintf("Set %s = %s\r\n", key, value), nil
+}

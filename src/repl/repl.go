@@ -1941,6 +1941,14 @@ func (r *REPL) initCommands() {
 		},
 	}
 
+	r.commands["/env"] = Command{
+		Name:        "/env",
+		Description: "Set or display environment variable",
+		Handler: func(r *REPL, args []string) (string, error) {
+			return r.handleEnvCommand(args)
+		},
+	}
+
 	// Conversation management commands
 	r.commands["/chat"] = Command{
 		Name:        "/chat",
