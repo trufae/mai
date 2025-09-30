@@ -377,8 +377,8 @@ func (r *REPL) showCommands() string {
 	output.WriteString("  @<path>         - File path with tab completion (anywhere in input)\r\n")
 	output.WriteString("  #               - List available prompt files (.md)\r\n")
 	output.WriteString("  #<n> <text>     - Use content from prompt file with text\r\n")
-	output.WriteString("  $               - List available template files\r\n")
-	output.WriteString("  $<n> <text>     - Use template with interactive prompts and optional text\r\n")
+	output.WriteString("  %               - List available template files\r\n")
+	output.WriteString("  %<n> <text>     - Use template with interactive prompts and optional text\r\n")
 	output.WriteString("  !<command>      - Execute shell command\r\n")
 	output.WriteString("  _               - Print the last assistant reply\r\n")
 
@@ -523,7 +523,7 @@ func (r *REPL) handleInput() error {
 		// Add to history (also added in handlePromptCommand, but keep here for consistency)
 		r.addToHistory(input)
 		err = r.handlePromptCommand(input)
-	} else if strings.HasPrefix(input, "$") {
+	} else if strings.HasPrefix(input, "%") {
 		// Add to history
 		r.addToHistory(input)
 		err = r.handleTemplateCommand(input)
@@ -691,7 +691,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	}
 
 	// Only handle tab completion at the beginning of the line for commands
-	if !(strings.HasPrefix(input, "/") || strings.HasPrefix(input, "#") || strings.HasPrefix(input, "$")) {
+	if !(strings.HasPrefix(input, "/") || strings.HasPrefix(input, "#") || strings.HasPrefix(input, "%")) {
 		return
 	}
 
@@ -770,8 +770,8 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		return
 	}
 
-	// Template command completion for commands like "$<tab>"
-	if strings.HasPrefix(input, "$") {
+	// Template command completion for commands like "%<tab>"
+	if strings.HasPrefix(input, "%") {
 		needFreshOptions := false
 		if r.completeState == 0 ||
 			len(r.completeOptions) == 0 ||
@@ -802,7 +802,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			for _, f := range files {
 				if !f.IsDir() {
 					base := strings.TrimSuffix(f.Name(), filepath.Ext(f.Name()))
-					allTemps = append(allTemps, "$"+base)
+					allTemps = append(allTemps, "%"+base)
 				}
 			}
 			sort.Strings(allTemps)

@@ -61,11 +61,11 @@ func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
 	}
 }
 
-// handleTemplateCommand handles the $ command for template expansion
+// handleTemplateCommand handles the % command for template expansion
 func (r *REPL) handleTemplateCommand(input string) error {
 	// Split the input into command and arguments
 	parts := strings.SplitN(input, " ", 2)
-	templateName := parts[0][1:] // Remove the $ prefix
+	templateName := parts[0][1:] // Remove the % prefix
 
 	// If no template name is provided, list all template files from templatedir
 	if templateName == "" {
@@ -217,7 +217,7 @@ func (r *REPL) listTemplates() error {
 		return nil
 	}
 
-	fmt.Printf("Available templates (use $ followed by name):\r\n")
+	fmt.Printf("Available templates (use %% followed by name):\r\n")
 	for _, file := range templateFiles {
 		fmt.Printf("  %s\r\n", file)
 	}
