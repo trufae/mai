@@ -91,11 +91,14 @@ Return a concise JSON object only, with the fields:
 		return "", fmt.Errorf("failed to query LLM for mcpprompts selection: %w", err)
 	}
 
-	// Remove any <think> blocks and extract JSON
-	// reuse helpers from tools.go within the same package
-	// strip internal thinking
-	resp = strings.ReplaceAll(resp, "<think>", "")
-	resp = strings.ReplaceAll(resp, "</think>", "")
+	// Trim any leading <think> block (models sometimes prefix replies
+	// with internal reasoning). Then, if the client requests hiding of
+	// think regions, remove any remaining <think>...</think> sections.
+	resp = llm.TrimLeadingThink(resp)
+	if r.currentClient != nil && r.currentClient.Config != nil && r.currentClient.Config.ThinkHide {
+		resp = strings.ReplaceAll(resp, "<think>", "")
+		resp = strings.ReplaceAll(resp, "</think>", "")
+	}
 	jsonText, _ := extractJSONBlock(resp)
 
 	// Debug output for MCP prompt selection

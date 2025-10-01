@@ -307,7 +307,7 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		// Centralized demo handling and then format/print the content
 		sd.OnToken(chunk)
 		toPrint := chunk
-		if p.config.DemoMode {
+		if p.config.DemoMode || thinkDropLeading {
 			toPrint = FilterOutThinkForOutput(toPrint)
 		}
 		// Trim leading whitespace/newlines on first visible output in demo mode
@@ -326,14 +326,18 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		renderer := GetStreamRenderer()
 		if final := renderer.Flush(); final != "" {
 			EmitDemoTokens(final)
-			if p.config.DemoMode {
+			if p.config.ThinkHide {
 				trimmed := FilterOutThinkForOutput(final)
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
 				fmt.Print(trimmed)
 			} else {
-				fmt.Print(final)
+				trimmed := TrimLeadingThink(final)
+				if !printed {
+					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
+				}
+				fmt.Print(trimmed)
 			}
 		}
 	}

@@ -31,6 +31,17 @@ var (
 	// before visible content. When this is set, trim leading whitespace
 	// at the start of the next chunk before printing.
 	thinkJustClosed bool
+
+	// thinkHideEnabled toggles whether <think> regions are filtered out
+	// from output. It is initialized from the LLM client config per request
+	// and can be toggled via the llm.thinkhide option.
+	thinkHideEnabled bool = true
+
+	// thinkDropLeading indicates that the next incoming stream/response
+	// should drop any leading <think>...</think> block (used to trim
+	// models that accidentally start with internal reasoning). This is
+	// reset for each SendMessage call.
+	thinkDropLeading bool = false
 )
 
 // SetDemoPhaseCallback sets a callback that receives phase/action updates.
@@ -126,6 +137,39 @@ func FilterOutThinkForOutput(chunk string) string {
 		s = strings.TrimLeft(s, " \t\r\n")
 		thinkJustClosed = false
 	}
+
+	// If think hide is disabled, normally we would return the chunk
+	// unchanged. However, we still want to trim a leading <think>..</think>
+	// block at the beginning of a response (models sometimes prepend
+	// internal reasoning). We use thinkDropLeading to indicate a fresh
+	// response where leading think blocks should be removed.
+	if !thinkHideEnabled {
+		// If there's a leading <think> in this chunk or the trimmed
+		// chunk, handle it similarly to the normal filter logic but
+		// only for leading blocks when thinkDropLeading is set.
+		if thinkDropLeading {
+			trimmed := strings.TrimLeft(s, " \t\r\n")
+			if strings.HasPrefix(trimmed, "<think>") {
+				// If closing tag present in this chunk, drop the leading
+				// think block and continue processing the remainder.
+				if idx := strings.Index(trimmed, "</think>"); idx >= 0 {
+					// Advance past the closing tag
+					s = trimmed[idx+len("</think>"):]
+					// Clear the drop flag and trim leftover whitespace
+					thinkDropLeading = false
+					s = strings.TrimLeft(s, " \t\r\n")
+				} else {
+					// No closing tag yet: enter think state and drop remainder
+					thinkFilterInThink = true
+					thinkDropLeading = false // still drop until closing tag
+					return ""
+				}
+			}
+		}
+		// If we aren't hiding thoughts, and nothing special to drop, emit s
+		// unchanged from here on.
+		return s
+	}
 	for len(s) > 0 {
 		if thinkFilterInThink {
 			// Look for closing tag
@@ -156,6 +200,29 @@ func FilterOutThinkForOutput(chunk string) string {
 		break
 	}
 	return out.String()
+}
+
+// TrimLeadingThink removes a single leading <think>...</think> block from
+// the provided text if it appears at the start (ignoring leading
+// whitespace). This handles the common case where a model prepends an
+// internal reasoning block before the main reply; we want to silently
+// drop that block.
+func TrimLeadingThink(s string) string {
+	if s == "" {
+		return s
+	}
+	t := strings.TrimLeft(s, " \t\r\n")
+	if !strings.HasPrefix(t, "<think>") {
+		return s
+	}
+	if idx := strings.Index(t, "</think>"); idx >= 0 {
+		// Return the remainder after the closing tag, preserving any
+		// whitespace that was between the closing tag and the rest.
+		return strings.TrimLeft(t[idx+len("</think>"):], " \t\r\n")
+	}
+	// No closing tag visible — strip the leading opening tag and return
+	// empty (caller may get further chunks in streaming flows).
+	return ""
 }
 
 // StreamDemo centralizes demo/animation notifications for streaming flows.
@@ -232,7 +299,7 @@ type Model struct {
 
 // LLMClient manages interactions with LLM providers
 type LLMClient struct {
-	config         *Config
+	Config         *Config
 	provider       LLMProvider
 	responseCancel func() // Function to cancel the current response
 	// Optional callback to notify when the first streaming token arrives
@@ -252,8 +319,14 @@ func NewLLMClient(config *Config) (*LLMClient, error) {
 		return nil, err
 	}
 
+	// Initialize package-level think hide state from config default.
+	// This is reset per request in SendMessage as appropriate.
+	if config != nil {
+		thinkHideEnabled = config.ThinkHide
+	}
+
 	return &LLMClient{
-		config:               config,
+		Config:               config,
 		provider:             provider,
 		responseCancel:       func() {}, // Initialize with no-op function
 		responseStopCallback: nil,
@@ -270,7 +343,7 @@ func (c *LLMClient) SetResponseStopCallback(cb func()) {
 
 // newContext returns a cancellable context carrying the client config.
 func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
-	ctx := context.WithValue(context.Background(), "config", c.config)
+	ctx := context.WithValue(context.Background(), "config", c.Config)
 	// Include optional stop callback in the context so streaming helpers can
 	// invoke it when the first token is received.
 	ctx = context.WithValue(ctx, "stop_callback", c.responseStopCallback)
@@ -318,8 +391,8 @@ func createProvider(config *Config) (LLMProvider, error) {
 func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	// Apply conversation message limit if configured: only keep the last N messages
 	messagesToSend := messages
-	if c.config != nil && c.config.ConversationMessageLimit > 0 {
-		limit := c.config.ConversationMessageLimit
+	if c.Config != nil && c.Config.ConversationMessageLimit > 0 {
+		limit := c.Config.ConversationMessageLimit
 		if len(messages) > limit {
 			messagesToSend = messages[len(messages)-limit:]
 		}
@@ -328,7 +401,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	// If debug is enabled in the config, prepare a debug view of the
 	// messages about to be sent. If the REPL provides a DebugBannerFunc
 	// we use that for prettier output; otherwise fall back to stderr.
-	if c.config != nil && c.config.Debug {
+	if c.Config != nil && c.Config.Debug {
 		var buf bytes.Buffer
 		for _, m := range messagesToSend {
 			// Attempt to pretty-print the content
@@ -345,7 +418,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 			}
 			// fmt.Fprintf(&buf, "  - [%d] role=%s\n", i, m.Role)
 			// When not using rawdog, show a user/content split if present
-			if !c.config.Rawdog && m.Role == "user" {
+			if !c.Config.Rawdog && m.Role == "user" {
 				var parsed interface{}
 				if json.Unmarshal([]byte(contentStr), &parsed) == nil {
 					if b, err := MarshalNoEscape(parsed); err == nil {
@@ -359,7 +432,26 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 				fmt.Fprintf(&buf, "    %s\n", line)
 			}
 		}
-		art.DebugBanner("LLM Query "+c.config.PROVIDER, buf.String())
+		art.DebugBanner("LLM Query "+c.Config.PROVIDER, buf.String())
+	}
+
+	// Reset think-related streaming flags for this outgoing request so
+	// per-request state is isolated. Only drop a leading <think> block
+	// when the client requests hiding of think regions; when hiding is
+	// disabled we preserve the tags and their content for display.
+	thinkDropLeading = false
+	thinkFilterInThink = false
+	thinkJustClosed = false
+
+	// Ensure package-level hide flag reflects client config for this request
+	if c.Config != nil {
+		thinkHideEnabled = c.Config.ThinkHide
+		// If hide is enabled, mark that we should drop a leading think
+		// block for this request (models sometimes prepend internal
+		// reasoning we don't want to show when hiding is requested).
+		if c.Config.ThinkHide {
+			thinkDropLeading = true
+		}
 	}
 
 	ctx, cancel := c.newContext()
@@ -367,9 +459,9 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 
 	// Single entry point for all providers; providers handle images support.
 	// Delegate to provider and capture response so we can debug-print it
-	resp, err := c.provider.SendMessage(ctx, messagesToSend, stream && !c.config.NoStream, images)
+	resp, err := c.provider.SendMessage(ctx, messagesToSend, stream && !c.Config.NoStream, images)
 
-	if c.config != nil && c.config.Debug {
+	if c.Config != nil && c.Config.Debug {
 		var buf bytes.Buffer
 		// Attempt to pretty-print JSON responses
 		var parsed interface{}
@@ -385,7 +477,19 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 				fmt.Fprintf(&buf, "  %s\n", line)
 			}
 		}
-		art.DebugBanner("LLM Response From "+c.config.PROVIDER, buf.String())
+		art.DebugBanner("LLM Response From "+c.Config.PROVIDER, buf.String())
+	}
+
+	// For non-streaming responses, only remove <think> sections when the
+	// client requested hiding of think-regions. When hiding is disabled,
+	// preserve the tags and their content so the UI can show them.
+	if err == nil && resp != "" {
+		if c.Config != nil && c.Config.ThinkHide {
+			// Trim any leading think block and strip all think sections
+			// from the printed output.
+			resp = TrimLeadingThink(resp)
+			resp = FilterOutThinkForOutput(resp)
+		}
 	}
 
 	return resp, err

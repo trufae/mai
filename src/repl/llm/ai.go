@@ -69,6 +69,13 @@ type Config struct {
 	MCPTimeout int
 	MCPDebug   bool
 	MCPBaseURL string
+
+	// ThinkHide controls whether content inside <think>...</think> tags
+	// should be hidden from internal messages and the user terminal.
+	// When true, think regions are removed from displayed output. When
+	// false, think regions are left intact (except leading think blocks
+	// which are trimmed at the start of responses).
+	ThinkHide bool
 }
 
 // GetAPIKey resolves an API key by checking an environment variable first,

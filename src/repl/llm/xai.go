@@ -226,9 +226,10 @@ func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback fun
 			raw := response.Choices[0].Delta.Content
 			// Centralized demo handling
 			sd.OnToken(raw)
-			// Filter out <think> regions from printed output in demo mode
+			// Filter out <think> regions from printed output in demo mode or when
+			// dropping a leading think block for this request.
 			toPrint := raw
-			if p.config.DemoMode {
+			if p.config.DemoMode || thinkDropLeading {
 				toPrint = FilterOutThinkForOutput(toPrint)
 			}
 			// Trim leading whitespace/newlines on first visible output in demo mode
@@ -250,14 +251,18 @@ func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback fun
 		renderer := GetStreamRenderer()
 		if final := renderer.Flush(); final != "" {
 			EmitDemoTokens(final)
-			if p.config.DemoMode {
+			if p.config.ThinkHide {
 				trimmed := FilterOutThinkForOutput(final)
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
 				fmt.Print(trimmed)
 			} else {
-				fmt.Print(final)
+				trimmed := TrimLeadingThink(final)
+				if !printed {
+					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
+				}
+				fmt.Print(trimmed)
 			}
 		}
 	}

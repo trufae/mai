@@ -95,6 +95,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("llm.systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
 	co.RegisterOption("llm.temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
 	co.RegisterOption("llm.think", BooleanOption, "Enable AI reasoning", "false")
+	co.RegisterOption("llm.thinkhide", BooleanOption, "Hide <think> internal reasoning from internal messages and terminal", "false")
 
 	// REPL behavior options
 	co.RegisterOption("repl.debug", BooleanOption, "Show internal processing logs", "false")

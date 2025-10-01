@@ -353,8 +353,10 @@ func (p *OpenAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 			// Centralized demo handling
 			sd.OnToken(raw)
 			// Filter out <think> regions from printed output in demo mode
+			// or if this is the start of a response where a leading
+			// <think> block should be dropped.
 			toPrint := raw
-			if p.config.DemoMode {
+			if p.config.DemoMode || thinkDropLeading {
 				toPrint = FilterOutThinkForOutput(toPrint)
 			}
 			// Trim leading whitespace/newlines on first visible output in demo mode
@@ -377,14 +379,20 @@ func (p *OpenAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 		if final := renderer.Flush(); final != "" {
 			// Final flush also reports to demo
 			EmitDemoTokens(final)
-			if p.config.DemoMode {
+			// If the client prefers hidden thinking, filter all think
+			// regions. Otherwise only trim a leading think block.
+			if p.config.ThinkHide {
 				trimmed := FilterOutThinkForOutput(final)
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
 				fmt.Print(trimmed)
 			} else {
-				fmt.Print(final)
+				trimmed := TrimLeadingThink(final)
+				if !printed {
+					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
+				}
+				fmt.Print(trimmed)
 			}
 		}
 	}

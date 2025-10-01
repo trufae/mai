@@ -229,6 +229,11 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 		config.Rawdog = opts.GetBool("llm.rawmode")
 	}
 
+	// Whether to hide internal <think> regions from user-visible output
+	if opts.Get("llm.thinkhide") != "" {
+		config.ThinkHide = opts.GetBool("llm.thinkhide")
+	}
+
 	// Debug flag: when enabled, show raw messages sent to providers
 	if opts.Get("repl.debug") != "" {
 		config.Debug = opts.GetBool("repl.debug")
