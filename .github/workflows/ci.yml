@@ -19,3 +19,22 @@ jobs:
 
     - name: Test
       run: src/repl/mai-repl -h
+
+  build-arm64:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Compile for Raspberry Pi (ARM64)
+      env:
+        GOOS: linux
+        GOARCH: arm64
+        CGO_ENABLED: 0
+      run: make
+
+    - name: Test ARM64 binary
+      run: |
+        file src/repl/mai-repl
+        src/repl/mai-repl -h
