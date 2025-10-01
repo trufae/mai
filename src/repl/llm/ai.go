@@ -16,10 +16,6 @@ type Message struct {
 
 // Config holds configuration values for LLM providers.
 type Config struct {
-	OpenAPIHost   string
-	OpenAPIPort   string
-	OllamaHost    string
-	OllamaPort    string
 	BedrockRegion string
 	PROVIDER      string
 	Model         string

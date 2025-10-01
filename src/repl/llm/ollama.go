@@ -29,6 +29,9 @@ type OllamaModelsResponse struct {
 }
 
 func NewOllamaProvider(config *Config) *OllamaProvider {
+	if config.BaseURL == "" {
+		config.BaseURL = "http://localhost:11434"
+	}
 	return &OllamaProvider{
 		config: config,
 	}
@@ -92,11 +95,11 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// "/v1/models" which would cause request errors.
 	headers := map[string]string{}
 	candidates := []string{
-		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/tags"),
+		buildURL("", p.config.BaseURL, "", "", "/api/tags"),
 		// common alternatives
-		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/models"),
-		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/models"),
-		buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/models"),
+		buildURL("", p.config.BaseURL, "", "", "/v1/models"),
+		buildURL("", p.config.BaseURL, "", "", "/models"),
+		buildURL("", p.config.BaseURL, "", "", "/api/models"),
 	}
 
 	// Build a parsing helper that tries several JSON shapes
@@ -257,10 +260,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 
 		// Choose candidate endpoints to try; prefer /api/generate when a schema
 		candidates := []string{
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
+			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
 		}
 
 		if stream {
@@ -330,10 +333,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		// fmt.Println("(send)" + string(jsonData))
 		// Try multiple endpoints for Rawdog mode too.
 		candidates := []string{
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
 		}
 
 		if stream {
@@ -414,17 +417,17 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	var candidates []string
 	if p.config.Schema != nil {
 		candidates = []string{
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
+			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
 		}
 	} else {
 		candidates = []string{
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/chat"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/chat/completions"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/api/generate"),
-			buildURL("", p.config.BaseURL, p.config.OllamaHost, p.config.OllamaPort, "/v1/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
+			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
+			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
 		}
 	}
 

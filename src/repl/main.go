@@ -71,10 +71,6 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 
 func loadConfig() *llm.Config {
 	config := &llm.Config{
-		OpenAPIHost:   getEnvOrDefault("OPENAPI_HOST", "localhost"),
-		OpenAPIPort:   getEnvOrDefault("OPENAPI_PORT", "8989"),
-		OllamaHost:    getEnvOrDefault("OLLAMA_HOST", "localhost"),
-		OllamaPort:    getEnvOrDefault("OLLAMA_PORT", "11434"),
 		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
 		PROVIDER:      getEnvOrDefault("MAI_PROVIDER", "ollama"),
 		BaseURL:       getEnvOrDefault("MAI_BASEURL", ""),
@@ -130,8 +126,6 @@ MAI_USERAGENT=[custom user agent string for HTTP requests]
 
 Local:
 
-OLLAMA_HOST=localhost
-OLLAMA_PORT=11434
 OLLAMA_MODEL=gemma3:1b
 OLLAMA_MODEL=mannix/jan-nano:latest
 

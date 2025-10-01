@@ -15,6 +15,9 @@ type OpenAPIProvider struct {
 }
 
 func NewOpenAPIProvider(config *Config) *OpenAPIProvider {
+	if config.BaseURL == "" {
+		config.BaseURL = "http://localhost:8989"
+	}
 	return &OpenAPIProvider{
 		config: config,
 	}
@@ -34,11 +37,7 @@ func (p *OpenAPIProvider) DefaultModel() string {
 
 func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Try to query the OpenAPI server for available models
-	apiURL := fmt.Sprintf("http://%s:%s/models", p.config.OpenAPIHost, p.config.OpenAPIPort)
-	if p.config.BaseURL != "" {
-		// Adjust the base URL to point to the models endpoint
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/models"
-	}
+	apiURL := strings.TrimRight(p.config.BaseURL, "/") + "/models"
 
 	headers := map[string]string{
 		"Content-Type": "application/json",
@@ -135,11 +134,8 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 		"Content-Type": "application/json",
 	}
 
-	// Use the configured base URL if available, otherwise construct from host/port
-	apiURL := fmt.Sprintf("http://%s:%s/completion", p.config.OpenAPIHost, p.config.OpenAPIPort)
-	if p.config.BaseURL != "" {
-		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/completion"
-	}
+	// Use the configured base URL
+	apiURL := strings.TrimRight(p.config.BaseURL, "/") + "/completion"
 
 	// OpenAPI doesn't support streaming in our implementation
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
