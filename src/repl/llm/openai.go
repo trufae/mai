@@ -30,8 +30,11 @@ type OpenAIModelsResponse struct {
 
 func NewOpenAIProvider(config *Config) *OpenAIProvider {
 	var apiKey string
-	if strings.ToLower(config.PROVIDER) == "openai" {
+	switch strings.ToLower(config.PROVIDER) {
+	case "openai":
 		apiKey = GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key")
+	case "ollamacloud":
+		apiKey = GetAPIKey("OLLAMA_API_KEY", "~/.r2ai.ollama-key")
 	}
 
 	// Local OpenAI-compatible servers (LM Studio, shimmy) do not require auth.
@@ -46,6 +49,10 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 		if config.BaseURL == "" {
 			config.BaseURL = "http://localhost:11435/v1"
 		}
+	case "ollamacloud":
+		if config.BaseURL == "" {
+			config.BaseURL = "https://ollama.com/v1"
+		}
 	}
 	return &OpenAIProvider{
 		config: config,
@@ -59,19 +66,26 @@ func (p *OpenAIProvider) GetName() string {
 		return "LMStudio"
 	case "shimmy":
 		return "Shimmy"
+	case "ollamacloud":
+		return "OllamaCloud"
 	default:
 		return "OpenAI"
 	}
 }
 
 func (p *OpenAIProvider) DefaultModel() string {
-	if v := os.Getenv("OPENAI_MODEL"); v != "" {
-		return v
-	}
 	switch strings.ToLower(p.config.PROVIDER) {
+	case "ollamacloud":
+		if v := os.Getenv("OLLAMA_MODEL"); v != "" {
+			return v
+		}
+		return "gpt-oss:20b"
 	case "lmstudio", "shimmy":
 		return "local-model"
 	default:
+		if v := os.Getenv("OPENAI_MODEL"); v != "" {
+			return v
+		}
 		return "gpt-4o"
 	}
 }
