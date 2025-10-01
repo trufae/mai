@@ -15,6 +15,9 @@ var cmdRegex = regexp.MustCompile(`\$\((.*?)\)`)
 // Note: Go's regexp doesn't support lookbehind, so we'll need a different approach
 var backtickRegex = regexp.MustCompile("`(.*?)`")
 
+// Slash command regex matches /command patterns
+var slashRegex = regexp.MustCompile(`\/([a-zA-Z_][a-zA-Z0-9_]*)`)
+
 // Environment variable substitution regex matches ${VAR_NAME} patterns
 var envVarRegex = regexp.MustCompile(`\$\{([^{}]+)\}`)
 
@@ -94,6 +97,30 @@ func ExecuteBacktickSubstitution(input string, r *REPL) (string, error) {
 	return result, nil
 }
 
+// ExecuteSlashSubstitution processes text and replaces slash command substitutions /command
+// with the output of executing those commands. Returns the processed text.
+func ExecuteSlashSubstitution(input string, r *REPL) (string, error) {
+	// Find all slash substitutions in the input text
+	result := input
+	matches := slashRegex.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		fullMatch := match[0] // The full /command string
+		command := match[1]   // Just the command name
+
+		// Execute the command
+		output, err := executeSlashCommand("/"+command, r)
+		if err != nil {
+			return input, fmt.Errorf("slash command execution failed: %v", err)
+		}
+
+		// Replace the command substitution with its output
+		result = strings.Replace(result, fullMatch, output, 1)
+	}
+
+	return result, nil
+}
+
 // ExecuteEnvVarSubstitution processes text and replaces environment variable references ${VAR_NAME}
 // with their values from the environment. Returns the processed text.
 func ExecuteEnvVarSubstitution(input string) (string, error) {
@@ -131,4 +158,27 @@ func executeCommand(command string) (string, error) {
 
 	// Trim trailing newlines from the command output
 	return strings.TrimRight(stdout.String(), "\n"), nil
+}
+
+// executeSlashCommand runs a REPL slash command and returns its output.
+func executeSlashCommand(command string, r *REPL) (string, error) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("empty command")
+	}
+
+	cmdName := parts[0]
+
+	// Check if the command exists in the registry
+	if cmd, exists := r.commands[cmdName]; exists {
+		// Execute the command handler
+		output, err := cmd.Handler(r, parts)
+		if err != nil {
+			return "", err
+		}
+		// Trim trailing newlines
+		return strings.TrimRight(output, "\n"), nil
+	} else {
+		return "", fmt.Errorf("unknown command: %s", cmdName)
+	}
 }

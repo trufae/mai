@@ -1747,7 +1747,7 @@ func (r *REPL) getLastAssistantReply() (string, error) {
 
 // handleShellInput processes input starting with '$' as hybrid AI/shell mode
 func (r *REPL) handleShellInput(input string) error {
-	// Handle redirection first (before backtick processing)
+	// Handle redirection first, before substitutions
 	var redirectType, redirectTarget string
 	if idx := strings.LastIndex(input, ">"); idx != -1 {
 		redirectType = "file"
@@ -1759,15 +1759,67 @@ func (r *REPL) handleShellInput(input string) error {
 		input = strings.TrimSpace(input[:idx])
 	}
 
-	// Process backtick substitutions (LLM queries)
-	processedInput, err := ExecuteBacktickSubstitution(input, r)
-	if err != nil {
-		return fmt.Errorf("backtick substitution failed: %v", err)
-	}
-	input = processedInput
+	// Check if this is command mode (contains /) or AI mode
+	if strings.Contains(input, "/") {
+		// Command mode: execute commands and handle output
+		// Process slash substitutions
+		processedInput, err := ExecuteSlashSubstitution(input, r)
+		if err != nil {
+			return fmt.Errorf("slash substitution failed: %v", err)
+		}
+		input = processedInput
 
-	// Send to AI with redirection (streaming disabled for shell mode)
-	return r.sendToAI(input, redirectType, redirectTarget, false, true)
+		// If pipe, execute the command on the current input
+		if redirectType == "pipe" {
+			cmd := exec.Command("/bin/sh", "-c", redirectTarget)
+			cmd.Stdin = strings.NewReader(input)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err = cmd.Run()
+			if err != nil {
+				return fmt.Errorf("pipe command failed: %v", err)
+			}
+			input = ""
+			redirectType = ""
+		}
+
+		// Check for backticks
+		hasBackticks := strings.Contains(input, "`")
+
+		// Process backtick substitutions
+		processedInput, err = ExecuteBacktickSubstitution(input, r)
+		if err != nil {
+			return fmt.Errorf("backtick substitution failed: %v", err)
+		}
+		input = processedInput
+
+		// If backticks, send to AI; otherwise, handle output directly
+		if hasBackticks {
+			return r.sendToAI(input, redirectType, redirectTarget, false, true)
+		} else {
+			if redirectType == "file" {
+				err = os.WriteFile(redirectTarget, []byte(input), 0644)
+				if err != nil {
+					return fmt.Errorf("failed to write to file %s: %v", redirectTarget, err)
+				}
+				fmt.Printf("Output written to %s\r\n", redirectTarget)
+			} else {
+				fmt.Print(input)
+			}
+			return nil
+		}
+	} else {
+		// AI mode: send input to AI with redirection on response
+		// Process backtick substitutions
+		processedInput, err := ExecuteBacktickSubstitution(input, r)
+		if err != nil {
+			return fmt.Errorf("backtick substitution failed: %v", err)
+		}
+		input = processedInput
+
+		// Send to AI with redirection
+		return r.sendToAI(input, redirectType, redirectTarget, false, true)
+	}
 }
 
 // handleNormalInput processes regular input (not starting with '$')
