@@ -16,13 +16,12 @@ type Message struct {
 
 // Config holds configuration values for LLM providers.
 type Config struct {
-	BedrockRegion string
-	PROVIDER      string
-	Model         string
-	NoStream      bool
-	ImagePath     string
-	BaseURL       string
-	UserAgent     string
+	PROVIDER  string
+	Model     string
+	NoStream  bool
+	ImagePath string
+	BaseURL   string
+	UserAgent string
 
 	IsStdinMode   bool
 	SkipRcFile    bool

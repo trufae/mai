@@ -71,11 +71,10 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 
 func loadConfig() *llm.Config {
 	config := &llm.Config{
-		BedrockRegion: getEnvOrDefault("AWS_REGION", "us-west-2"),
-		PROVIDER:      getEnvOrDefault("MAI_PROVIDER", "ollama"),
-		BaseURL:       getEnvOrDefault("MAI_BASEURL", ""),
-		UserAgent:     getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
-		NoStream:      false,
+		PROVIDER:  getEnvOrDefault("MAI_PROVIDER", "ollama"),
+		BaseURL:   getEnvOrDefault("MAI_BASEURL", ""),
+		UserAgent: getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
+		NoStream:  false,
 	}
 
 	// Backwards compatibility: if MAI_PROVIDER is not set, honor legacy API env var
@@ -146,7 +145,6 @@ MISTRAL_MODEL=mistral-large-latest
 Bedrock-Specific:
 
 AWS_ACCESS_KEY_ID=(or set in ~/.r2ai.bedrock-key)
-AWS_REGION=us-west-2
 BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 `)
 }
