@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const MaiVersion = "1.0.0"
+
 func NewMCPService(yoloMode bool, drunkMode bool, reportFile string) *MCPService {
 	return &MCPService{
 		servers:       make(map[string]*MCPServer),
@@ -152,7 +154,7 @@ func (s *MCPService) initializeServer(server *MCPServer) error {
 			},
 			"clientInfo": map[string]interface{}{
 				"name":    "mai-wmcp",
-				"version": "1.0.0",
+				"version": MaiVersion,
 			},
 		},
 		ID: 1,
