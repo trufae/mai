@@ -1,0 +1,46 @@
+package main
+
+import (
+	"flag"
+	"log"
+
+	"mcplib"
+)
+
+func main() {
+	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
+	flag.Parse()
+
+	fediService := NewFediService()
+
+	// Get all tools from the service
+	tools := fediService.GetTools()
+
+	// Create tool definitions for server initialization
+	var toolDefs []mcplib.ToolDefinition
+	for _, tool := range tools {
+		toolDefs = append(toolDefs, mcplib.ToolDefinition{
+			Name:          tool.Name,
+			Description:   tool.Description,
+			InputSchema:   tool.InputSchema,
+			UsageExamples: tool.UsageExamples,
+		})
+	}
+
+	// Initialize the server with tool definitions
+	server := mcplib.NewMCPServer(toolDefs)
+
+	// Register all tool handlers
+	for _, tool := range tools {
+		server.RegisterTool(tool.Name, tool.Handler)
+	}
+
+	// Start the server - this will block until the server is stopped
+	if *listen != "" {
+		if err := server.ServeTCP(*listen); err != nil {
+			log.Fatalln("ServeTCP:", err)
+		}
+	} else {
+		server.Start()
+	}
+}
