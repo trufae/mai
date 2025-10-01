@@ -13,6 +13,10 @@ import (
 type OptionType string
 
 const (
+	DefaultModel    string = "gemma3:1b"
+	DefaultProvider string = "ollama"
+)
+const (
 	StringOption  OptionType = "string"
 	BooleanOption OptionType = "boolean"
 	NumberOption  OptionType = "number"
@@ -49,7 +53,8 @@ func NewConfigOptions() *ConfigOptions {
 	// AI provider options
 	co.RegisterOption("ai.baseurl", StringOption, "Custom base URL for API requests", "")
 	co.RegisterOption("ai.deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
-	co.RegisterOption("ai.provider", StringOption, "AI provider to use", "")
+	co.RegisterOption("ai.provider", StringOption, "AI provider to use", DefaultProvider)
+	co.RegisterOption("ai.model", StringOption, "AI model to use", DefaultModel)
 
 	// Chat configuration
 	co.RegisterOption("chat.aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
@@ -59,7 +64,6 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat.log", BooleanOption, "Enable conversation logging", "true")
 	// Memory option: load consolidated memory from ~/.mai/memory.txt into conversation context
 	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
-	co.RegisterOption("ai.model", StringOption, "AI model to use", "")
 	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "false")
 	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
 	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
