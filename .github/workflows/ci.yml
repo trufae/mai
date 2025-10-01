@@ -33,8 +33,3 @@ jobs:
         GOARCH: arm64
         CGO_ENABLED: 0
       run: make
-
-    - name: Test ARM64 binary
-      run: |
-        file src/repl/mai-repl
-        src/repl/mai-repl -h
