@@ -13,17 +13,20 @@ import (
 
 // ReadLine represents a line editor with horizontal scrolling
 type ReadLine struct {
-	buffer        []rune
-	cursorPos     int
-	scrollPos     int
-	width         int
-	history       []string
-	historyPos    int
-	mu            sync.Mutex
-	oldState      *term.State
-	completions   []string
-	completeIdx   int
-	interruptFunc func()
+	buffer     []rune
+	cursorPos  int
+	scrollPos  int
+	width      int
+	history    []string
+	historyPos int
+	// Saved buffer content when entering history navigation so it can be
+	// restored if the user navigates back to their original input.
+	historySavedBuffer []rune
+	mu                 sync.Mutex
+	oldState           *term.State
+	completions        []string
+	completeIdx        int
+	interruptFunc      func()
 	// Prompt customization
 	prompt         string // Main prompt string
 	readlinePrompt string // Prompt for heredoc/continuation mode
@@ -111,6 +114,8 @@ func (r *ReadLine) AddToHistory(input string) {
 
 	r.history = append(r.history, input)
 	r.historyPos = -1
+	// Clear any saved buffer when we add a new history entry
+	r.historySavedBuffer = nil
 }
 
 // SetCompletions sets the available completions for tab completion
@@ -680,30 +685,46 @@ func (r *ReadLine) navigateHistory(direction int) {
 		return
 	}
 	if r.historyPos == -1 {
+		// Save current buffer so we can restore it when the user navigates
+		// back down to the empty prompt.
+		if len(r.buffer) > 0 {
+			r.historySavedBuffer = make([]rune, len(r.buffer))
+			copy(r.historySavedBuffer, r.buffer)
+		} else {
+			r.historySavedBuffer = nil
+		}
 		r.historyPos = len(r.history)
 	}
 
-	// Calculate new history position
-	// Invert the direction to make up arrow show newer messages
+	// Calculate new history position. Allow a virtual position equal to
+	// len(history) which maps to the empty prompt (historyPos == -1).
 	newPos := r.historyPos + direction
-	if len(r.history) > 0 {
-		if newPos >= len(r.history) {
-			newPos = len(r.history) - 1
-		} else if newPos < 0 {
-			newPos = 0
-		}
-	} else {
-		newPos = -1
+
+	// Clamp newPos into [0, len(history)] (len(history) means empty prompt)
+	if newPos < 0 {
+		newPos = 0
+	}
+	if newPos > len(r.history) {
+		newPos = len(r.history)
 	}
 
-	r.historyPos = newPos
-
-	if r.historyPos == -1 {
-		// Clear the line
-		r.buffer = r.buffer[:0]
-		r.cursorPos = 0
+	if newPos == len(r.history) {
+		// Virtual slot after the last history entry -> restore original input
+		r.historyPos = -1
+		if r.historySavedBuffer != nil {
+			r.buffer = make([]rune, len(r.historySavedBuffer))
+			copy(r.buffer, r.historySavedBuffer)
+			// place cursor at end of restored content
+			r.cursorPos = len(r.buffer)
+			r.historySavedBuffer = nil
+		} else {
+			// No saved content -> clear the line
+			r.buffer = r.buffer[:0]
+			r.cursorPos = 0
+		}
 		r.scrollPos = 0
 	} else {
+		r.historyPos = newPos
 		// Set buffer to history item
 		historyItem := r.history[r.historyPos]
 		r.buffer = []rune(historyItem)
