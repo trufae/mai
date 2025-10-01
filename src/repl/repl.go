@@ -203,15 +203,13 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 		repl.readline.SetReadlinePrompt(readlinePrompt)
 	}
 
-	// Initialize provider/model/baseurl/useragent options from environment defaults if not set
-	// Use loadConfig to honor env defaults and then apply into options only on first run
+	// Initialize baseurl/useragent options from environment defaults if not set
 	envCfg := loadConfig()
-	if repl.configOptions.Get("ai.provider") == "" && envCfg.PROVIDER != "" {
-		repl.configOptions.Set("ai.provider", envCfg.PROVIDER)
-	}
 	if repl.configOptions.Get("ai.model") == "" {
-		// Use provider's DefaultModel if model not set
-		if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("ai.provider")); dm != "" {
+		// Check MAI_MODEL first, then use provider's DefaultModel
+		if model := os.Getenv("MAI_MODEL"); model != "" {
+			repl.configOptions.Set("ai.model", model)
+		} else if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("ai.provider")); dm != "" {
 			repl.configOptions.Set("ai.model", dm)
 		}
 	}
@@ -335,10 +333,34 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
+	// Save command-line set options before loading rc file
+	cmdLineModel := r.configOptions.Get("ai.model")
+	cmdLineProvider := r.configOptions.Get("ai.provider")
+
 	// Load and process 'rc' file from project or home .mai directory unless skipped by option
 	if !r.configOptions.GetBool("repl.skiprc") {
 		if err := r.loadRCFile(); err != nil {
 			fmt.Printf("Error loading rc file: %v\r\n", err)
+		}
+	}
+
+	// Restore command-line set options (they have priority over rc file)
+	if cmdLineModel != "" {
+		r.configOptions.Set("ai.model", cmdLineModel)
+	}
+	if cmdLineProvider != "" {
+		r.configOptions.Set("ai.provider", cmdLineProvider)
+	}
+
+	// Set MAI_PROVIDER/MAI_MODEL if not set by rc file or command line
+	if r.configOptions.Get("ai.provider") == "" {
+		if provider := os.Getenv("MAI_PROVIDER"); provider != "" {
+			r.configOptions.Set("ai.provider", provider)
+		}
+	}
+	if r.configOptions.Get("ai.model") == "" {
+		if model := os.Getenv("MAI_MODEL"); model != "" {
+			r.configOptions.Set("ai.model", model)
 		}
 	}
 

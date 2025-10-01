@@ -138,14 +138,10 @@ MISTRAL_API_KEY=(or set in ~/.r2ai.mistral-key)
 
 Model Selection:
 
+MAI_MODEL=[global model override]
 OPENAI_MODEL=o4-mini
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
 MISTRAL_MODEL=mistral-large-latest
-
-Bedrock-Specific:
-
-AWS_ACCESS_KEY_ID=(or set in ~/.r2ai.bedrock-key)
-BEDROCK_MODEL=anthropic.claude-3-5-sonnet-v1
 `)
 }
 func showHelp() {
@@ -307,7 +303,7 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 func main() {
 	args := os.Args[1:]
 
-	if len(args) > 0 && args[0] == "-h" {
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
 		showHelp()
 		return
 	}
@@ -331,7 +327,7 @@ func main() {
 	if apiVal := os.Getenv("API"); apiVal != "" && os.Getenv("MAI_PROVIDER") == "" {
 		config.PROVIDER = apiVal
 	}
-	// MAI_MODEL is deprecated; use -m or /set model instead
+	// MAI_MODEL can be used to set the default model
 
 	configOptions := NewConfigOptions()
 	// Process command line flags
