@@ -23,11 +23,13 @@ type Config struct {
 	BaseURL   string
 	UserAgent string
 
-	IsStdinMode   bool
-	SkipRcFile    bool
-	Deterministic bool
-	Markdown      bool
-	Rawdog        bool
+	IsStdinMode      bool
+	SkipRcFile       bool
+	InitialCommand   string
+	QuitAfterActions bool
+	Deterministic    bool
+	Markdown         bool
+	Rawdog           bool
 
 	// DemoMode enables the simple waiting animation in the REPL when set.
 	DemoMode bool

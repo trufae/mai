@@ -159,6 +159,7 @@ func showHelp() {
 -n               do not load rc file and disable REPL history
 -p <provider>    select the provider to use
 -q               quit after running given actions
+-r <command>     execute command and enter REPL (allows piping input)
 -s <string>      send string directly to AI (can be used multiple times)
 -t               enable tools processing
 -T               enable tools with grammar disabled
@@ -361,6 +362,15 @@ func main() {
 			configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
+		case "-r":
+			if i+1 < len(args) {
+				config.InitialCommand = args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -r requires a command argument\n")
+				os.Exit(1)
+			}
 		case "-i":
 			if i+1 < len(args) {
 				config.ImagePath = args[i+1]
@@ -439,6 +449,7 @@ func main() {
 			i--
 		case "-q":
 			quitAfterActions = true
+			config.QuitAfterActions = true
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-s":
@@ -517,11 +528,12 @@ func main() {
 
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
-	if stdinIsTerminal {
+	forceReplMode := config.InitialCommand != ""
+	if stdinIsTerminal || forceReplMode {
 		// Not stdin mode, will load 'rc' file and start REPL
 		config.IsStdinMode = false
 
-		repl, err := NewREPL(*configOptions)
+		repl, err := NewREPL(*configOptions, config.InitialCommand, config.QuitAfterActions)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
 			os.Exit(1)

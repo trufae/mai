@@ -129,12 +129,15 @@ func (r *REPL) saveHistory() error {
 	historyFile := filepath.Join(homeDir, ".mai", "history.json")
 
 	// Overwrite history file with updated history
-	history := r.readline.GetHistory()
-	data, err := json.MarshalIndent(history, "", "  ")
-	if err != nil {
-		return fmt.Errorf("cannot marshal history: %v", err)
+	if r.readline != nil {
+		history := r.readline.GetHistory()
+		data, err := json.MarshalIndent(history, "", "  ")
+		if err != nil {
+			return fmt.Errorf("cannot marshal history: %v", err)
+		}
+		return os.WriteFile(historyFile, data, 0644)
 	}
-	return os.WriteFile(historyFile, data, 0644)
+	return nil
 }
 
 // loadReplHistory reads the history file and loads entries into readline's history
@@ -157,7 +160,9 @@ func (r *REPL) loadReplHistory() error {
 		return fmt.Errorf("cannot unmarshal history: %v", err)
 	}
 	for _, entry := range history {
-		r.readline.AddToHistory(entry)
+		if r.readline != nil {
+			r.readline.AddToHistory(entry)
+		}
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -36,27 +37,29 @@ type Command struct {
 }
 
 type REPL struct {
-	configOptions   ConfigOptions
-	currentClient   *llm.LLMClient
-	readline        *ReadLine // Persistent readline instance for input handling
-	currentInput    strings.Builder
-	cursorPos       int // Current cursor position in the line
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.Mutex
-	isStreaming     bool
-	isInterrupted   bool
-	oldState        *term.State
-	completeState   int
-	completeOptions []string
-	completePrefix  string
-	completeIdx     int    // Current index in completion options
-	lastTabInput    string // last input text when Tab was pressed
-	messages        []llm.Message
-	pendingFiles    []pendingFile      // Files and images to include in the next message
-	commands        map[string]Command // Registry of available commands
-	currentSession  string             // Name of the active chat session
-	unsavedTopic    string             // Topic for unsaved session before saving to disk
+	configOptions    ConfigOptions
+	currentClient    *llm.LLMClient
+	readline         *ReadLine // Persistent readline instance for input handling
+	currentInput     strings.Builder
+	cursorPos        int // Current cursor position in the line
+	ctx              context.Context
+	cancel           context.CancelFunc
+	mu               sync.Mutex
+	isStreaming      bool
+	isInterrupted    bool
+	oldState         *term.State
+	completeState    int
+	completeOptions  []string
+	completePrefix   string
+	completeIdx      int    // Current index in completion options
+	lastTabInput     string // last input text when Tab was pressed
+	messages         []llm.Message
+	pendingFiles     []pendingFile      // Files and images to include in the next message
+	commands         map[string]Command // Registry of available commands
+	currentSession   string             // Name of the active chat session
+	unsavedTopic     string             // Topic for unsaved session before saving to disk
+	initialCommand   string             // Command to execute on startup
+	quitAfterActions bool               // Exit after executing initial command
 	// Guard to avoid recursive followup execution
 	followupInProgress bool
 	// Callback to stop demo animation when first token is received
@@ -161,28 +164,34 @@ func AskYesNo(question string, defaultVal rune) bool {
 	return c == 'y'
 }
 
-func NewREPL(configOptions ConfigOptions) (*REPL, error) {
+func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterActions bool) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create a persistent readline instance
-	readLine, err := NewReadLine()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to initialize readline: %v", err)
+	var readLine *ReadLine
+	if !quitAfterActions {
+		// Create a persistent readline instance only if we need interactive input
+		var err error
+		readLine, err = NewReadLine()
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to initialize readline: %v", err)
+		}
 	}
 
 	// Initialize the REPL
 	repl := &REPL{
-		readline:        readLine,
-		cursorPos:       0, // Initialize cursor position to 0
-		ctx:             ctx,
-		cancel:          cancel,
-		completeState:   0,
-		completeOptions: []string{},
-		completeIdx:     0,                        // Initialize completion index
-		pendingFiles:    []pendingFile{},          // Initialize empty pending files slice
-		commands:        make(map[string]Command), // Initialize command registry
-		configOptions:   configOptions,
+		readline:         readLine,
+		cursorPos:        0, // Initialize cursor position to 0
+		ctx:              ctx,
+		cancel:           cancel,
+		completeState:    0,
+		completeOptions:  []string{},
+		completeIdx:      0,                        // Initialize completion index
+		pendingFiles:     []pendingFile{},          // Initialize empty pending files slice
+		commands:         make(map[string]Command), // Initialize command registry
+		configOptions:    configOptions,
+		initialCommand:   initialCommand,
+		quitAfterActions: quitAfterActions,
 	}
 
 	// Create chat directory and history file
@@ -195,12 +204,14 @@ func NewREPL(configOptions ConfigOptions) (*REPL, error) {
 	}
 
 	// Set prompts in the readline instance
-	if prompt := repl.configOptions.Get("repl.prompt"); prompt != "" {
-		repl.readline.SetPrompt(prompt)
-	}
+	if repl.readline != nil {
+		if prompt := repl.configOptions.Get("repl.prompt"); prompt != "" {
+			repl.readline.SetPrompt(prompt)
+		}
 
-	if readlinePrompt := repl.configOptions.Get("repl.prompt2"); readlinePrompt != "" {
-		repl.readline.SetReadlinePrompt(readlinePrompt)
+		if readlinePrompt := repl.configOptions.Get("repl.prompt2"); readlinePrompt != "" {
+			repl.readline.SetReadlinePrompt(readlinePrompt)
+		}
 	}
 
 	// Initialize baseurl/useragent options from environment defaults if not set
@@ -361,6 +372,20 @@ func (r *REPL) Run() error {
 	if r.configOptions.Get("ai.model") == "" {
 		if model := os.Getenv("MAI_MODEL"); model != "" {
 			r.configOptions.Set("ai.model", model)
+		}
+	}
+
+	// Execute initial command if provided
+	if r.initialCommand != "" {
+		fmt.Printf("Executing initial command: %s\r\n", r.initialCommand)
+		if err := r.handleCommand(r.initialCommand, "", ""); err != nil {
+			fmt.Fprintf(os.Stderr, "Error executing initial command: %v\r\n", err)
+			if r.quitAfterActions {
+				return nil // Exit if quit after actions is enabled
+			}
+			// Continue to REPL even if initial command fails
+		} else if r.quitAfterActions {
+			return nil // Exit after successful command execution
 		}
 	}
 
@@ -661,7 +686,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 
 	// Check if we need to complete a file path for a command that accepts a file
 	fileParts := strings.SplitN(input, " ", 2)
-	if len(fileParts) == 2 && (fileParts[0] == "/image" || fileParts[0] == "/file" || fileParts[0] == ".") {
+	if len(fileParts) == 2 && (fileParts[0] == "/image" || fileParts[0] == "/file" || fileParts[0] == "/template" || fileParts[0] == ".") {
 		r.handleFilePathCompletion(line, fileParts[0], fileParts[1])
 		return
 	}
@@ -2168,6 +2193,146 @@ func (r *REPL) initCommands() {
 			return fmt.Sprintf("mai-repl version %s\r\n", Version), nil
 		},
 	}
+
+	// Template command
+	r.commands["/template"] = Command{
+		Name:        "/template",
+		Description: "Fill template with key=value pairs and send to AI (use - as file to read from stdin)",
+		Handler: func(r *REPL, args []string) (string, error) {
+			return "", r.handleTemplateSlashCommand(args)
+		},
+	}
+}
+
+// handleTemplateSlashCommand handles the /template command for template filling
+func (r *REPL) handleTemplateSlashCommand(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("Usage: /template <file> [key=value ...] or /template <file> -  (use - as file to read template from stdin)\n\r")
+	}
+
+	templateFile := args[1]
+	var keyValues []string
+	interactive := false
+
+	if len(args) > 2 {
+		if args[2] == "-" {
+			interactive = true
+		} else {
+			keyValues = args[2:]
+		}
+	}
+
+	// Read template content
+	var templateContent []byte
+	var err error
+	if templateFile == "-" {
+		// Read from stdin
+		templateContent, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("failed to read template from stdin: %v", err)
+		}
+	} else {
+		// Read from file
+		templatePath, err := r.resolveTemplatePath(templateFile)
+		if err != nil {
+			return fmt.Errorf("template file not found: %v", err)
+		}
+
+		templateContent, err = os.ReadFile(templatePath)
+		if err != nil {
+			return fmt.Errorf("failed to read template file: %v", err)
+		}
+	}
+
+	// Parse key=value pairs
+	vars := make(map[string]string)
+	for _, kv := range keyValues {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid key=value format: %s", kv)
+		}
+		key, value := parts[0], parts[1]
+
+		// Handle @file slurping
+		if strings.HasPrefix(value, "@") {
+			filePath := value[1:]
+			if strings.HasPrefix(filePath, "~") {
+				homeDir, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("failed to get home directory: %v", err)
+				}
+				filePath = filepath.Join(homeDir, filePath[1:])
+			}
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %v", filePath, err)
+			}
+			value = string(content)
+		}
+
+		vars[key] = value
+	}
+
+	// Find all {key} placeholders
+	re := regexp.MustCompile(`\{([^}]+)\}`)
+	matches := re.FindAllStringSubmatch(string(templateContent), -1)
+
+	// Collect required variables
+	requiredVars := make(map[string]bool)
+	for _, match := range matches {
+		requiredVars[match[1]] = true
+	}
+
+	// Check for missing variables
+	var missingVars []string
+	for varName := range requiredVars {
+		if _, exists := vars[varName]; !exists {
+			missingVars = append(missingVars, varName)
+		}
+	}
+
+	// Handle missing variables
+	if len(missingVars) > 0 {
+		if interactive {
+			// Interactive mode: prompt for missing vars
+			prompt := r.configOptions.Get("repl.prompt")
+			if prompt == "" {
+				prompt = ">>>"
+			}
+
+			p := r.readline.defaultPrompt
+			r.readline.defaultPrompt = "?"
+			for _, varName := range missingVars {
+				fmt.Printf("%s\n\r%s ", varName, prompt)
+				response, err := r.readline.Read()
+				fmt.Print("\033[0m")
+				if err != nil {
+					r.readline.defaultPrompt = p
+					return fmt.Errorf("error reading input: %v", err)
+				}
+				vars[varName] = response
+			}
+			r.readline.defaultPrompt = p
+		} else {
+			// Not interactive: show error listing all required vars
+			var allRequired []string
+			for varName := range requiredVars {
+				allRequired = append(allRequired, varName)
+			}
+			sort.Strings(allRequired)
+			return fmt.Errorf("missing required template variables. All required variables: %s", strings.Join(allRequired, ", "))
+		}
+	}
+
+	// Replace placeholders
+	result := string(templateContent)
+	for key, value := range vars {
+		placeholder := "{" + key + "}"
+		result = strings.ReplaceAll(result, placeholder, value)
+	}
+
+	// Send to AI
+	return r.sendToAI(result, "", "", true, false)
 }
 
 // handlePromptCommand handles the # command for prompt expansion
