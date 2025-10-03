@@ -127,13 +127,14 @@ type StreamingClient interface {
 // AskYesNo prompts the user with a yes/no question, defaulting to 'y' or 'n'.
 // Returns true for yes, false for no.
 func AskYesNo(question string, defaultVal rune) bool {
-	defaultVal = rune(strings.ToLower(string(defaultVal))[0])
-	if defaultVal != 'y' && defaultVal != 'n' {
+	// Normalize default and validate
+	dv := unicode.ToLower(defaultVal)
+	if dv != 'y' && dv != 'n' {
 		panic("default value must be 'y' or 'n'")
 	}
 
 	var defaultText string
-	if defaultVal == 'y' {
+	if dv == 'y' {
 		defaultText = "[Y/n]"
 	} else {
 		defaultText = "[y/N]"
@@ -141,26 +142,35 @@ func AskYesNo(question string, defaultVal rune) bool {
 
 	fmt.Printf("%s %s ", question, defaultText)
 
-	// Put terminal in raw mode
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		panic(err)
+	fd := int(os.Stdin.Fd())
+	// If stdin is not a terminal, fall back to the default choice instead of panicking
+	if !term.IsTerminal(fd) {
+		fmt.Println()
+		return dv == 'n'
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// Put terminal in raw mode; if this fails, fall back to default
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: unable to set terminal raw mode: %v\n", err)
+		fmt.Println()
+		return dv == 'y'
+	}
+	defer func() { _ = term.Restore(fd, oldState) }()
 
 	// Read one byte
 	var buf [1]byte
-	_, err = os.Stdin.Read(buf[:])
-	if err != nil {
-		panic(err)
+	n, err := os.Stdin.Read(buf[:])
+	if err != nil || n == 0 {
+		return dv == 'y'
 	}
 
 	c := buf[0]
 	if c == '\r' || c == '\n' { // Enter pressed -> use default
-		return defaultVal == 'y'
+		return dv == 'y'
 	}
 
-	c = byte(strings.ToLower(string(c))[0])
+	c = byte(unicode.ToLower(rune(c)))
 	return c == 'y'
 }
 
@@ -377,7 +387,6 @@ func (r *REPL) Run() error {
 
 	// Execute initial command if provided
 	if r.initialCommand != "" {
-		fmt.Printf("Executing initial command: %s\r\n", r.initialCommand)
 		if err := r.handleCommand(r.initialCommand, "", ""); err != nil {
 			fmt.Fprintf(os.Stderr, "Error executing initial command: %v\r\n", err)
 			if r.quitAfterActions {
@@ -484,7 +493,9 @@ func (r *REPL) cleanup() {
 // interruptResponse interrupts the current LLM response if one is being generated
 func (r *REPL) interruptResponse() {
 	r.mu.Lock()
-	r.readline.Interrupted()
+	if r.readline != nil {
+		r.readline.Interrupted()
+	}
 	isStreaming := r.isStreaming
 	r.isInterrupted = true
 	r.mu.Unlock()
