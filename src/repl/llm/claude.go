@@ -148,10 +148,10 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if stream {
-		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL,
-			headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
-				return p.parseStreamWithCallback(r, stopCallback)
-			}, nil)
+		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL,
+			headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
+				return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
+			}, nil, nil, nil)
 	}
 
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
@@ -202,9 +202,13 @@ func (p *ClaudeProvider) parseStream(reader io.Reader) (string, error) {
 }
 
 func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
+	return p.parseStreamWithTiming(reader, stopCallback, nil, nil)
+}
+
+func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	sd := NewStreamDemo(stopCallback)
+	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -283,6 +287,9 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	}
 
 	fmt.Println()
+
+	// Call stream end callback for timing
+	sd.OnStreamEnd()
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err

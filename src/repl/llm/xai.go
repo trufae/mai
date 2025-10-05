@@ -148,10 +148,10 @@ func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, strea
 	apiURL := buildURL("https://api.x.ai/v1/chat/completions", p.config.BaseURL, "", "", "/chat/completions")
 
 	if stream {
-		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL,
-			headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
-				return p.parseStreamWithCallback(r, stopCallback)
-			}, nil)
+		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL,
+			headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
+				return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
+			}, nil, nil, nil)
 	}
 
 	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
@@ -186,9 +186,13 @@ func (p *XAIProvider) parseStream(reader io.Reader) (string, error) {
 }
 
 func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
+	return p.parseStreamWithTiming(reader, stopCallback, nil, nil)
+}
+
+func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	sd := NewStreamDemo(stopCallback)
+	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -268,6 +272,9 @@ func (p *XAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback fun
 	}
 
 	fmt.Println()
+
+	// Call stream end callback for timing
+	sd.OnStreamEnd()
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err

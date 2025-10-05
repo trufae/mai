@@ -223,6 +223,9 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	if opts.Get("scr.markdown") != "" {
 		config.Markdown = opts.GetBool("scr.markdown")
 	}
+	if opts.Get("scr.tps") != "" {
+		config.ShowTPS = opts.GetBool("scr.tps")
+	}
 	if opts.Get("ai.deterministic") != "" {
 		config.Deterministic = opts.GetBool("ai.deterministic")
 	}

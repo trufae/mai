@@ -178,9 +178,9 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	// If streaming requested, use the streaming helper which will call our parser
 	if stream {
-		return llmMakeStreamingRequestWithCallback(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback func()) (string, error) {
-			return p.parseStreamWithCallback(r, stopCallback)
-		}, nil)
+		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
+			return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
+		}, nil, nil, nil)
 	}
 
 	// non-streaming fallback
@@ -226,9 +226,13 @@ func (p *GeminiProvider) parseStream(reader io.Reader) (string, error) {
 }
 
 func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
+	return p.parseStreamWithTiming(reader, stopCallback, nil, nil)
+}
+
+func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	sd := NewStreamDemo(stopCallback)
+	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -343,6 +347,9 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	}
 
 	fmt.Println()
+
+	// Call stream end callback for timing
+	sd.OnStreamEnd()
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err

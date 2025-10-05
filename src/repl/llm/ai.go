@@ -78,6 +78,10 @@ type Config struct {
 	// false, think regions are left intact (except leading think blocks
 	// which are trimmed at the start of responses).
 	ThinkHide bool
+
+	// ShowTPS enables displaying time statistics (time to first token,
+	// generation time, tokens/second, chars/second) after LLM responses.
+	ShowTPS bool
 }
 
 // GetAPIKey resolves an API key by checking an environment variable first,

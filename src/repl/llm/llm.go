@@ -233,13 +233,19 @@ func TrimLeadingThink(s string) string {
 //   - Feed all tokens to EmitDemoTokens so <think> regions get rendered in
 //     the demo scroller and </think> closes the animation cleanly.
 type StreamDemo struct {
-	firstHandled bool
-	stop         func()
+	firstHandled       bool
+	stop               func()
+	firstTokenCallback func()
+	streamEndCallback  func()
 }
 
-// NewStreamDemo returns a helper bound to a stop callback.
-func NewStreamDemo(stop func()) *StreamDemo {
-	return &StreamDemo{stop: stop}
+// NewStreamDemo returns a helper bound to callbacks.
+func NewStreamDemo(stop, firstToken, streamEnd func()) *StreamDemo {
+	return &StreamDemo{
+		stop:               stop,
+		firstTokenCallback: firstToken,
+		streamEndCallback:  streamEnd,
+	}
 }
 
 // OnToken processes a raw token from the provider stream.
@@ -254,10 +260,21 @@ func (sd *StreamDemo) OnToken(raw string) {
 			if !strings.HasPrefix(strings.TrimSpace(raw), "<think>") && sd.stop != nil {
 				sd.stop()
 			}
+			// Call first token callback for timing
+			if sd.firstTokenCallback != nil {
+				sd.firstTokenCallback()
+			}
 		}
 	}
 	// Always emit tokens so <think>...</think> is handled centrally
 	EmitDemoTokens(raw)
+}
+
+// OnStreamEnd should be called when the stream ends to trigger timing callbacks
+func (sd *StreamDemo) OnStreamEnd() {
+	if sd != nil && sd.streamEndCallback != nil {
+		sd.streamEndCallback()
+	}
 }
 
 // LLMProvider is a generic interface for all LLM providers
@@ -304,6 +321,9 @@ type LLMClient struct {
 	responseCancel func() // Function to cancel the current response
 	// Optional callback to notify when the first streaming token arrives
 	responseStopCallback func()
+	// Timing callbacks for TPS statistics
+	firstTokenCallback func()
+	streamEndCallback  func()
 }
 
 // ListModelsResult contains the list of available models with optional error
@@ -341,12 +361,23 @@ func (c *LLMClient) SetResponseStopCallback(cb func()) {
 	c.responseStopCallback = cb
 }
 
+// SetTimingCallbacks sets callbacks for tracking timing statistics.
+// firstTokenCallback is called when the first token is received.
+// streamEndCallback is called when the stream ends.
+func (c *LLMClient) SetTimingCallbacks(firstToken func(), streamEnd func()) {
+	c.firstTokenCallback = firstToken
+	c.streamEndCallback = streamEnd
+}
+
 // newContext returns a cancellable context carrying the client config.
 func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 	ctx := context.WithValue(context.Background(), "config", c.Config)
 	// Include optional stop callback in the context so streaming helpers can
 	// invoke it when the first token is received.
 	ctx = context.WithValue(ctx, "stop_callback", c.responseStopCallback)
+	// Include timing callbacks for TPS statistics
+	ctx = context.WithValue(ctx, "first_token_callback", c.firstTokenCallback)
+	ctx = context.WithValue(ctx, "stream_end_callback", c.streamEndCallback)
 	ctx, cancel := context.WithCancel(ctx)
 	c.responseCancel = cancel
 	return ctx, cancel
@@ -389,6 +420,28 @@ func createProvider(config *Config) (LLMProvider, error) {
 
 // SendMessage sends a message to the LLM and handles the response
 func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+	// Track timing if TPS statistics are enabled
+	var requestStart time.Time
+	var firstTokenTime time.Time
+	var streamEndTime time.Time
+	var firstTokenReceived bool
+
+	if c.Config != nil && c.Config.ShowTPS {
+		requestStart = time.Now()
+		// Set up timing callbacks
+		c.SetTimingCallbacks(
+			func() {
+				if !firstTokenReceived {
+					firstTokenTime = time.Now()
+					firstTokenReceived = true
+				}
+			},
+			func() {
+				streamEndTime = time.Now()
+			},
+		)
+	}
+
 	// Apply conversation message limit if configured: only keep the last N messages
 	messagesToSend := messages
 	if c.Config != nil && c.Config.ConversationMessageLimit > 0 {
@@ -459,7 +512,15 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 
 	// Single entry point for all providers; providers handle images support.
 	// Delegate to provider and capture response so we can debug-print it
-	resp, err := c.provider.SendMessage(ctx, messagesToSend, stream && !c.Config.NoStream, images)
+	isStreaming := stream && !c.Config.NoStream
+	resp, err := c.provider.SendMessage(ctx, messagesToSend, isStreaming, images)
+
+	// For non-streaming responses, simulate timing callbacks
+	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && resp != "" {
+		firstTokenTime = time.Now()
+		streamEndTime = firstTokenTime
+		firstTokenReceived = true
+	}
 
 	if c.Config != nil && c.Config.Debug {
 		var buf bytes.Buffer
@@ -492,7 +553,55 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 		}
 	}
 
+	// Display TPS statistics if enabled
+	if c.Config != nil && c.Config.ShowTPS && err == nil && resp != "" {
+		c.displayTPSStats(requestStart, firstTokenTime, streamEndTime, resp)
+	}
+
 	return resp, err
+}
+
+// displayTPSStats calculates and displays timing statistics for LLM responses
+func (c *LLMClient) displayTPSStats(requestStart, firstTokenTime, streamEndTime time.Time, response string) {
+	if requestStart.IsZero() {
+		return
+	}
+
+	responseLength := len(response)
+
+	// For streaming responses
+	if !firstTokenTime.IsZero() && !streamEndTime.IsZero() {
+		// Time from request start to first token (time to first token)
+		timeToFirstToken := firstTokenTime.Sub(requestStart)
+
+		// Time from first token to stream end (generation time)
+		generationTime := streamEndTime.Sub(firstTokenTime)
+
+		// Calculate tokens/second and chars/second based on generation time
+		charsPerSec := float64(responseLength) / generationTime.Seconds()
+		estimatedTokens := responseLength / 4
+		tokensPerSec := float64(estimatedTokens) / generationTime.Seconds()
+
+		// For very short generation times, the stats might not be meaningful
+		if generationTime == 0 || responseLength < 200 {
+			totalTime := streamEndTime.Sub(requestStart)
+			charsPerSec = float64(responseLength) / totalTime.Seconds()
+			tokensPerSec = float64(estimatedTokens) / totalTime.Seconds()
+			fmt.Fprintf(os.Stderr, "\n[TPS] Time to first token: %.2fs, Total time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f\n",
+				timeToFirstToken.Seconds(), totalTime.Seconds(), tokensPerSec, charsPerSec)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n[TPS] Time to first token: %.2fs, Generation time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f\n",
+				timeToFirstToken.Seconds(), generationTime.Seconds(), tokensPerSec, charsPerSec)
+		}
+	} else if !streamEndTime.IsZero() {
+		// For non-streaming responses (firstTokenTime and streamEndTime are the same)
+		totalTime := streamEndTime.Sub(requestStart)
+		charsPerSec := float64(responseLength) / totalTime.Seconds()
+		estimatedTokens := responseLength / 4
+		tokensPerSec := float64(estimatedTokens) / totalTime.Seconds()
+		fmt.Fprintf(os.Stderr, "\n[TPS] Total time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f\n",
+			totalTime.Seconds(), tokensPerSec, charsPerSec)
+	}
 }
 
 // ListModels returns a list of available models for the current provider
@@ -812,6 +921,34 @@ func llmMakeStreamingRequestWithCallback(ctx context.Context, method, url string
 		}
 	}
 	return parser(resp.Body, stopCallback)
+}
+
+// llmMakeStreamingRequestWithTiming is a utility function for making streaming HTTP requests with timing callbacks
+func llmMakeStreamingRequestWithTiming(ctx context.Context, method, url string, headers map[string]string,
+	body []byte, parser func(io.Reader, func(), func(), func()) (string, error), stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
+	resp, err := httpDo(ctx, method, url, headers, body, true)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	// If no explicit callbacks were provided by the caller, try to read them
+	// from the context (set by the LLM client).
+	if stopCallback == nil && ctx != nil {
+		if cb, ok := ctx.Value("stop_callback").(func()); ok && cb != nil {
+			stopCallback = cb
+		}
+	}
+	if firstTokenCallback == nil && ctx != nil {
+		if cb, ok := ctx.Value("first_token_callback").(func()); ok && cb != nil {
+			firstTokenCallback = cb
+		}
+	}
+	if streamEndCallback == nil && ctx != nil {
+		if cb, ok := ctx.Value("stream_end_callback").(func()); ok && cb != nil {
+			streamEndCallback = cb
+		}
+	}
+	return parser(resp.Body, stopCallback, firstTokenCallback, streamEndCallback)
 }
 
 // buildURL constructs a full URL using baseURL override, defaultURL, or host/port and path suffix

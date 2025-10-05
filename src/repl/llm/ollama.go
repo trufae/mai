@@ -58,14 +58,14 @@ func tryPostCandidatesNonStream(ctx context.Context, candidates []string, header
 }
 
 // tryPostCandidatesStream POSTs to each candidate streaming endpoint until one succeeds
-func tryPostCandidatesStream(ctx context.Context, candidates []string, headers map[string]string, body []byte, parser func(io.Reader, func()) (string, error)) (string, error) {
+func tryPostCandidatesStream(ctx context.Context, candidates []string, headers map[string]string, body []byte, parser func(io.Reader, func(), func(), func()) (string, error)) (string, error) {
 	var lastErr error
 	for _, cand := range candidates {
 		cand = strings.TrimSpace(cand)
 		if cand == "" || cand == "/" {
 			continue
 		}
-		res, err := llmMakeStreamingRequestWithCallback(ctx, "POST", cand, headers, body, parser, nil)
+		res, err := llmMakeStreamingRequestWithTiming(ctx, "POST", cand, headers, body, parser, nil, nil, nil)
 		if err == nil {
 			return res, nil
 		}
@@ -267,7 +267,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		if stream {
-			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
+			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
 		}
 
 		respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
@@ -343,7 +343,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			if p.config.Debug {
 				art.DebugBanner("Ollama Request", string(jsonData))
 			}
-			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
+			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
 		}
 
 		respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
@@ -435,7 +435,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		art.DebugBanner("Ollama Request", string(jsonData))
 	}
 	if stream {
-		return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithCallback)
+		return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
 	}
 
 	respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
@@ -477,9 +477,13 @@ func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
 }
 
 func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback func()) (string, error) {
+	return p.parseStreamWithTiming(reader, stopCallback, nil, nil)
+}
+
+func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
-	sd := NewStreamDemo(stopCallback)
+	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
 	// Check if markdown is enabled
 	markdownEnabled := false
@@ -606,6 +610,9 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 	}
 
 	fmt.Println()
+
+	// Call stream end callback for timing
+	sd.OnStreamEnd()
 
 	if err := scanner.Err(); err != nil {
 		return fullResponse.String(), err

@@ -107,6 +107,7 @@ func NewConfigOptions() *ConfigOptions {
 
 	// Screen rendering options
 	co.RegisterOption("scr.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
+	co.RegisterOption("scr.tps", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
 
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
