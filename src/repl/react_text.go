@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const toolsPrompt = `
+const toolsPromptHigh = `
 You are an assistant that must resolve user prompt using the provided tools.
 
 RULES:
@@ -43,6 +43,87 @@ AVAILABLE TOOLS:
 <|tools_end|>
 
 `
+
+const toolsPromptMedium = `
+You are an assistant that must resolve user prompt using the provided tools.
+
+RULES:
+- Do not output anything else outside these fields.
+- Use the tool descriptions to decide which one is appropriate.
+- Design a simple plan if needed and adjust steps.
+- Analyze context and choose the tool to progress.
+- Once you have all the information use ACTION DONE
+
+OUTPUT RESPONSE:
+
+Case 1: You need to call a tool
+
+<|response_begin|>
+THINK: <short reason why>
+ACTION: TOOL <tool-name> <arg>=<value> ...
+<|response_end|>
+
+Case 2: You are finished
+
+<|response_begin|>
+THINK: <short reason why no more tools are needed>
+ACTION: DONE
+ANSWER: <final reply for the user>
+<|response_end|>
+AVAILABLE TOOLS:
+
+<|tools_begin|>
+{tools}
+<|tools_end|>
+
+`
+
+const toolsPromptLow = `
+# Direct Tool Usage
+
+Use tools directly and efficiently to solve the user's request. Minimize planning overhead.
+
+RULES:
+- Do not output anything else outside these fields.
+- Use the tool descriptions to decide which one is appropriate.
+- Once you have all the information to resolve the user request use ACTION DONE
+
+OUTPUT RESPONSE:
+
+Case 1: You need to call a tool
+
+<|response_begin|>
+THINK: <short reason why>
+ACTION: TOOL <tool-name> <arg>=<value> ...
+<|response_end|>
+
+Case 2: You are finished
+
+<|response_begin|>
+THINK: <short reason why no more tools are needed>
+ACTION: DONE
+ANSWER: <final reply for the user>
+<|response_end|>
+AVAILABLE TOOLS:
+
+<|tools_begin|>
+{tools}
+<|tools_end|>
+
+`
+
+func getToolsPrompt(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "low":
+		return toolsPromptLow
+	case "medium":
+		return toolsPromptMedium
+	case "high":
+		return toolsPromptHigh
+	default:
+		return toolsPromptLow
+	}
+}
 
 /*
 
@@ -447,9 +528,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		display = "verbose"
 	}
 	showPlan := (display == "verbose" || display == "plan")
-	toolPrompt := toolsPrompt
-	// Apply reasoning level directive
-	toolPrompt = adjustReasoningPrompt(toolPrompt, r.configOptions.Get("mcp.reason"))
+	toolPrompt := getToolsPrompt(r.configOptions.Get("mcp.reason"))
 	// Add custom prompt text if configured
 	customPrompt := strings.TrimSpace(r.configOptions.Get("mcp.prompt"))
 	if customPrompt != "" {
