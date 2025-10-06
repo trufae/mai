@@ -121,6 +121,7 @@ const (
 	YoloCustomResponse
 	YoloGuideModel
 	YoloCustomToolResponse
+	YoloAlwaysRespondToolNotFound
 )
 
 // Prompt decision type
@@ -185,19 +186,20 @@ type MCPServer struct {
 
 // MCPService manages multiple MCP servers
 type MCPService struct {
-	servers         map[string]*MCPServer
-	mutex           sync.RWMutex
-	yoloMode        bool
-	drunkMode       bool
-	noPrompts       bool
-	nonInteractive  bool
-	debugMode       bool
-	toolPerms       map[string]ToolPermission // Map tool name or tool+params hash to permission
-	toolPermsLock   sync.RWMutex
-	promptPerms     map[string]PromptPermission // Map prompt name or prompt+args hash to permission
-	promptPermsLock sync.RWMutex
-	reportEnabled   bool
-	reportFile      string
-	report          Report
-	reportLock      sync.RWMutex
+	servers              map[string]*MCPServer
+	mutex                sync.RWMutex
+	yoloMode             bool
+	drunkMode            bool
+	noPrompts            bool
+	nonInteractive       bool
+	debugMode            bool
+	yoloToolNotFoundMode bool                      // Always respond that tool doesn't exist
+	toolPerms            map[string]ToolPermission // Map tool name or tool+params hash to permission
+	toolPermsLock        sync.RWMutex
+	promptPerms          map[string]PromptPermission // Map prompt name or prompt+args hash to permission
+	promptPermsLock      sync.RWMutex
+	reportEnabled        bool
+	reportFile           string
+	report               Report
+	reportLock           sync.RWMutex
 }

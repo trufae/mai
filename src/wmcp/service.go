@@ -19,16 +19,17 @@ const MaiVersion = "1.0.0"
 
 func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool, nonInteractive bool) *MCPService {
 	return &MCPService{
-		servers:        make(map[string]*MCPServer),
-		yoloMode:       yoloMode,
-		drunkMode:      drunkMode,
-		noPrompts:      noPrompts,
-		nonInteractive: nonInteractive,
-		toolPerms:      make(map[string]ToolPermission),
-		promptPerms:    make(map[string]PromptPermission),
-		reportEnabled:  reportFile != "",
-		reportFile:     reportFile,
-		report:         Report{Entries: []ReportEntry{}},
+		servers:              make(map[string]*MCPServer),
+		yoloMode:             yoloMode,
+		drunkMode:            drunkMode,
+		noPrompts:            noPrompts,
+		nonInteractive:       nonInteractive,
+		yoloToolNotFoundMode: false,
+		toolPerms:            make(map[string]ToolPermission),
+		promptPerms:          make(map[string]PromptPermission),
+		reportEnabled:        reportFile != "",
+		reportFile:           reportFile,
+		report:               Report{Entries: []ReportEntry{}},
 	}
 }
 
@@ -293,6 +294,7 @@ func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
 	fmt.Printf("[c] Let me enter a custom response\n")
 	fmt.Printf("[s] Show available tools and let me adjust the request\n")
 	fmt.Printf("[g] Respond with a message to guide the model\n")
+	fmt.Printf("[y] Always respond that tools don't exist (yolo mode)\n")
 	fmt.Printf("\nYour decision: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -308,6 +310,8 @@ func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
 		return YoloModify
 	case "g":
 		return YoloGuideModel
+	case "y":
+		return YoloAlwaysRespondToolNotFound
 	default:
 		fmt.Println("Invalid option, defaulting to tool not found")
 		return YoloToolNotFound
@@ -684,6 +688,11 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 
 		// Check if tool exists first
 		if !s.isToolAvailable(callParams.Name) {
+			// Check if we're in yolo tool not found mode
+			if s.yoloToolNotFoundMode {
+				return nil, fmt.Errorf("tool '%s' does not exist", callParams.Name)
+			}
+
 			// Tool doesn't exist, prompt user for what to do
 			decision := s.promptToolNotFoundDecision(callParams.Name)
 
@@ -753,6 +762,10 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 					},
 					ID: request.ID,
 				}, nil
+			case YoloAlwaysRespondToolNotFound:
+				// Enable yolo tool not found mode
+				s.yoloToolNotFoundMode = true
+				return nil, fmt.Errorf("tool '%s' does not exist", callParams.Name)
 			}
 		}
 
