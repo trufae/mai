@@ -405,6 +405,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	var context = ""
 	var progress = ""
 	var stepCount = 0
+	var currentPlan []string
 	for {
 		stepCount++
 		// Build the dynamic tools prompt with optional plan template
@@ -414,6 +415,9 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		}
 		customPrompt := strings.TrimSpace(r.configOptions.Get("mcp.prompt"))
 		dynamicToolsPrompt := r.toolsPromptPrefix() + planTemplate
+		if len(currentPlan) > 0 {
+			dynamicToolsPrompt += "\n\nCurrent Plan:\n" + strings.Join(currentPlan, "\n") + "\n"
+		}
 		if customPrompt != "" {
 			dynamicToolsPrompt += "\n\n" + customPrompt
 		}
@@ -431,6 +435,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 			continue
 
 		}
+		currentPlan = step.Plan
 		if display != "quiet" && (display == "verbose" || display == "plan") {
 			showPlan(&step)
 		}
@@ -460,6 +465,8 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), int(timeout))
 		if err != nil {
 			fmt.Println(err)
+			// Update chat history with failed tool call
+			chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_error>%s</tool_error>", tool.ToString(), err.Error())
 			// break
 		} else {
 			msg := fmt.Sprintf("\n\n## Step %d Tool '%s'\n\n%s\n<output>\n%s\n</output>\n", stepCount, tool.ToString(), step.Reasoning, result)
@@ -469,7 +476,16 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 				fmt.Println("-----------")
 			*/
 			context += msg
+			// Update chat history with tool call and result to maintain context across iterations
+			chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_result>%s</tool_result>", tool.ToString(), result)
 			// context += "## Action Done\n" + step.NextStep
+			if display == "verbose" {
+				output := result
+				if len(output) > 1000 {
+					output = output[:1000] + "..."
+				}
+				fmt.Println("\x1b[0m 📄| " + output)
+			}
 		}
 	}
 	if display != "quiet" {
