@@ -49,31 +49,31 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 1. list_directory
 		{
 			Name:        "list_directory",
-			Description: "Lists names of files and subdirectories in a specified directory (relative to the project root or absolute), with optional exclusion of entries matching glob patterns.",
+			Description: "Lists files and directories in a directory.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"path": map[string]any{
 						"type":        "string",
-						"description": "The path to the directory to list (relative to project root or absolute)",
+						"description": "Directory path",
 					},
 					"ignore": map[string]any{
 						"type": "array",
 						"items": map[string]any{
 							"type": "string",
 						},
-						"description": "List of glob patterns to ignore",
+						"description": "Glob patterns to ignore",
 					},
 					"file_filtering_options": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"respect_git_ignore": map[string]any{
 								"type":        "boolean",
-								"description": "Optional: Whether to respect .gitignore patterns when listing files. Only available in git repositories. Defaults to true.",
+								"description": "Respect .gitignore (default true)",
 							},
 							"respect_gemini_ignore": map[string]any{
 								"type":        "boolean",
-								"description": "Optional: Whether to respect .geminiignore patterns when listing files. Defaults to true.",
+								"description": "Respect .geminiignore (default true)",
 							},
 						},
 					},
@@ -85,21 +85,21 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 2. read_file
 		{
 			Name:        "read_file",
-			Description: "Reads and returns the content of a specified file from the local filesystem. For large files, it can read specific line ranges.",
+			Description: "Reads a file's content.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The path to the file to read (e.g., './file.txt')",
+						"description": "File path",
 					},
 					"limit": map[string]any{
 						"type":        "number",
-						"description": "Optional: For text files, maximum number of lines to read. Use with 'offset' to paginate through large files. If omitted, reads the entire file (if feasible, up to a default limit).",
+						"description": "Max lines to read (optional)",
 					},
 					"offset": map[string]any{
 						"type":        "number",
-						"description": "Optional: For text files, the 0-based line number to start reading from. Requires 'limit' to be set. Use for paginating through large files.",
+						"description": "Starting line number (optional)",
 					},
 				},
 				"required": []string{"file_path"},
@@ -109,49 +109,49 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 3. grep_files
 		{
 			Name:        "grep_files",
-			Description: "Searches for a regex pattern within the contents of files in a specified directory, optionally filtered by a glob pattern for file names. Returns matching lines with their file paths and line numbers.",
+			Description: "Searches for a pattern in files.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"pattern": map[string]any{
 						"type":        "string",
-						"description": "The regular expression (regex) pattern to search for within file contents (e.g., \"function\\s+myFunction\", \"import\\s+\\{.*\\}\\s+from\\s+.*\").",
+						"description": "Regex pattern to search",
 					},
 					"path": map[string]any{
 						"type":        "string",
-						"description": "The path to the directory to search within (relative to project root or absolute). If omitted, searches the current working directory.",
+						"description": "Directory to search (optional)",
 					},
 					"include": map[string]any{
 						"type":        "string",
-						"description": "Optional: A glob pattern to filter which files are searched (e.g., '*.js', '*.{ts,tsx}', 'src/**'). If omitted, searches all files (respecting potential global ignores).",
+						"description": "File glob pattern (optional)",
 					},
 				},
-				"required": []string{"pattern", "path"},
+				"required": []string{"pattern"},
 			},
 			Handler: s.handleGrepFiles,
 		},
 		// 4. glob
 		{
 			Name:        "glob",
-			Description: "Finds file names matching specific glob patterns (e.g., `src/**/*.ts`, `**/*.md`, `Makefile`, `go.mod`), returning absolute paths",
+			Description: "Finds files matching a glob pattern.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"pattern": map[string]any{
 						"type":        "string",
-						"description": "The glob pattern to match against (e.g., '**/*.py', 'docs/*.md').",
+						"description": "Glob pattern",
 					},
 					"path": map[string]any{
 						"type":        "string",
-						"description": "Optional: The path to the directory to search within (relative to project root or absolute). If omitted, searches the root directory.",
+						"description": "Directory to search (optional)",
 					},
 					"case_sensitive": map[string]any{
 						"type":        "boolean",
-						"description": "Optional: Whether the search should be case-sensitive. Defaults to false.",
+						"description": "Case sensitive (optional)",
 					},
 					"respect_git_ignore": map[string]any{
 						"type":        "boolean",
-						"description": "Optional: Whether to respect .gitignore patterns when finding files. Only available in git repositories. Defaults to true.",
+						"description": "Respect .gitignore (optional)",
 					},
 				},
 				"required": []string{"pattern"},
@@ -161,25 +161,25 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 5. replace
 		{
 			Name:        "replace",
-			Description: "Replaces text within a file. By default, replaces a single occurrence, but can replace multiple occurrences when `expected_replacements` is specified. This tool requires providing significant context around the change to ensure precise targeting. Always use the read_file tool to examine the file's current content before attempting a text replacement.",
+			Description: "Replaces text in a file.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The path to the file to modify (relative to project root or absolute).",
+						"description": "File path",
 					},
 					"old_string": map[string]any{
 						"type":        "string",
-						"description": "The exact literal text to replace, preferably unescaped. For single replacements (default), include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. For multiple replacements, specify expected_replacements parameter. If this string is not the exact literal text (i.e. you escaped it) or does not match exactly, the tool will fail.",
+						"description": "Text to replace",
 					},
 					"new_string": map[string]any{
 						"type":        "string",
-						"description": "The exact literal text to replace `old_string` with, preferably unescaped. Provide the EXACT text. Ensure the resulting code is correct and idiomatic.",
+						"description": "Replacement text",
 					},
 					"expected_replacements": map[string]any{
 						"type":        "number",
-						"description": "Number of replacements expected. Defaults to 1 if not specified. Use when you want to replace multiple occurrences.",
+						"description": "Number of replacements (optional)",
 					},
 				},
 				"required": []string{"file_path", "old_string", "new_string"},
@@ -189,17 +189,17 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 6. write_file
 		{
 			Name:        "write_file",
-			Description: "Writes content to a specified file in the local filesystem.",
+			Description: "Writes content to a file.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The path to the file to write to (relative to project root or absolute).",
+						"description": "File path",
 					},
 					"content": map[string]any{
 						"type":        "string",
-						"description": "The content to write to the file.",
+						"description": "Content to write",
 					},
 				},
 				"required": []string{"file_path", "content"},
@@ -209,21 +209,21 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 7. patch_file
 		{
 			Name:        "patch_file",
-			Description: "Inserts text after the first occurrence of a regex pattern in a file. Useful for adding code or content after specific markers.",
+			Description: "Inserts text after a pattern in a file.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The path to the file to modify (relative to project root or absolute).",
+						"description": "File path",
 					},
 					"pattern": map[string]any{
 						"type":        "string",
-						"description": "The regular expression pattern to search for. The text will be inserted after the first match.",
+						"description": "Regex pattern",
 					},
 					"content": map[string]any{
 						"type":        "string",
-						"description": "The content to insert after the matched pattern.",
+						"description": "Content to insert",
 					},
 				},
 				"required": []string{"file_path", "pattern", "content"},
@@ -233,21 +233,21 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 8. run_shell_command
 		{
 			Name:        "run_shell_command",
-			Description: "This tool executes a given shell command as `bash -c <command>`. Command can start background processes using `&`. Command is executed as a subprocess that leads its own process group. Command process group can be terminated as `kill -- -PGID` or signaled as `kill -s SIGNAL -- -PGID`.",
+			Description: "Runs a shell command.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"command": map[string]any{
 						"type":        "string",
-						"description": "Exact bash command to execute as `bash -c <command>`",
+						"description": "Shell command",
 					},
 					"directory": map[string]any{
 						"type":        "string",
-						"description": "(OPTIONAL) Directory to run the command in, if not the project root directory. Must be relative to the project root directory and must already exist.",
+						"description": "Directory to run in (optional)",
 					},
 					"description": map[string]any{
 						"type":        "string",
-						"description": "Brief description of the command for the user. Be specific and concise. Ideally a single sentence. Can be up to 3 sentences for clarity. No line breaks.",
+						"description": "Command description",
 					},
 				},
 				"required": []string{"command"},
@@ -262,30 +262,45 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 			// hexdump tool
 			mcplib.Tool{
 				Name:        "hexdump",
-				Description: "Dumps hex and ASCII for a file region. Use offset+length for bytes or start_line+end_line for text mode.",
+				Description: "Dumps hex and ASCII for a file.",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"path":       map[string]any{"type": "string"},
-						"offset":     map[string]any{"type": "number"},
-						"length":     map[string]any{"type": "number"},
-						"start_line": map[string]any{"type": "number"},
-						"end_line":   map[string]any{"type": "number"},
+						"path": map[string]any{
+							"type":        "string",
+							"description": "File path",
+						},
+						"offset": map[string]any{
+							"type":        "number",
+							"description": "Byte offset (optional)",
+						},
+						"length": map[string]any{
+							"type":        "number",
+							"description": "Number of bytes (optional)",
+						},
+						"start_line": map[string]any{
+							"type":        "number",
+							"description": "Start line (optional)",
+						},
+						"end_line": map[string]any{
+							"type":        "number",
+							"description": "End line (optional)",
+						},
 					},
-					"required": []string{"path"},
+					"required": []string{},
 				},
 				Handler: s.handleHexDump,
 			},
 			// web_fetch
 			mcplib.Tool{
 				Name:        "web_fetch",
-				Description: "Fetch content from a URL",
+				Description: "Fetches content from a URL.",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"url": map[string]any{
 							"type":        "string",
-							"description": "The URL to fetch content from",
+							"description": "URL to fetch",
 						},
 					},
 					"required": []string{"url"},
@@ -301,9 +316,9 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 // Handler implementations
 
 func (s *PanCodeService) handleListDirectory(args map[string]any) (any, error) {
-	path, ok := args["path"].(string)
-	if !ok || path == "" {
-		return nil, fmt.Errorf("path is required")
+	path := "."
+	if p, ok := args["path"].(string); ok && p != "" {
+		path = p
 	}
 
 	abs, err := AllowedPath(path)
