@@ -393,7 +393,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	_ = r.configOptions.Set("llm.schema", schemaString)
 	// Recreate client with the new schema
 	r.currentClient, _ = llm.NewLLMClient(r.buildLLMConfig())
-	toolList, err := GetAvailableTools(XML) // Markdown)
+	toolList, err := GetAvailableToolsWithConfig(r.configOptions, JSON)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
@@ -467,7 +467,9 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 			fmt.Println(err)
 			// Update chat history with failed tool call
 			chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_error>%s</tool_error>", tool.ToString(), err.Error())
-			// break
+			// Add error to context so the model can learn from it
+			context += fmt.Sprintf("\n\n## Tool Error\n\nTool %s execution failed: %s\n\nPlease try a different approach or tool.\n", tool.ToString(), err.Error())
+			continue
 		} else {
 			msg := fmt.Sprintf("\n\n## Step %d Tool '%s'\n\n%s\n<output>\n%s\n</output>\n", stepCount, tool.ToString(), step.Reasoning, result)
 			/*

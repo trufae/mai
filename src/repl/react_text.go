@@ -535,12 +535,12 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		toolPrompt += "\n\n" + customPrompt
 	}
 
-	toolList, err := GetAvailableTools(Simple)
+	toolList, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
 	if err != nil || strings.TrimSpace(toolList) == "" {
 		if r.configOptions.GetBool("repl.debug") {
 			art.DebugBanner("Tool List Warning", fmt.Sprintf("quiet mode failed: %v", err))
 		}
-		toolList, err = GetAvailableTools(Markdown)
+		toolList, err = GetAvailableToolsWithConfig(r.configOptions, Markdown)
 		if err != nil {
 			fmt.Println("Cannot retrieve tools, doing nothing")
 			return input, nil
@@ -706,7 +706,18 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			if r.configOptions.GetBool("repl.debug") {
 				art.DebugBanner("Tool Call Error", err.Error())
 			}
-			input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), err.Error())
+			// Provide more helpful error messages for common issues
+			errorMsg := err.Error()
+			if strings.Contains(errorMsg, "not found") || strings.Contains(errorMsg, "does not exist") {
+				// Tool doesn't exist - provide guidance
+				input += fmt.Sprintf("\nTool '%s' does not exist. Please check the available tools list and use a correct tool name.\n\n", tool.Name)
+			} else if strings.Contains(errorMsg, "path is required") {
+				// Missing required parameters
+				input += fmt.Sprintf("\nTool %s failed: %s. Please provide the required parameters.\n\n", tool.ToString(), errorMsg)
+			} else {
+				// Generic error
+				input += fmt.Sprintf("\nTool %s execution failed: %s\n\n", tool.ToString(), errorMsg)
+			}
 			continue
 			// return "", err
 		}

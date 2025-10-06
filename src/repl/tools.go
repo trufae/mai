@@ -37,6 +37,24 @@ const (
 	Simple
 )
 
+// parseToolFormat parses the tool format string and returns the appropriate Format enum
+func parseToolFormat(formatStr string) Format {
+	switch strings.ToLower(strings.TrimSpace(formatStr)) {
+	case "xml":
+		return XML
+	case "markdown":
+		return Markdown
+	case "simple":
+		return Simple
+	case "quiet":
+		return Quiet
+	case "json":
+		return JSON
+	default:
+		return Simple // default fallback
+	}
+}
+
 // GetAvailableTools runs the 'mai-tool list' command and returns the output as a string
 func GetAvailableTools(f Format) (string, error) {
 	var cmd *exec.Cmd
@@ -59,6 +77,16 @@ func GetAvailableTools(f Format) (string, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return out.String(), err
+}
+
+// GetAvailableToolsWithConfig gets available tools using the specified config
+func GetAvailableToolsWithConfig(configOptions ConfigOptions, defaultFormat Format) (string, error) {
+	toolFormat := configOptions.Get("mcp.toolformat")
+	if toolFormat == "" {
+		return GetAvailableTools(defaultFormat)
+	}
+	format := parseToolFormat(toolFormat)
+	return GetAvailableTools(format)
 }
 
 // callTool executes a specified tool with provided arguments and returns the output

@@ -3518,7 +3518,7 @@ func (r *REPL) handleCompactCommand() error {
 func (r *REPL) handleToolCommand(args []string) (string, error) {
 	var output strings.Builder
 	if len(args) < 2 {
-		tools, err := GetAvailableTools(Quiet)
+		tools, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
 		if err == nil {
 			output.WriteString(tools)
 			output.WriteString("\n")

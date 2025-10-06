@@ -141,6 +141,7 @@ type Config struct {
 	XmlOutput    bool
 	MarkdownCode bool
 	Quiet        bool
+	Simple       bool
 	Debug        bool
 }
 
@@ -237,6 +238,7 @@ func parseFlags() Config {
 	xmlOutput := flag.Bool("x", false, "Output in XML format")
 	markdownCode := flag.Bool("m", false, "Wrap markdown output in code blocks")
 	quiet := flag.Bool("q", false, "Suppress non-essential output")
+	simple := flag.Bool("s", false, "Use simple output format (for small models)")
 	debug := flag.Bool("d", false, "Enable debug mode to show HTTP requests and JSON payloads")
 	help := flag.Bool("h", false, "Show help message")
 
@@ -263,6 +265,7 @@ func parseFlags() Config {
 		XmlOutput:    *xmlOutput,
 		MarkdownCode: *markdownCode,
 		Quiet:        *quiet,
+		Simple:       *simple,
 		Debug:        *debug,
 	}
 }
@@ -276,6 +279,7 @@ func printUsage() {
 	fmt.Println("  -x            Output in XML format")
 	fmt.Println("  -m            Wrap markdown output in code blocks")
 	fmt.Println("  -q            Suppress non-essential output")
+	fmt.Println("  -s            Use simple output format (for small models)")
 	fmt.Println("  -d            Enable debug mode to show HTTP requests and JSON payloads")
 	fmt.Println("  -h            Show this help message")
 	fmt.Println("\nCommands:")
@@ -588,6 +592,8 @@ func listTools(config Config) {
 	var endpoint string
 	if config.JsonOutput || config.XmlOutput {
 		endpoint = "/tools/json"
+	} else if config.Simple {
+		endpoint = "/tools/simple"
 	} else if config.Quiet {
 		endpoint = "/tools/quiet"
 	} else {

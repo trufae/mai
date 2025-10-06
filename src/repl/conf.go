@@ -132,6 +132,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("mcp.args", StringOption, "Command-line arguments to pass to mai-wmcp", "")
 	co.RegisterOption("mcp.debug", BooleanOption, "Enable debug output for MCP communication between agent, model, and servers", "false")
 	co.RegisterOption("mcp.prompt", StringOption, "Custom text to be included in the instructions prompt for react loops", "")
+	co.RegisterOption("mcp.toolformat", StringOption, "Tool list format: xml, markdown, simple, quiet, json (empty=auto)", "")
 	co.RegisterOption("mcp.baseurl", StringOption, "Base URL for MCP server connection", "http://localhost:8989")
 
 	co.initialized = true
