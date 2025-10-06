@@ -480,11 +480,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 			chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_result>%s</tool_result>", tool.ToString(), result)
 			// context += "## Action Done\n" + step.NextStep
 			if display == "verbose" {
-				output := result
-				if len(output) > 1000 {
-					output = output[:1000] + "..."
-				}
-				fmt.Println("\x1b[0m 📄| " + output)
+				art.DebugBanner("TOOL RESPONSE", result)
 			}
 		}
 	}

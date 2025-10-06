@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -225,16 +224,16 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 7. web_fetch
 		{
 			Name:        "web_fetch",
-			Description: "Processes content from URL(s), including local and private network addresses (e.g., localhost), embedded in a prompt. Include up to 20 URLs and instructions (e.g., summarize, extract specific data) directly in the 'prompt' parameter.",
+			Description: "Fetch content from a URL",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"prompt": map[string]any{
+					"url": map[string]any{
 						"type":        "string",
-						"description": "A comprehensive prompt that includes the URL(s) (up to 20) to fetch and specific instructions on how to process their content (e.g., \"Summarize https://example.com/article and extract key points from https://another.com/data\"). Must contain as least one URL starting with http:// or https://.",
+						"description": "The URL to fetch content from",
 					},
 				},
-				"required": []string{"prompt"},
+				"required": []string{"url"},
 			},
 			Handler: s.handleWebFetch,
 		},
@@ -616,38 +615,24 @@ func (s *PanCodeService) handleWriteFile(args map[string]any) (any, error) {
 }
 
 func (s *PanCodeService) handleWebFetch(args map[string]any) (any, error) {
-	prompt, ok := args["prompt"].(string)
-	if !ok || prompt == "" {
-		return nil, fmt.Errorf("prompt is required")
+	url, ok := args["url"].(string)
+	if !ok || url == "" {
+		return nil, fmt.Errorf("url is required")
 	}
 
-	re := regexp.MustCompile(`https?://[^
-	 /$.?#].*`)
-	urls := re.FindAllString(prompt, -1)
-
-	if len(urls) == 0 {
-		return nil, fmt.Errorf("no URLs found in prompt")
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch URL: %v", err)
 	}
+	defer resp.Body.Close()
 
-	var contents []string
-	for _, url := range urls {
-		resp, err := http.Get(url)
-		if err != nil {
-			contents = append(contents, fmt.Sprintf("Failed to fetch %s: %v", url, err))
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			contents = append(contents, fmt.Sprintf("Failed to read body from %s: %v", url, err))
-			continue
-		}
-		contents = append(contents, fmt.Sprintf("Content from %s:\n%s", url, string(body)))
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	return map[string]any{
-		"content": strings.Join(contents, "\n\n---\n\n"),
+		"content": string(body),
 	}, nil
 }
 
