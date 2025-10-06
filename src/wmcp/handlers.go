@@ -432,7 +432,7 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 		for _, tool := range server.Tools {
 			// Simple format: TOOLNAME: description
 			output.WriteString("----\n")
-			output.WriteString(fmt.Sprintf("TOOLNAME: %s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("TOOLNAME: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
 
 			// Add usage example if tool has parameters
