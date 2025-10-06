@@ -14,6 +14,7 @@ type MaiOptions struct {
 	OutputReport string `json:"outputReport,omitempty"`
 	DebugMode    bool   `json:"debugMode,omitempty"`
 	DrunkMode    bool   `json:"drunkMode,omitempty"`
+	NoPrompts    bool   `json:"noPrompts,omitempty"`
 }
 
 // Config represents the main configuration structure

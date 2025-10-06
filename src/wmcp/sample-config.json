@@ -3,7 +3,8 @@
     "baseURL": ":8989",
     "yoloMode": false,
     "outputReport": "",
-    "debugMode": false
+    "debugMode": false,
+    "noPrompts": false
   },
   "mcpServers": {
     "mcp-omnisearch": {

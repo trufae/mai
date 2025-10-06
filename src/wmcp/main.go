@@ -26,6 +26,7 @@ Options:
    -d	Enable debug logging (shows HTTP requests and JSON payloads)
    -c FILE	Path to config file (default: ~/.mai-wmcp.json)
    -n	Skip loading config file
+   -p	Skip loading prompts (only expose tools)
 Example: mai-wmcp "r2pm -r r2mcp" "timemcp"
 Example with config: mai-wmcp -c /path/to/config.json`)
 }
@@ -40,12 +41,34 @@ func main() {
 	skipConfig := false
 
 	args := os.Args[1:]
+
 	cmdArgs := []string{}
 
 	// Show help if no arguments provided
 	if len(args) == 0 {
 		showHelp()
 		os.Exit(0)
+	}
+
+	// First pass: extract config-related flags
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		if len(arg) > 0 && arg[0] == '-' {
+			switch arg {
+			case "-c":
+				if i+1 < len(args) {
+					configPath = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -c requires a file path")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-n":
+				skipConfig = true
+			}
+		}
 	}
 
 	// First pass: extract config-related flags
@@ -91,6 +114,7 @@ func main() {
 	drunkMode := config.MaiOptions.DrunkMode
 	outputReport := config.MaiOptions.OutputReport
 	debugMode := config.MaiOptions.DebugMode
+	noPromptsMode := config.MaiOptions.NoPrompts
 
 	// Second pass: process other command line arguments (can override config)
 	for i := 0; i < len(args); i++ {
@@ -110,6 +134,8 @@ func main() {
 				drunkMode = true
 			case "-d":
 				debugMode = true
+			case "-p":
+				noPromptsMode = true
 			case "-c":
 				// Already handled in first pass
 				i++ // Skip the value
@@ -153,7 +179,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := NewMCPService(yoloMode, drunkMode, outputReport)
+	service := NewMCPService(yoloMode, drunkMode, outputReport, noPromptsMode)
 
 	// Set debug flag
 	service.debugMode = debugMode

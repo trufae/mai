@@ -17,11 +17,12 @@ import (
 
 const MaiVersion = "1.0.0"
 
-func NewMCPService(yoloMode bool, drunkMode bool, reportFile string) *MCPService {
+func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool) *MCPService {
 	return &MCPService{
 		servers:       make(map[string]*MCPServer),
 		yoloMode:      yoloMode,
 		drunkMode:     drunkMode,
+		noPrompts:     noPrompts,
 		toolPerms:     make(map[string]ToolPermission),
 		promptPerms:   make(map[string]PromptPermission),
 		reportEnabled: reportFile != "",
@@ -132,9 +133,11 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 		log.Printf("Warning: failed to load tools for server %s: %v", name, err)
 	}
 
-	// Load prompts (best-effort)
-	if err := s.loadPrompts(server); err != nil {
-		log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
+	// Load prompts (best-effort) unless disabled
+	if !s.noPrompts {
+		if err := s.loadPrompts(server); err != nil {
+			log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
+		}
 	}
 
 	log.Printf("Started MCP server: %s", name)
@@ -1079,9 +1082,11 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 		log.Printf("Warning: failed to load tools for restarted server %s: %v", server.Name, err)
 	}
 
-	// Re-load prompts
-	if err := s.loadPrompts(server); err != nil {
-		log.Printf("Warning: failed to load prompts for restarted server %s: %v", server.Name, err)
+	// Re-load prompts unless disabled
+	if !s.noPrompts {
+		if err := s.loadPrompts(server); err != nil {
+			log.Printf("Warning: failed to load prompts for restarted server %s: %v", server.Name, err)
+		}
 	}
 
 	return nil
