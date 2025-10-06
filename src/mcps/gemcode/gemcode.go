@@ -407,6 +407,11 @@ func (s *GemCodeService) handleReadFile(args map[string]any) (any, error) {
 	}
 
 	abs, err := AllowedPath(absolute_path)
+	if err != nil && strings.HasPrefix(absolute_path, "/") {
+		// Try treating as relative to workDir
+		relPath := absolute_path[1:]
+		abs, err = AllowedPath(relPath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -726,6 +731,11 @@ func (s *GemCodeService) handleHexDump(args map[string]any) (any, error) {
 	}
 
 	abs, err := AllowedPath(absolute_path)
+	if err != nil && strings.HasPrefix(absolute_path, "/") {
+		// Try treating as relative to workDir
+		relPath := absolute_path[1:]
+		abs, err = AllowedPath(relPath)
+	}
 	if err != nil {
 		return nil, err
 	}
