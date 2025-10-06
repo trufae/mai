@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -27,23 +28,24 @@ type PanCodeService struct {
 	langCache map[string]string
 	// Cache for build system identification
 	buildSystemCache map[string]string
-	// Cache for facts for save_memory
-	memoryCache map[string]string
+
+	// Minimal mode: only essential tools for coding
+	minimalMode bool
 }
 
 // NewPanCodeService creates a new PanCodeService instance
-func NewPanCodeService() *PanCodeService {
+func NewPanCodeService(minimalMode bool) *PanCodeService {
 	return &PanCodeService{
 		fileModTimes:     make(map[string]time.Time),
 		langCache:        make(map[string]string),
 		buildSystemCache: make(map[string]string),
-		memoryCache:      make(map[string]string),
+		minimalMode:      minimalMode,
 	}
 }
 
 // GetTools returns all available code tools
 func (s *PanCodeService) GetTools() []mcplib.Tool {
-	return []mcplib.Tool{
+	tools := []mcplib.Tool{
 		// 1. list_directory
 		{
 			Name:        "list_directory",
@@ -104,26 +106,9 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 			},
 			Handler: s.handleReadFile,
 		},
-		// hexdump tool
+		// 3. grep_files
 		{
-			Name:        "hexdump",
-			Description: "Dumps hex and ASCII for a file region. Use offset+length for bytes or start_line+end_line for text mode.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"path":       map[string]any{"type": "string"},
-					"offset":     map[string]any{"type": "number"},
-					"length":     map[string]any{"type": "number"},
-					"start_line": map[string]any{"type": "number"},
-					"end_line":   map[string]any{"type": "number"},
-				},
-				"required": []string{"path"},
-			},
-			Handler: s.handleHexDump,
-		},
-		// 3. search_file_content
-		{
-			Name:        "search_file_content",
+			Name:        "grep_files",
 			Description: "Searches for a regex pattern within the contents of files in a specified directory, optionally filtered by a glob pattern for file names. Returns matching lines with their file paths and line numbers.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -143,7 +128,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 				},
 				"required": []string{"pattern", "path"},
 			},
-			Handler: s.handleSearchFileContent,
+			Handler: s.handleGrepFiles,
 		},
 		// 4. glob
 		{
@@ -221,23 +206,31 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 			},
 			Handler: s.handleWriteFile,
 		},
-		// 7. web_fetch
+		// 7. patch_file
 		{
-			Name:        "web_fetch",
-			Description: "Fetch content from a URL",
+			Name:        "patch_file",
+			Description: "Inserts text after the first occurrence of a regex pattern in a file. Useful for adding code or content after specific markers.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"url": map[string]any{
+					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The URL to fetch content from",
+						"description": "The path to the file to modify (relative to project root or absolute).",
+					},
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "The regular expression pattern to search for. The text will be inserted after the first match.",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "The content to insert after the matched pattern.",
 					},
 				},
-				"required": []string{"url"},
+				"required": []string{"file_path", "pattern", "content"},
 			},
-			Handler: s.handleWebFetch,
+			Handler: s.handlePatchFile,
 		},
-		// 9. run_shell_command
+		// 8. run_shell_command
 		{
 			Name:        "run_shell_command",
 			Description: "This tool executes a given shell command as `bash -c <command>`. Command can start background processes using `&`. Command is executed as a subprocess that leads its own process group. Command process group can be terminated as `kill -- -PGID` or signaled as `kill -s SIGNAL -- -PGID`.",
@@ -261,23 +254,48 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 			},
 			Handler: s.handleRunShellCommand,
 		},
-		// 10. save_memory
-		{
-			Name:        "save_memory",
-			Description: "Saves a specific piece of information or fact to your long-term memory.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"fact": map[string]any{
-						"type":        "string",
-						"description": "The specific fact or piece of information to remember. Should be a clear, self-contained statement.",
-					},
-				},
-				"required": []string{"fact"},
-			},
-			Handler: s.handleSaveMemory,
-		},
 	}
+
+	if !s.minimalMode {
+		// Add additional tools when not in minimal mode
+		tools = append(tools,
+			// hexdump tool
+			mcplib.Tool{
+				Name:        "hexdump",
+				Description: "Dumps hex and ASCII for a file region. Use offset+length for bytes or start_line+end_line for text mode.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":       map[string]any{"type": "string"},
+						"offset":     map[string]any{"type": "number"},
+						"length":     map[string]any{"type": "number"},
+						"start_line": map[string]any{"type": "number"},
+						"end_line":   map[string]any{"type": "number"},
+					},
+					"required": []string{"path"},
+				},
+				Handler: s.handleHexDump,
+			},
+			// web_fetch
+			mcplib.Tool{
+				Name:        "web_fetch",
+				Description: "Fetch content from a URL",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"url": map[string]any{
+							"type":        "string",
+							"description": "The URL to fetch content from",
+						},
+					},
+					"required": []string{"url"},
+				},
+				Handler: s.handleWebFetch,
+			},
+		)
+	}
+
+	return tools
 }
 
 // Handler implementations
@@ -397,7 +415,7 @@ func (s *PanCodeService) handleReadFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-func (s *PanCodeService) handleSearchFileContent(args map[string]any) (any, error) {
+func (s *PanCodeService) handleGrepFiles(args map[string]any) (any, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok || pattern == "" {
 		return nil, fmt.Errorf("pattern is required")
@@ -865,16 +883,56 @@ func (s *PanCodeService) handleRunShellCommand(args map[string]any) (any, error)
 	return res, nil
 }
 
-func (s *PanCodeService) handleSaveMemory(args map[string]any) (any, error) {
-	fact, ok := args["fact"].(string)
-	if !ok || fact == "" {
-		return nil, fmt.Errorf("fact is required")
+func (s *PanCodeService) handlePatchFile(args map[string]any) (any, error) {
+	filePath, ok := args["file_path"].(string)
+	if !ok || filePath == "" {
+		return nil, fmt.Errorf("file_path is required")
 	}
 
-	key := time.Now().Format(time.RFC3339Nano)
-	s.memoryCache[key] = fact
+	pattern, ok := args["pattern"].(string)
+	if !ok || pattern == "" {
+		return nil, fmt.Errorf("pattern is required")
+	}
 
-	return map[string]any{
-		"success": true,
-	}, nil
+	content, ok := args["content"].(string)
+	if !ok {
+		return nil, fmt.Errorf("content is required")
+	}
+
+	// Ensure file path is within allowed directories
+	abs, err := AllowedPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	fileContent, err := ioutil.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %v", err)
+	}
+
+	// Compile the regex pattern
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %v", err)
+	}
+
+	// Find the first match
+	loc := re.FindIndex(fileContent)
+	if loc == nil {
+		return nil, fmt.Errorf("pattern not found in file")
+	}
+
+	// Insert content after the match
+	newContent := make([]byte, 0, len(fileContent)+len(content))
+	newContent = append(newContent, fileContent[:loc[1]]...)
+	newContent = append(newContent, []byte(content)...)
+	newContent = append(newContent, fileContent[loc[1]:]...)
+
+	// Write the modified content back to the file
+	err = ioutil.WriteFile(abs, newContent, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write file: %v", err)
+	}
+
+	return map[string]any{"success": true}, nil
 }

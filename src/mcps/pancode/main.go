@@ -13,6 +13,8 @@ func main() {
 	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
 	workdirFlag := flag.String("workdir", "", "(optional) working directory for repository operations (or set PANCODE_WORKDIR)")
 	sandboxFlag := flag.String("sandboxdir", "", "(optional) sandbox directory for ephemeral files (or set PANCODE_SANDBOXDIR)")
+	listTools := flag.Bool("t", false, "list all available tools and exit")
+	minimalMode := flag.Bool("m", false, "enable only minimum necessary tools for coding agent")
 	flag.Parse()
 
 	// Determine effective directories: flags override env vars
@@ -34,10 +36,18 @@ func main() {
 		os.Exit(2)
 	}
 
-	pancodeService := NewPanCodeService()
+	pancodeService := NewPanCodeService(*minimalMode)
 
 	// Get all tools from the service
 	tools := pancodeService.GetTools()
+
+	if *listTools {
+		fmt.Println("Available tools:")
+		for _, tool := range tools {
+			fmt.Printf("- %s: %s\n", tool.Name, tool.Description)
+		}
+		os.Exit(0)
+	}
 
 	// Create tool definitions for server initialization
 	var toolDefs []mcplib.ToolDefinition
