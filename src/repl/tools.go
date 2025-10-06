@@ -33,6 +33,7 @@ const (
 	Markdown Format = iota
 	JSON
 	Quiet
+	XML
 )
 
 // GetAvailableTools runs the 'mai-tool list' command and returns the output as a string
@@ -45,6 +46,8 @@ func GetAvailableTools(f Format) (string, error) {
 		cmd = exec.Command("mai-tool", "-j", "list")
 	case Markdown:
 		cmd = exec.Command("mai-tool", "list")
+	case XML:
+		cmd = exec.Command("mai-tool", "-x", "list")
 	}
 	// cmd = exec.Command("mai-tool", "-j", "list")
 	var out bytes.Buffer

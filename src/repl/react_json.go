@@ -393,7 +393,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	_ = r.configOptions.Set("llm.schema", schemaString)
 	// Recreate client with the new schema
 	r.currentClient, _ = llm.NewLLMClient(r.buildLLMConfig())
-	toolList, err := GetAvailableTools(Markdown)
+	toolList, err := GetAvailableTools(XML) // Markdown)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
