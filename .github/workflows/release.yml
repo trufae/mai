@@ -68,7 +68,7 @@ jobs:
           "src/vdb/mai-vdb"
           "src/bot/mai-bot"
           "src/mcps/code/mai-mcp-code"
-          "src/mcps/gemcode/mai-mcp-gemcode"
+          "src/mcps/pancode/mai-mcp-pancode"
           "src/mcps/wttr/mai-mcp-wttr"
           "src/mcps/pipe/mai-mcp-pipe"
           "src/mcps/shell/mai-mcp-shell"

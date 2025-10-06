@@ -11,20 +11,20 @@ import (
 
 func main() {
 	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
-	workdirFlag := flag.String("workdir", "", "(optional) working directory for repository operations (or set GEMCODE_WORKDIR)")
-	sandboxFlag := flag.String("sandboxdir", "", "(optional) sandbox directory for ephemeral files (or set GEMCODE_SANDBOXDIR)")
+	workdirFlag := flag.String("workdir", "", "(optional) working directory for repository operations (or set PANCODE_WORKDIR)")
+	sandboxFlag := flag.String("sandboxdir", "", "(optional) sandbox directory for ephemeral files (or set PANCODE_SANDBOXDIR)")
 	flag.Parse()
 
 	// Determine effective directories: flags override env vars
 	workdir := *workdirFlag
 	if workdir == "" {
-		if env := os.Getenv("GEMCODE_WORKDIR"); env != "" {
+		if env := os.Getenv("PANCODE_WORKDIR"); env != "" {
 			workdir = env
 		}
 	}
 	sandbox := *sandboxFlag
 	if sandbox == "" {
-		if env := os.Getenv("GEMCODE_SANDBOXDIR"); env != "" {
+		if env := os.Getenv("PANCODE_SANDBOXDIR"); env != "" {
 			sandbox = env
 		}
 	}
@@ -34,10 +34,10 @@ func main() {
 		os.Exit(2)
 	}
 
-	gemcodeService := NewGemCodeService()
+	pancodeService := NewPanCodeService()
 
 	// Get all tools from the service
-	tools := gemcodeService.GetTools()
+	tools := pancodeService.GetTools()
 
 	// Create tool definitions for server initialization
 	var toolDefs []mcplib.ToolDefinition

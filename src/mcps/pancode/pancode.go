@@ -20,8 +20,8 @@ import (
 	"unicode/utf8"
 )
 
-// GemCodeService handles all code-related operations
-type GemCodeService struct {
+// PanCodeService handles all code-related operations
+type PanCodeService struct {
 	// Track file modification times to detect changes
 	fileModTimes map[string]time.Time
 	// Cache for language identification
@@ -32,9 +32,9 @@ type GemCodeService struct {
 	memoryCache map[string]string
 }
 
-// NewGemCodeService creates a new GemCodeService instance
-func NewGemCodeService() *GemCodeService {
-	return &GemCodeService{
+// NewPanCodeService creates a new PanCodeService instance
+func NewPanCodeService() *PanCodeService {
+	return &PanCodeService{
 		fileModTimes:     make(map[string]time.Time),
 		langCache:        make(map[string]string),
 		buildSystemCache: make(map[string]string),
@@ -43,7 +43,7 @@ func NewGemCodeService() *GemCodeService {
 }
 
 // GetTools returns all available code tools
-func (s *GemCodeService) GetTools() []mcplib.Tool {
+func (s *PanCodeService) GetTools() []mcplib.Tool {
 	return []mcplib.Tool{
 		// 1. list_directory
 		{
@@ -283,7 +283,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 
 // Handler implementations
 
-func (s *GemCodeService) handleListDirectory(args map[string]any) (any, error) {
+func (s *PanCodeService) handleListDirectory(args map[string]any) (any, error) {
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
 		return nil, fmt.Errorf("path is required")
@@ -335,7 +335,7 @@ func (s *GemCodeService) handleListDirectory(args map[string]any) (any, error) {
 	}, nil
 }
 
-func (s *GemCodeService) handleReadFile(args map[string]any) (any, error) {
+func (s *PanCodeService) handleReadFile(args map[string]any) (any, error) {
 	path, ok := args["file_path"].(string)
 	if !ok || path == "" {
 		path2, ok2 := args["path"].(string)
@@ -398,7 +398,7 @@ func (s *GemCodeService) handleReadFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-func (s *GemCodeService) handleSearchFileContent(args map[string]any) (any, error) {
+func (s *PanCodeService) handleSearchFileContent(args map[string]any) (any, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok || pattern == "" {
 		return nil, fmt.Errorf("pattern is required")
@@ -505,7 +505,7 @@ func (s *GemCodeService) handleSearchFileContent(args map[string]any) (any, erro
 	}, nil
 }
 
-func (s *GemCodeService) handleGlob(args map[string]any) (any, error) {
+func (s *PanCodeService) handleGlob(args map[string]any) (any, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok || strings.TrimSpace(pattern) == "" {
 		pattern = "*"
@@ -538,7 +538,7 @@ func (s *GemCodeService) handleGlob(args map[string]any) (any, error) {
 	return map[string]any{"files": allowed}, nil
 }
 
-func (s *GemCodeService) handleReplace(args map[string]any) (any, error) {
+func (s *PanCodeService) handleReplace(args map[string]any) (any, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok || filePath == "" {
 		return nil, fmt.Errorf("file_path is required")
@@ -590,7 +590,7 @@ func (s *GemCodeService) handleReplace(args map[string]any) (any, error) {
 	return map[string]any{"success": true}, nil
 }
 
-func (s *GemCodeService) handleWriteFile(args map[string]any) (any, error) {
+func (s *PanCodeService) handleWriteFile(args map[string]any) (any, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok || filePath == "" {
 		return nil, fmt.Errorf("file_path is required")
@@ -615,7 +615,7 @@ func (s *GemCodeService) handleWriteFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-func (s *GemCodeService) handleWebFetch(args map[string]any) (any, error) {
+func (s *PanCodeService) handleWebFetch(args map[string]any) (any, error) {
 	prompt, ok := args["prompt"].(string)
 	if !ok || prompt == "" {
 		return nil, fmt.Errorf("prompt is required")
@@ -651,7 +651,7 @@ func (s *GemCodeService) handleWebFetch(args map[string]any) (any, error) {
 	}, nil
 }
 
-func (s *GemCodeService) handleHexDump(args map[string]any) (any, error) {
+func (s *PanCodeService) handleHexDump(args map[string]any) (any, error) {
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
 		return nil, fmt.Errorf("path is required")
@@ -767,7 +767,7 @@ func (s *GemCodeService) handleHexDump(args map[string]any) (any, error) {
 	return map[string]any{"hexdump": out.String()}, nil
 }
 
-func (s *GemCodeService) handleReadManyFiles(args map[string]any) (any, error) {
+func (s *PanCodeService) handleReadManyFiles(args map[string]any) (any, error) {
 	pathsArg, ok := args["paths"].([]any)
 	if !ok {
 		return nil, fmt.Errorf("paths is required and must be an array of strings")
@@ -810,7 +810,7 @@ func (s *GemCodeService) handleReadManyFiles(args map[string]any) (any, error) {
 	}, nil
 }
 
-func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error) {
+func (s *PanCodeService) handleRunShellCommand(args map[string]any) (any, error) {
 	command, ok := args["command"].(string)
 	if !ok || command == "" {
 		return nil, fmt.Errorf("command is required")
@@ -880,7 +880,7 @@ func (s *GemCodeService) handleRunShellCommand(args map[string]any) (any, error)
 	return res, nil
 }
 
-func (s *GemCodeService) handleSaveMemory(args map[string]any) (any, error) {
+func (s *PanCodeService) handleSaveMemory(args map[string]any) (any, error) {
 	fact, ok := args["fact"].(string)
 	if !ok || fact == "" {
 		return nil, fmt.Errorf("fact is required")
