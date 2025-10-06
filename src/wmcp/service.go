@@ -17,17 +17,18 @@ import (
 
 const MaiVersion = "1.0.0"
 
-func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool) *MCPService {
+func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool, nonInteractive bool) *MCPService {
 	return &MCPService{
-		servers:       make(map[string]*MCPServer),
-		yoloMode:      yoloMode,
-		drunkMode:     drunkMode,
-		noPrompts:     noPrompts,
-		toolPerms:     make(map[string]ToolPermission),
-		promptPerms:   make(map[string]PromptPermission),
-		reportEnabled: reportFile != "",
-		reportFile:    reportFile,
-		report:        Report{Entries: []ReportEntry{}},
+		servers:        make(map[string]*MCPServer),
+		yoloMode:       yoloMode,
+		drunkMode:      drunkMode,
+		noPrompts:      noPrompts,
+		nonInteractive: nonInteractive,
+		toolPerms:      make(map[string]ToolPermission),
+		promptPerms:    make(map[string]PromptPermission),
+		reportEnabled:  reportFile != "",
+		reportFile:     reportFile,
+		report:         Report{Entries: []ReportEntry{}},
 	}
 }
 
@@ -280,6 +281,11 @@ func (s *MCPService) isToolAvailable(toolName string) bool {
 
 // promptToolNotFoundDecision prompts the user when a tool doesn't exist
 func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
+	if s.nonInteractive {
+		// In non-interactive mode, just return tool not found
+		return YoloToolNotFound
+	}
+
 	fmt.Printf("\n===== TOOL NOT FOUND =====\n")
 	fmt.Printf("Tool '%s' does not exist.\n\n", toolName)
 	fmt.Printf("Options:\n")

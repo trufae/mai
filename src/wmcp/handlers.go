@@ -417,6 +417,75 @@ type quietToolEntry struct {
 	Args      []ToolParameter
 }
 
+// simpleToolsHandler returns all tools in a very simple format for small models
+func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+	output.WriteString("Available tools:\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			// Simple format: TOOLNAME: description
+			output.WriteString("----\n")
+			output.WriteString(fmt.Sprintf("TOOLNAME: %s/%s\n", serverName, tool.Name))
+			output.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
+
+			// Add usage example if tool has parameters
+			if len(tool.Parameters) > 0 {
+				var mandatory []string
+				var optional []string
+				var paramExamples []string
+
+				for _, param := range tool.Parameters {
+					paramExample := fmt.Sprintf("%s=<value>", param.Name)
+					paramExamples = append(paramExamples, paramExample)
+
+					paramDesc := fmt.Sprintf("%s (%s)", param.Name, param.Type)
+
+					if param.Required {
+						mandatory = append(mandatory, paramDesc)
+					} else {
+						optional = append(optional, paramDesc)
+					}
+				}
+
+				// Add usage example
+				paramString := strings.Join(paramExamples, " ")
+				output.WriteString(fmt.Sprintf("USAGE: %s %s %s\n", serverName, tool.Name, paramString))
+
+				// Add mandatory parameters
+				if len(mandatory) > 0 {
+					output.WriteString("MANDATORY PARAMS:")
+					for _, param := range mandatory {
+						output.WriteString(fmt.Sprintf(" %s", param))
+					}
+					output.WriteString("\n")
+				}
+
+				// Add optional parameters
+				if len(optional) > 0 {
+					output.WriteString("OPTIONAL PARAMS:")
+					for _, param := range optional {
+						output.WriteString(fmt.Sprintf(" %s", param))
+					}
+					output.WriteString("\n")
+				}
+			}
+
+			// Add 2 newlines between tools
+			output.WriteString("\n\n")
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
 func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
@@ -733,6 +802,10 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	serverName := vars["server"]
 	toolName := vars["tool"]
 
+	// Check for nonInteractive query parameter
+	nonInteractiveParam := r.URL.Query().Get("nonInteractive")
+	requestNonInteractive := strings.ToLower(nonInteractiveParam) == "true"
+
 	s.mutex.RLock()
 	server, exists := s.servers[serverName]
 	s.mutex.RUnlock()
@@ -822,7 +895,12 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		// Prompt the user for what to do when the requested tool/server isn't found
-		decision := s.promptToolNotFoundDecision(toolName)
+		var decision YoloDecision
+		if requestNonInteractive {
+			decision = YoloToolNotFound
+		} else {
+			decision = s.promptToolNotFoundDecision(toolName)
+		}
 
 		switch decision {
 		case YoloToolNotFound:

@@ -34,6 +34,7 @@ const (
 	JSON
 	Quiet
 	XML
+	Simple
 )
 
 // GetAvailableTools runs the 'mai-tool list' command and returns the output as a string
@@ -48,6 +49,8 @@ func GetAvailableTools(f Format) (string, error) {
 		cmd = exec.Command("mai-tool", "list")
 	case XML:
 		cmd = exec.Command("mai-tool", "-x", "list")
+	case Simple:
+		cmd = exec.Command("mai-tool", "-s", "list")
 	}
 	// cmd = exec.Command("mai-tool", "-j", "list")
 	var out bytes.Buffer

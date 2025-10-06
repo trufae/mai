@@ -22,13 +22,14 @@ Options:
    -b URL	Base URL to listen on (default: :8989)
    -y	Yolo mode (skip tool confirmations)
    -k	Drunk mode (permissive tool matching and parameter assignment)
+   -i	Non-interactive mode (return errors instead of prompting)
    -o FILE	Output report to FILE
    -d	Enable debug logging (shows HTTP requests and JSON payloads)
    -c FILE	Path to config file (default: ~/.mai-wmcp.json)
    -n	Skip loading config file
    -p	Skip loading prompts (only expose tools)
-Example: mai-wmcp "r2pm -r r2mcp" "timemcp"
-Example with config: mai-wmcp -c /path/to/config.json`)
+ Example: mai-wmcp "r2pm -r r2mcp" "timemcp"
+ Example with config: mai-wmcp -c /path/to/config.json`)
 }
 
 func showVersion() {
@@ -112,6 +113,7 @@ func main() {
 	}
 	yoloMode := config.MaiOptions.YoloMode
 	drunkMode := config.MaiOptions.DrunkMode
+	nonInteractiveMode := config.MaiOptions.NonInteractive
 	outputReport := config.MaiOptions.OutputReport
 	debugMode := config.MaiOptions.DebugMode
 	noPromptsMode := config.MaiOptions.NoPrompts
@@ -132,6 +134,8 @@ func main() {
 				yoloMode = true
 			case "-k":
 				drunkMode = true
+			case "-i":
+				nonInteractiveMode = true
 			case "-d":
 				debugMode = true
 			case "-p":
@@ -179,7 +183,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := NewMCPService(yoloMode, drunkMode, outputReport, noPromptsMode)
+	service := NewMCPService(yoloMode, drunkMode, outputReport, noPromptsMode, nonInteractiveMode)
 
 	// Set debug flag
 	service.debugMode = debugMode
@@ -216,6 +220,8 @@ func main() {
 	router.HandleFunc("/tools/json", service.jsonToolsHandler).Methods("GET")
 	// Quiet list of all tools
 	router.HandleFunc("/tools/quiet", service.quietToolsHandler).Methods("GET")
+	// Simple list of all tools (for small models)
+	router.HandleFunc("/tools/simple", service.simpleToolsHandler).Methods("GET")
 	// Markdown list of all tools
 	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET")
 

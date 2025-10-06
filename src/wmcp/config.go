@@ -9,12 +9,13 @@ import (
 
 // MaiOptions represents configuration options for the mai-wmcp service
 type MaiOptions struct {
-	BaseURL      string `json:"baseURL,omitempty"`
-	YoloMode     bool   `json:"yoloMode,omitempty"`
-	OutputReport string `json:"outputReport,omitempty"`
-	DebugMode    bool   `json:"debugMode,omitempty"`
-	DrunkMode    bool   `json:"drunkMode,omitempty"`
-	NoPrompts    bool   `json:"noPrompts,omitempty"`
+	BaseURL        string `json:"baseURL,omitempty"`
+	YoloMode       bool   `json:"yoloMode,omitempty"`
+	OutputReport   string `json:"outputReport,omitempty"`
+	DebugMode      bool   `json:"debugMode,omitempty"`
+	DrunkMode      bool   `json:"drunkMode,omitempty"`
+	NoPrompts      bool   `json:"noPrompts,omitempty"`
+	NonInteractive bool   `json:"nonInteractive,omitempty"`
 }
 
 // Config represents the main configuration structure

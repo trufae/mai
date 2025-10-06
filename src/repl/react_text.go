@@ -535,7 +535,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		toolPrompt += "\n\n" + customPrompt
 	}
 
-	toolList, err := GetAvailableTools(Quiet)
+	toolList, err := GetAvailableTools(Simple)
 	if err != nil || strings.TrimSpace(toolList) == "" {
 		if r.configOptions.GetBool("repl.debug") {
 			art.DebugBanner("Tool List Warning", fmt.Sprintf("quiet mode failed: %v", err))

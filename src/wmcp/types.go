@@ -190,6 +190,7 @@ type MCPService struct {
 	yoloMode        bool
 	drunkMode       bool
 	noPrompts       bool
+	nonInteractive  bool
 	debugMode       bool
 	toolPerms       map[string]ToolPermission // Map tool name or tool+params hash to permission
 	toolPermsLock   sync.RWMutex
