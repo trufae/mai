@@ -39,6 +39,41 @@ func jsonToMarkdown(jsonStr string) string {
 	return formatJSON(data, 0)
 }
 
+// jsonToXML converts a JSON string to XML
+func jsonToXML(jsonStr string) string {
+	var data interface{}
+	err := json.Unmarshal([]byte(jsonStr), &data)
+	if err != nil {
+		return jsonStr // Return original if not valid JSON
+	}
+
+	return formatXML(data, "root")
+}
+
+// formatXML recursively formats JSON data as XML
+func formatXML(data interface{}, tag string) string {
+	var sb strings.Builder
+
+	switch v := data.(type) {
+	case map[string]interface{}:
+		sb.WriteString("<" + tag + ">")
+		for key, value := range v {
+			sb.WriteString(formatXML(value, key))
+		}
+		sb.WriteString("</" + tag + ">")
+	case []interface{}:
+		for _, item := range v {
+			sb.WriteString(formatXML(item, tag))
+		}
+	default:
+		sb.WriteString("<" + tag + ">")
+		sb.WriteString(fmt.Sprintf("%v", v))
+		sb.WriteString("</" + tag + ">")
+	}
+
+	return sb.String()
+}
+
 // formatJSON recursively formats JSON data as markdown text
 func formatJSON(data interface{}, indent int) string {
 	var sb strings.Builder
@@ -103,6 +138,7 @@ func formatJSON(data interface{}, indent int) string {
 type Config struct {
 	BaseURL      string
 	JsonOutput   bool
+	XmlOutput    bool
 	MarkdownCode bool
 	Quiet        bool
 	Debug        bool
@@ -198,6 +234,7 @@ func main() {
 func parseFlags() Config {
 	baseURL := flag.String("b", "", "Base URL where mcpd is running (overrides MAI_TOOL_BASEURL env var)")
 	jsonOutput := flag.Bool("j", false, "Output in JSON format")
+	xmlOutput := flag.Bool("x", false, "Output in XML format")
 	markdownCode := flag.Bool("m", false, "Wrap markdown output in code blocks")
 	quiet := flag.Bool("q", false, "Suppress non-essential output")
 	debug := flag.Bool("d", false, "Enable debug mode to show HTTP requests and JSON payloads")
@@ -223,6 +260,7 @@ func parseFlags() Config {
 	return Config{
 		BaseURL:      finalBaseURL,
 		JsonOutput:   *jsonOutput,
+		XmlOutput:    *xmlOutput,
 		MarkdownCode: *markdownCode,
 		Quiet:        *quiet,
 		Debug:        *debug,
@@ -235,6 +273,7 @@ func printUsage() {
 	fmt.Println("  -b <url>      Base URL where mcpd is running (default: http://localhost:8989)")
 	fmt.Println("                Can also be set with MAI_TOOL_BASEURL environment variable")
 	fmt.Println("  -j            Output in JSON format")
+	fmt.Println("  -x            Output in XML format")
 	fmt.Println("  -m            Wrap markdown output in code blocks")
 	fmt.Println("  -q            Suppress non-essential output")
 	fmt.Println("  -d            Enable debug mode to show HTTP requests and JSON payloads")
@@ -547,7 +586,7 @@ func listServers(config Config) {
 
 func listTools(config Config) {
 	var endpoint string
-	if config.JsonOutput {
+	if config.JsonOutput || config.XmlOutput {
 		endpoint = "/tools/json"
 	} else if config.Quiet {
 		endpoint = "/tools/quiet"
@@ -593,7 +632,7 @@ func listTools(config Config) {
 		debugPrint(config, "Response body: %s", string(body))
 	}
 
-	if false && config.JsonOutput {
+	if config.JsonOutput {
 		// Output is already in JSON format
 		var prettyJSON bytes.Buffer
 		if err := json.Indent(&prettyJSON, body, "", "  "); err != nil {
@@ -601,6 +640,10 @@ func listTools(config Config) {
 		} else {
 			fmt.Println(prettyJSON.String())
 		}
+	} else if config.XmlOutput {
+		// Convert JSON to XML
+		output := jsonToXML(string(body))
+		fmt.Println(output)
 	} else {
 		// Output is in markdown format
 		output := string(body)
