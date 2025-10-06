@@ -10,9 +10,42 @@ import (
 	"strings"
 )
 
+func (r *REPL) toolsPromptPrefix() string {
+	reason := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.reason")))
+	switch reason {
+	case "low":
+		return toolsPromptPrefixLow
+	case "medium":
+		return toolsPromptPrefixMedium
+	case "high":
+		return toolsPromptPrefixHigh
+	default:
+		return toolsPromptPrefixLow
+	}
+}
+
 // 3. Update your plan only if **new, unforeseen information** is discovered.
 // 1. Track progress, each step should move the plan forward.
-const toolsPromptPrefix = `
+const toolsPromptPrefixLow = `
+# Direct Tool Usage
+
+Use tools directly and efficiently to solve the user's request. Minimize planning overhead.
+`
+const toolsPromptPrefixMedium = `
+# System Prompt
+
+This is a planning agent designed to solve user requests using tools efficiently.
+
+## Instructions
+
+- Analyze the query to understand the goal.
+- Break down into key steps if complex.
+- Choose efficient paths, avoid redundancy.
+- Execute one action at a time.
+- Track progress and adjust as needed.
+- Use tools instead of manual instructions.
+`
+const toolsPromptPrefixHigh = `
 # System Prompt
 
 This a multi-step planning and execution agent designed to **efficiently** solve user requests using the provided tools.
@@ -380,7 +413,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 			reasonLevel = "low"
 		}
 		customPrompt := strings.TrimSpace(r.configOptions.Get("mcp.prompt"))
-		dynamicToolsPrompt := toolsPromptPrefix + planTemplate
+		dynamicToolsPrompt := r.toolsPromptPrefix() + planTemplate
 		if customPrompt != "" {
 			dynamicToolsPrompt += "\n\n" + customPrompt
 		}
