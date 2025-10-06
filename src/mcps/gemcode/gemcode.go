@@ -48,13 +48,13 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 		// 1. list_directory
 		{
 			Name:        "list_directory",
-			Description: "Lists names of files and subdirectories in a specified directory, with optional exclusion of entries matching glob patterns.",
+			Description: "Lists names of files and subdirectories in a specified directory (relative to the project root or absolute), with optional exclusion of entries matching glob patterns.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"path": map[string]any{
 						"type":        "string",
-						"description": "The absolute path to the directory to list",
+						"description": "The path to the directory to list (relative to project root or absolute)",
 					},
 					"ignore": map[string]any{
 						"type": "array",
@@ -88,9 +88,9 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"absolute_path": map[string]any{
+					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The absolute path to the file to read (e.g., '/home/user/project/file.txt'). Relative paths are not supported. You must provide an absolute path.",
+						"description": "The path to the file to read (e.g., './file.txt')",
 					},
 					"limit": map[string]any{
 						"type":        "number",
@@ -101,7 +101,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 						"description": "Optional: For text files, the 0-based line number to start reading from. Requires 'limit' to be set. Use for paginating through large files.",
 					},
 				},
-				"required": []string{"absolute_path"},
+				"required": []string{"file_path"},
 			},
 			Handler: s.handleReadFile,
 		},
@@ -112,20 +112,20 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"absolute_path": map[string]any{"type": "string"},
-					"offset":        map[string]any{"type": "number"},
-					"length":        map[string]any{"type": "number"},
-					"start_line":    map[string]any{"type": "number"},
-					"end_line":      map[string]any{"type": "number"},
+					"path":       map[string]any{"type": "string"},
+					"offset":     map[string]any{"type": "number"},
+					"length":     map[string]any{"type": "number"},
+					"start_line": map[string]any{"type": "number"},
+					"end_line":   map[string]any{"type": "number"},
 				},
-				"required": []string{"absolute_path"},
+				"required": []string{"path"},
 			},
 			Handler: s.handleHexDump,
 		},
 		// 3. search_file_content
 		{
 			Name:        "search_file_content",
-			Description: "Searches for a regex pattern in files within a specified directory, filtered by a glob pattern. Returns matching lines with their file paths and line numbers.",
+			Description: "Searches for a regex pattern within the contents of files in a specified directory, optionally filtered by a glob pattern for file names. Returns matching lines with their file paths and line numbers.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -135,7 +135,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 					},
 					"path": map[string]any{
 						"type":        "string",
-						"description": "The absolute path to the directory to search within. If omitted, searches the current working directory.",
+						"description": "The path to the directory to search within (relative to project root or absolute). If omitted, searches the current working directory.",
 					},
 					"include": map[string]any{
 						"type":        "string",
@@ -149,7 +149,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 		// 4. glob
 		{
 			Name:        "glob",
-			Description: "Finds file names matching specific glob patterns (e.g., `src/**/*.ts`, `**/*.md`), returning absolute paths",
+			Description: "Finds file names matching specific glob patterns (e.g., `src/**/*.ts`, `**/*.md`, `Makefile`, `go.mod`), returning absolute paths",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -159,7 +159,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 					},
 					"path": map[string]any{
 						"type":        "string",
-						"description": "Optional: The absolute path to the directory to search within. If omitted, searches the root directory.",
+						"description": "Optional: The path to the directory to search within (relative to project root or absolute). If omitted, searches the root directory.",
 					},
 					"case_sensitive": map[string]any{
 						"type":        "boolean",
@@ -183,7 +183,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The absolute path to the file to modify. Must start with '/'.",
+						"description": "The path to the file to modify (relative to project root or absolute).",
 					},
 					"old_string": map[string]any{
 						"type":        "string",
@@ -211,7 +211,7 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "The absolute path to the file to write to (e.g., '/home/user/project/file.txt'). Relative paths are not supported.",
+						"description": "The path to the file to write to (relative to project root or absolute).",
 					},
 					"content": map[string]any{
 						"type":        "string",
@@ -237,61 +237,6 @@ func (s *GemCodeService) GetTools() []mcplib.Tool {
 				"required": []string{"prompt"},
 			},
 			Handler: s.handleWebFetch,
-		},
-		// 8. read_many_files
-		{
-			Name:        "read_many_files",
-			Description: "Reads content from multiple files specified by paths or glob patterns within a configured target directory. For text files, it concatenates their content into a single string. It is primarily designed for text-based files. However, it can also process image (e.g., .png, .jpg) and PDF (.pdf) files if their file names or extensions are explicitly included in the 'paths' argument. For these explicitly requested non-text files, their data is read and included in a format suitable for model consumption (e.g., base64 encoded).",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"paths": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "string",
-						},
-						"description": "Required. An array of glob patterns or paths relative to the tool's target directory. Examples: ['src/**/*.ts'], ['README.md', 'docs/']",
-					},
-					"exclude": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "string",
-						},
-						"description": "Optional. Glob patterns for files/directories to exclude. Added to default excludes if useDefaultExcludes is true. Example: [\"**/*.log\", \"temp/\"]",
-					},
-					"include": map[string]any{
-						"type": "array",
-						"items": map[string]any{
-							"type": "string",
-						},
-						"description": "Optional. Additional glob patterns to include. These are merged with `paths`. Example: [\"*.test.ts\"] to specifically add test files if they were broadly excluded.",
-					},
-					"recursive": map[string]any{
-						"type":        "boolean",
-						"description": "Optional. Whether to search recursively (primarily controlled by `**` in glob patterns). Defaults to true.",
-					},
-					"useDefaultExcludes": map[string]any{
-						"type":        "boolean",
-						"description": "Optional. Whether to apply a list of default exclusion patterns (e.g., node_modules, .git, binary files). Defaults to true.",
-					},
-					"file_filtering_options": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"respect_git_ignore": map[string]any{
-								"type":        "boolean",
-								"description": "Optional: Whether to respect .gitignore patterns when listing files. Only available in git repositories. Defaults to true.",
-							},
-							"respect_gemini_ignore": map[string]any{
-								"type":        "boolean",
-								"description": "Optional: Whether to respect .geminiignore patterns when listing files. Defaults to true.",
-							},
-						},
-						"description": "Whether to respect ignore patterns from .gitignore or .geminiignore",
-					},
-				},
-				"required": []string{"paths"},
-			},
-			Handler: s.handleReadManyFiles,
 		},
 		// 9. run_shell_command
 		{
@@ -391,9 +336,13 @@ func (s *GemCodeService) handleListDirectory(args map[string]any) (any, error) {
 }
 
 func (s *GemCodeService) handleReadFile(args map[string]any) (any, error) {
-	absolute_path, ok := args["absolute_path"].(string)
-	if !ok || absolute_path == "" {
-		return nil, fmt.Errorf("absolute_path is required")
+	path, ok := args["file_path"].(string)
+	if !ok || path == "" {
+		path2, ok2 := args["path"].(string)
+		if !ok2 || path2 == "" {
+			return nil, fmt.Errorf("path or file_path is required")
+		}
+		path = path2
 	}
 
 	limit := -1
@@ -406,12 +355,7 @@ func (s *GemCodeService) handleReadFile(args map[string]any) (any, error) {
 		offset = int(o)
 	}
 
-	abs, err := AllowedPath(absolute_path)
-	if err != nil && strings.HasPrefix(absolute_path, "/") {
-		// Try treating as relative to workDir
-		relPath := absolute_path[1:]
-		abs, err = AllowedPath(relPath)
-	}
+	abs, err := AllowedPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -708,9 +652,9 @@ func (s *GemCodeService) handleWebFetch(args map[string]any) (any, error) {
 }
 
 func (s *GemCodeService) handleHexDump(args map[string]any) (any, error) {
-	absolute_path, ok := args["absolute_path"].(string)
-	if !ok || absolute_path == "" {
-		return nil, fmt.Errorf("absolute_path is required")
+	path, ok := args["path"].(string)
+	if !ok || path == "" {
+		return nil, fmt.Errorf("path is required")
 	}
 
 	off := int64(0)
@@ -730,12 +674,7 @@ func (s *GemCodeService) handleHexDump(args map[string]any) (any, error) {
 		endLine = int(eL)
 	}
 
-	abs, err := AllowedPath(absolute_path)
-	if err != nil && strings.HasPrefix(absolute_path, "/") {
-		// Try treating as relative to workDir
-		relPath := absolute_path[1:]
-		abs, err = AllowedPath(relPath)
-	}
+	abs, err := AllowedPath(path)
 	if err != nil {
 		return nil, err
 	}
