@@ -1,6 +1,6 @@
 module github.com/trufae/mai/src/repl
 
-go 1.20.0
+go 1.23.0
 
 require (
 	github.com/mattn/go-runewidth v0.0.19
