@@ -1098,6 +1098,21 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		output.WriteString(content.Text)
 	}
 
+	// If pagination metadata present, report pages left
+	pagesLeft := 0
+	if toolResult.TotalPages > 0 && toolResult.Page > 0 {
+		pagesLeft = toolResult.TotalPages - toolResult.Page
+		if pagesLeft < 0 {
+			pagesLeft = 0
+		}
+	}
+	if pagesLeft > 0 {
+		output.WriteString(fmt.Sprintf("\n\nPages left: %d", pagesLeft))
+		if toolResult.NextPageToken != "" {
+			output.WriteString(fmt.Sprintf(" (next_page_token: %s)", toolResult.NextPageToken))
+		}
+	}
+
 	debugLog(s.debugMode, "Response content: %s", output.String())
 
 	log.Printf("SUCCESS: Tool %s/%s completed successfully", serverName, toolName)

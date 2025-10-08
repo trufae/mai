@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -198,7 +199,7 @@ func main() {
 		}
 		var serverName string
 		var toolName string
-		var params map[string]string
+		var params map[string]interface{}
 		arg1 := flag.Args()[1]
 		if strings.Contains(arg1, "/") {
 			slicedText := strings.SplitN(arg1, "/", 2)
@@ -299,8 +300,8 @@ func printUsage() {
 	fmt.Println("  MAI_TOOL_BASEURL=http://remote:9000 mai-tool list")
 }
 
-func parseParams(args []string) map[string]string {
-	params := make(map[string]string)
+func parseParams(args []string) map[string]interface{} {
+	params := make(map[string]interface{})
 
 	// Support both named parameters (name=value) and positional arguments.
 	// Positional arguments (without '=') are encoded as numeric keys: "0", "1", ...
@@ -308,7 +309,31 @@ func parseParams(args []string) map[string]string {
 	for _, arg := range args {
 		parts := strings.SplitN(arg, "=", 2)
 		if len(parts) == 2 {
-			params[parts[0]] = parts[1]
+			val := parts[1]
+			// Try parse JSON value for complex types
+			if strings.HasPrefix(val, "{") || strings.HasPrefix(val, "[") {
+				var vv interface{}
+				if err := json.Unmarshal([]byte(val), &vv); err == nil {
+					params[parts[0]] = vv
+					continue
+				}
+			}
+			// Try number
+			if num, err := strconv.ParseFloat(val, 64); err == nil {
+				// If integer-like, store as int
+				if float64(int64(num)) == num {
+					params[parts[0]] = int(num)
+				} else {
+					params[parts[0]] = num
+				}
+				continue
+			}
+			// Try bool
+			if b, err := strconv.ParseBool(val); err == nil {
+				params[parts[0]] = b
+				continue
+			}
+			params[parts[0]] = val
 		} else {
 			// positional
 			params[fmt.Sprintf("%d", posIndex)] = arg
@@ -378,7 +403,7 @@ func listPrompts(config Config) {
 	}
 }
 
-func getPrompt(config Config, serverName, promptName string, params map[string]string) {
+func getPrompt(config Config, serverName, promptName string, params map[string]interface{}) {
 	var endpoint string
 	if serverName == "" {
 		endpoint = fmt.Sprintf("/prompts/%s", promptName)
@@ -660,7 +685,7 @@ func listTools(config Config) {
 	}
 }
 
-func callTool(config Config, serverName, toolName string, params map[string]string) {
+func callTool(config Config, serverName, toolName string, params map[string]interface{}) {
 	var resp *http.Response
 	var requestErr error
 	// fmt.Println("server: "+serverName)
@@ -783,7 +808,56 @@ func callTool(config Config, serverName, toolName string, params map[string]stri
 		// Output as plain text or markdown
 		output := string(body)
 
-		// Check if response appears to be JSON (starts with '{')
+		// Try to parse body as JSON to extract pagination metadata
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(body, &parsed); err == nil {
+			// If the response contains content (old style) with content array, extract text for display
+			if c, ok := parsed["content"]; ok {
+				// If content is array of {type,text}
+				if arr, ok := c.([]interface{}); ok {
+					var b strings.Builder
+					for i, it := range arr {
+						if m, mok := it.(map[string]interface{}); mok {
+							if t, tok := m["text"].(string); tok {
+								if i > 0 {
+									b.WriteString("\n\n")
+								}
+								b.WriteString(t)
+							}
+						}
+					}
+					output = b.String()
+				}
+			}
+			// Compute pages left if present
+			page := 0
+			total := 0
+			if v, ok := parsed["page"]; ok {
+				switch vv := v.(type) {
+				case float64:
+					page = int(vv)
+				case int:
+					page = vv
+				}
+			}
+			if v, ok := parsed["totalPages"]; ok {
+				switch vv := v.(type) {
+				case float64:
+					total = int(vv)
+				case int:
+					total = vv
+				}
+			}
+			if total > 0 && page > 0 && total > page {
+				pagesLeft := total - page
+				output = output + fmt.Sprintf("\n\nPages left: %d", pagesLeft)
+				if token, ok := parsed["next_page_token"].(string); ok && token != "" {
+					output = output + fmt.Sprintf(" (next_page_token: %s)", token)
+				}
+			}
+		}
+
+		// Check if response appears to be JSON (starts with '{') and we didn't already convert
 		if len(output) > 0 && output[0] == '{' {
 			// Convert JSON to markdown format
 			output = jsonToMarkdown(output)

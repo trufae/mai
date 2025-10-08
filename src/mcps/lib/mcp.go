@@ -308,8 +308,11 @@ func (s *MCPServer) handleCall(req JSONRPCRequest) {
 
 	// ToolCallResult is a convenience type for handlers to return structured content
 	type ToolCallResult struct {
-		Content interface{} `json:"content,omitempty"`
-		IsError bool        `json:"isError,omitempty"`
+		Content       interface{} `json:"content,omitempty"`
+		IsError       bool        `json:"isError,omitempty"`
+		Page          int         `json:"page,omitempty"`
+		TotalPages    int         `json:"totalPages,omitempty"`
+		NextPageToken string      `json:"next_page_token,omitempty"`
 	}
 
 	switch v := result.(type) {

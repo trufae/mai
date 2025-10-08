@@ -478,6 +478,27 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 				fmt.Println("-----------")
 			*/
 			context += msg
+			// If the tool response contains pagination hints, add an explicit tag so the model can request more
+			if idx := strings.Index(result, "Pages left:"); idx != -1 {
+				// Extract the rest of the line
+				rest := result[idx:]
+				parts := strings.Fields(rest)
+				pagesLeft := ""
+				if len(parts) >= 3 {
+					pagesLeft = parts[2]
+				}
+				// Look for next_page_token inside parentheses
+				nextTok := ""
+				if tokIdx := strings.Index(rest, "next_page_token:"); tokIdx != -1 {
+					// token follows
+					tokStart := tokIdx + len("next_page_token:")
+					tokStr := strings.TrimSpace(rest[tokStart:])
+					// trim trailing ')' or '\n'
+					tokStr = strings.Trim(tokStr, " )\n\r")
+					nextTok = tokStr
+				}
+				context += fmt.Sprintf("\n<pagination pages_left=%s next_page_token=\"%s\" />\n", pagesLeft, nextTok)
+			}
 			// Update chat history with tool call and result to maintain context across iterations
 			chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_result>%s</tool_result>", tool.ToString(), result)
 			// context += "## Action Done\n" + step.NextStep

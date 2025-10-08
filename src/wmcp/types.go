@@ -97,8 +97,11 @@ type CallToolError struct {
 }
 
 type CallToolResult struct {
-	Content []Content      `json:"content,omitempty"`
-	Error   *CallToolError `json:"error,omitempty"`
+	Content       []Content      `json:"content,omitempty"`
+	Error         *CallToolError `json:"error,omitempty"`
+	Page          int            `json:"page,omitempty"`
+	TotalPages    int            `json:"totalPages,omitempty"`
+	NextPageToken string         `json:"next_page_token,omitempty"`
 }
 
 type Content struct {

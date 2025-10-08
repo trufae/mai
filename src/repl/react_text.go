@@ -746,6 +746,23 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			reasoning += "- " + step.Progress + "\n"
 		}
 		context = appendContextSection(context, toolResponse)
+		// If tool response contains pagination hints, add explicit pagination tag for the model
+		if idx := strings.Index(result, "Pages left:"); idx != -1 {
+			rest := result[idx:]
+			parts := strings.Fields(rest)
+			pagesLeft := ""
+			if len(parts) >= 3 {
+				pagesLeft = parts[2]
+			}
+			nextTok := ""
+			if tokIdx := strings.Index(rest, "next_page_token:"); tokIdx != -1 {
+				tokStart := tokIdx + len("next_page_token:")
+				tokStr := strings.TrimSpace(rest[tokStart:])
+				tokStr = strings.Trim(tokStr, " )\n\r")
+				nextTok = tokStr
+			}
+			context += fmt.Sprintf("\n<pagination pages_left=%s next_page_token=\"%s\" />\n", pagesLeft, nextTok)
+		}
 		// input += planString + toolResponse
 		clearScreen = false
 	}
