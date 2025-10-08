@@ -9,7 +9,7 @@ BINS+=shell
 BINS+=time
 
 all clean:
-	for a in $(BINS); do $(MAKE) -C $$a $< ; done
+	for a in $(BINS); do $(MAKE) -C $$a $< || exit 1; done
 
 install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

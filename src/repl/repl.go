@@ -209,7 +209,7 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		fmt.Fprintf(os.Stderr, "Error setting up history: %v\n", err)
 	}
 	// Load persistent REPL history into readline
-	_ := repl.loadReplHistory()
+	repl.loadReplHistory()
 
 	// Set prompts in the readline instance
 	if repl.readline != nil {
