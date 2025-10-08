@@ -34,6 +34,11 @@ func (p *GeminiProvider) DefaultModel() string {
 	return "gemini-2.5-flash"
 }
 
+func (p *GeminiProvider) IsAvailable() bool {
+	// Gemini requires API key
+	return p.apiKey != ""
+}
+
 func defaultString(s, def string) string {
 	if s != "" {
 		return strings.TrimRight(s, "/")

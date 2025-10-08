@@ -46,6 +46,11 @@ func (p *XAIProvider) DefaultModel() string {
 	return "grok-2-1212"
 }
 
+func (p *XAIProvider) IsAvailable() bool {
+	// xAI requires API key
+	return p.apiKey != ""
+}
+
 func (p *XAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Build models endpoint URL
 	apiURL := buildURL("https://api.x.ai/v1/models", p.config.BaseURL, "", "", "/models")

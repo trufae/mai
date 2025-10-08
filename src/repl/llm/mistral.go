@@ -34,6 +34,11 @@ func (p *MistralProvider) DefaultModel() string {
 	return "mistral-large-latest"
 }
 
+func (p *MistralProvider) IsAvailable() bool {
+	// Mistral requires API key
+	return p.apiKey != ""
+}
+
 func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.mistral.ai/v1/models"

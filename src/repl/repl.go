@@ -3219,6 +3219,29 @@ func (r *REPL) getValidProviders() map[string]bool {
 	}
 }
 
+// isProviderAvailable checks if a provider is available by creating a temporary config and provider instance
+func (r *REPL) isProviderAvailable(provider string) bool {
+	// Create a temporary config for this provider
+	cfg := loadConfig()
+	// Apply current options but override the provider
+	applyConfigOptionsToLLMConfig(cfg, &r.configOptions)
+	cfg.PROVIDER = provider
+
+	// Create provider instance
+	prov, err := llm.CreateProvider(cfg)
+	if err != nil {
+		return false
+	}
+
+	// Check if provider implements IsAvailable
+	if availableProvider, ok := prov.(interface{ IsAvailable() bool }); ok {
+		return availableProvider.IsAvailable()
+	}
+
+	// Fallback: assume available if we can create the provider
+	return true
+}
+
 // listProviders displays all available providers
 func (r *REPL) listProviders() (string, error) {
 	validProviders := r.getValidProviders()
@@ -3237,10 +3260,19 @@ func (r *REPL) listProviders() (string, error) {
 	var output strings.Builder
 	output.WriteString("Available providers:\r\n")
 	for _, provider := range providers {
-		if provider == r.configOptions.Get("ai.provider") {
-			output.WriteString(fmt.Sprintf("* %s (current)\r\n", provider))
+		// Check if provider is available
+		isAvailable := r.isProviderAvailable(provider)
+		var emoji string
+		if isAvailable {
+			emoji = "\033[92m✅\033[0m" // Green checkmark
 		} else {
-			output.WriteString(fmt.Sprintf("  %s\r\n", provider))
+			emoji = "\033[91m❌\033[0m" // Red X
+		}
+
+		if provider == r.configOptions.Get("ai.provider") {
+			output.WriteString(fmt.Sprintf("%s * %s (current)\r\n", emoji, provider))
+		} else {
+			output.WriteString(fmt.Sprintf("%s   %s\r\n", emoji, provider))
 		}
 	}
 

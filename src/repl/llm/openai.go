@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"github.com/trufae/mai/src/repl/art"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // OpenAIProvider implements the LLM provider interface for OpenAI
@@ -88,6 +90,35 @@ func (p *OpenAIProvider) DefaultModel() string {
 		}
 		return "gpt-4o"
 	}
+}
+
+func (p *OpenAIProvider) IsAvailable() bool {
+	switch strings.ToLower(p.config.PROVIDER) {
+	case "openai", "ollamacloud":
+		// Remote providers: just check API key
+		return p.apiKey != ""
+	case "lmstudio", "shimmy":
+		// Local providers: check HTTP endpoint
+		baseURL := ""
+		if p.config.BaseURL != "" {
+			baseURL = p.config.BaseURL
+		} else {
+			switch strings.ToLower(p.config.PROVIDER) {
+			case "lmstudio":
+				baseURL = "http://localhost:1234"
+			case "shimmy":
+				baseURL = "http://localhost:11435"
+			}
+		}
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Head(baseURL + "/v1/models")
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode < 400
+	}
+	return true
 }
 
 func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {

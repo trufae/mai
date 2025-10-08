@@ -34,6 +34,11 @@ func (p *BedrockProvider) DefaultModel() string {
 	return "anthropic.claude-3-5-sonnet-v1"
 }
 
+func (p *BedrockProvider) IsAvailable() bool {
+	// Bedrock requires AWS credentials (AWS_ACCESS_KEY_ID)
+	return p.apiKey != ""
+}
+
 func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Use AWS CLI to list foundation models
 	cmd := exec.CommandContext(ctx, "aws", "bedrock", "list-foundation-models", "--output", "json")

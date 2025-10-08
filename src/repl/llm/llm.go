@@ -290,6 +290,9 @@ type LLMProvider interface {
 
 	// DefaultModel returns the provider's default model, honoring env/config
 	DefaultModel() string
+
+	// IsAvailable returns true if the provider is available (can reach baseurl and has required API key if needed)
+	IsAvailable() bool
 }
 
 type ContentBlock struct {
@@ -334,7 +337,7 @@ type ListModelsResult struct {
 
 // NewLLMClient creates a new LLM client for the specified provider
 func NewLLMClient(config *Config) (*LLMClient, error) {
-	provider, err := createProvider(config)
+	provider, err := CreateProvider(config)
 	if err != nil {
 		return nil, err
 	}
@@ -383,8 +386,8 @@ func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-// createProvider instantiates the appropriate provider based on config
-func createProvider(config *Config) (LLMProvider, error) {
+// CreateProvider instantiates the appropriate provider based on config
+func CreateProvider(config *Config) (LLMProvider, error) {
 	provider := strings.ToLower(config.PROVIDER)
 
 	switch provider {

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // OpenAPIProvider implements the LLM provider interface for OpenAPI
@@ -33,6 +35,21 @@ func (p *OpenAPIProvider) DefaultModel() string {
 		return v
 	}
 	return "default"
+}
+
+func (p *OpenAPIProvider) IsAvailable() bool {
+	// OpenAPI is a local/custom service, check HTTP endpoint
+	baseURL := p.config.BaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:8989"
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Head(baseURL + "/models")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 400
 }
 
 func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {

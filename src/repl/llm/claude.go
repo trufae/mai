@@ -46,6 +46,11 @@ func (p *ClaudeProvider) DefaultModel() string {
 	return "claude-3-5-sonnet-20241022"
 }
 
+func (p *ClaudeProvider) IsAvailable() bool {
+	// Claude requires API key
+	return p.apiKey != ""
+}
+
 func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.anthropic.com/v1/models"

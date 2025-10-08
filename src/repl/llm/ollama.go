@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"github.com/trufae/mai/src/repl/art"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // image sending handled inside Provider.SendMessage
@@ -86,6 +88,21 @@ func (p *OllamaProvider) DefaultModel() string {
 		return v
 	}
 	return "gemma3:1b"
+}
+
+func (p *OllamaProvider) IsAvailable() bool {
+	// Ollama is a local service, check HTTP endpoint
+	baseURL := p.config.BaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Head(baseURL + "/api/tags")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 400
 }
 
 func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {

@@ -33,6 +33,11 @@ func (p *DeepSeekProvider) DefaultModel() string {
 	return "deepseek-chat"
 }
 
+func (p *DeepSeekProvider) IsAvailable() bool {
+	// DeepSeek requires API key
+	return p.apiKey != ""
+}
+
 func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// Use the configured base URL if available, otherwise use the default API URL
 	apiURL := "https://api.deepseek.com/v1/models"
