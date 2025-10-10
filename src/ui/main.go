@@ -30,7 +30,7 @@ type ChatApp struct {
 	th                 *material.Theme
 	messages           []ChatMessage
 	editor             widget.Editor
-	actionBtn          widget.Clickable
+	actionBtn          VolumeButton
 	list               widget.List
 	mcpBtn             widget.Clickable
 	promptBtn          widget.Clickable
@@ -64,7 +64,7 @@ func main() {
 
 	chatApp := &ChatApp{
 		th:       th,
-		messages: []ChatMessage{{Text: "Welcome to MAI GUI!"}},
+		messages: []ChatMessage{{Text: "Welcome to Mai!"}},
 		list: widget.List{
 			List: layout.List{
 				Axis: layout.Vertical,
@@ -75,7 +75,7 @@ func main() {
 
 	go func() {
 		var w app.Window
-		w.Option(app.Title("MAI GUI"))
+		w.Option(app.Title("Mai"))
 		var ops op.Ops
 
 		for {
@@ -203,8 +203,11 @@ func (c *ChatApp) layoutInput(gtx layout.Context) layout.Dimensions {
 					if c.waitingForResponse {
 						icon = "⏹"
 					}
-					btn := material.Button(c.th, &c.actionBtn, icon)
-					if c.actionBtn.Clicked(gtx) {
+					c.actionBtn.Label = icon
+					c.actionBtn.Color = color.NRGBA{R: 100, G: 190, B: 255, A: 255}
+					c.actionBtn.Inactive = false
+					dims := c.actionBtn.Layout(gtx, c.th)
+					if c.actionBtn.Clickable.Clicked(gtx) {
 						if c.waitingForResponse {
 							c.cancel()
 							c.running = false
@@ -213,7 +216,7 @@ func (c *ChatApp) layoutInput(gtx layout.Context) layout.Dimensions {
 							c.sendUserMessage()
 						}
 					}
-					return btn.Layout(gtx)
+					return dims
 				}),
 			)
 		})

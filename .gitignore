@@ -11,6 +11,7 @@ src/mcps/markdown/mai-mcp-markdown
 src/bot/config.json
 src/bot/mai-bot
 src/repl/mai
+src/ui/ui
 **/*_test.go
 src/mcps/shell/mai-mcp-shell
 **/.DS_Store
