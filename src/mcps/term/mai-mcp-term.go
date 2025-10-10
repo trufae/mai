@@ -216,13 +216,31 @@ func main() {
 		},
 		{
 			Name:        "write_terminal",
-			Description: "Write input string to the terminal, end with a newline when in the shell to execute commands",
+			Description: "Write input string to the terminal",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"input": map[string]interface{}{
 						"type":        "string",
 						"description": "The input string to send to the terminal",
+					},
+				},
+				"required": []string{"input"},
+			},
+		},
+		{
+			Name:        "execute_command",
+			Description: "Write input to the terminal, wait for a specified time, and read the response",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"input": map[string]interface{}{
+						"type":        "string",
+						"description": "The command or input string to send to the terminal",
+					},
+					"wait_ms": map[string]interface{}{
+						"type":        "number",
+						"description": "Wait time in milliseconds before reading (default 1000)",
 					},
 				},
 				"required": []string{"input"},
@@ -257,11 +275,53 @@ func main() {
 		if !ok {
 			return nil, fmt.Errorf("input must be a string")
 		}
+		// Ensure the input ends with newline for command execution
+		if !strings.HasSuffix(input, "\n") {
+			input += "\n"
+		}
 		_, err := conn.Write([]byte(input))
 		if err != nil {
 			return nil, err
 		}
 		return "Input written to terminal", nil
+	})
+
+	server.RegisterTool("execute_command", func(args map[string]interface{}) (interface{}, error) {
+		input, ok := args["input"].(string)
+		if !ok {
+			return nil, fmt.Errorf("input must be a string")
+		}
+		waitMs := 1000.0 // default 1 second
+		if w, ok := args["wait_ms"].(float64); ok {
+			waitMs = w
+		}
+		// Write the input
+		if !strings.HasSuffix(input, "\n") {
+			input += "\n"
+		}
+		_, err := conn.Write([]byte(input))
+		if err != nil {
+			return nil, err
+		}
+		// Wait
+		time.Sleep(time.Duration(waitMs) * time.Millisecond)
+		// Read the response
+		mu.Lock()
+		data := string(buffer)
+		buffer = buffer[:0]
+		mu.Unlock()
+		if *raw {
+			return map[string]interface{}{
+				"stdout": data,
+				"stderr": "",
+			}, nil
+		} else {
+			stdout, stderr := filterOutput(data)
+			return map[string]interface{}{
+				"stdout": stdout,
+				"stderr": stderr,
+			}, nil
+		}
 	})
 
 	server.Start()
