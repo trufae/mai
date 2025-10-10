@@ -71,6 +71,8 @@ func main() {
 
 	var mu sync.Mutex
 	connections := make([]net.Conn, 0)
+	outputBuffer := make([]byte, 0)
+	const maxBuffer = 10240
 
 	// Goroutine to accept connections
 	go func() {
@@ -81,6 +83,10 @@ func main() {
 			}
 			mu.Lock()
 			connections = append(connections, conn)
+			// Send recent output buffer to new connection
+			if len(outputBuffer) > 0 {
+				sendFramed(conn, 1, outputBuffer)
+			}
 			mu.Unlock()
 
 			// Handle input from this connection
@@ -116,6 +122,11 @@ func main() {
 			mu.Lock()
 			for _, conn := range connections {
 				sendFramed(conn, 1, buf[:n])
+			}
+			// Append to buffer for new connections
+			outputBuffer = append(outputBuffer, buf[:n]...)
+			if len(outputBuffer) > maxBuffer {
+				outputBuffer = outputBuffer[len(outputBuffer)-maxBuffer:]
 			}
 			mu.Unlock()
 		}

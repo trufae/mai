@@ -67,8 +67,11 @@ func doRead(socketPath string, raw bool) {
 	}
 	defer conn.Close()
 
+	// Wait a bit for any pending output
+	time.Sleep(200 * time.Millisecond)
+
 	buffer := make([]byte, 0)
-	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)) // Read with timeout
+	conn.SetReadDeadline(time.Now().Add(1 * time.Second)) // Read with longer timeout
 
 	for {
 		typ, err := readByte(conn)
@@ -107,6 +110,11 @@ func doWrite(socketPath, text string) {
 		return
 	}
 	defer conn.Close()
+
+	// Ensure the text ends with newline for command execution
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
 
 	_, err = conn.Write([]byte(text))
 	if err != nil {
@@ -208,7 +216,7 @@ func main() {
 		},
 		{
 			Name:        "write_terminal",
-			Description: "Write input string to the terminal",
+			Description: "Write input string to the terminal, end with a newline when in the shell to execute commands",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
