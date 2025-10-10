@@ -155,6 +155,7 @@ func showHelp() {
 -h               show this help message
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
+-M               enable MCP mode (run as MCP agent)
 -m <model>       select the model for the given provider
 -n               do not load rc file and disable REPL history
 -p <provider>    select the provider to use
@@ -321,6 +322,9 @@ func main() {
 		return
 	}
 
+	// Flag to enable MCP mode
+	mcpMode := false
+
 	config := loadConfig()
 
 	// Debug banner art is provided by the `art` package; llm now calls
@@ -467,6 +471,9 @@ func main() {
 		case "-v":
 			fmt.Println(Version)
 			return
+		case "-M":
+			// Enable MCP mode - run as MCP agent
+			mcpMode = true
 		case "-U":
 			// Update project by running git pull ; make in project directory
 			projectDir, err := resolveProjectDirectory()
@@ -529,6 +536,12 @@ func main() {
 		}
 	}
 
+	// Check if MCP mode is enabled
+	if mcpMode {
+		runMCPMode(config, configOptions)
+		return
+	}
+
 	// Check for REPL mode: interactive terminal or explicit -r flag
 	stdinIsTerminal := term.IsTerminal(int(os.Stdin.Fd()))
 	forceReplMode := config.InitialCommand != ""
@@ -551,6 +564,19 @@ func main() {
 		config.IsStdinMode = true
 		runStdinMode(config, configOptions, args)
 	}
+}
+
+// runMCPMode starts the MCP server with all mai-repl tools exposed
+func runMCPMode(config *llm.Config, configOptions *ConfigOptions) {
+	// Initialize REPL for MCP mode (no readline needed)
+	repl, err := NewREPL(*configOptions, "", true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing REPL for MCP mode: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Start MCP server
+	StartMCPServer(repl)
 }
 
 // resolveProjectDirectory resolves the project directory by following the symlink of argv0
