@@ -129,6 +129,7 @@ func (c *ChatApp) layoutTopBar(gtx layout.Context) layout.Dimensions {
 	if c.settingsBtn.Clicked(gtx) {
 		c.showSettings = !c.showSettings
 	}
+	// AITODO: Wrap this into a 10px Inset
 	return layout.Flex{
 		Axis: layout.Horizontal,
 	}.Layout(gtx,
@@ -178,7 +179,7 @@ func (c *ChatApp) layoutInput(gtx layout.Context) layout.Dimensions {
 			Rect: image.Rectangle{Max: gtx.Constraints.Max},
 			SE:   10, SW: 10, NE: 10, NW: 10,
 		}.Push(gtx.Ops).Pop()
-		paint.Fill(gtx.Ops, color.NRGBA{R: 240, G: 240, B: 240, A: 255})
+		paint.Fill(gtx.Ops, color.NRGBA{R: 230, G: 230, B: 230, A: 255})
 		return layout.Inset{
 			Top: 8, Bottom: 8, Left: 8, Right: 8,
 		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
