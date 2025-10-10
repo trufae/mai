@@ -352,7 +352,6 @@ func FillLineWithTriangles() string {
 	return result
 }
 
-// AITODO: rename to ReactJson()
 func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 
 	var planTemplate = ""

@@ -15,6 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
@@ -129,17 +130,18 @@ func (c *ChatApp) layoutTopBar(gtx layout.Context) layout.Dimensions {
 	if c.settingsBtn.Clicked(gtx) {
 		c.showSettings = !c.showSettings
 	}
-	// AITODO: Wrap this into a 10px Inset
-	return layout.Flex{
-		Axis: layout.Horizontal,
-	}.Layout(gtx,
-		layout.Rigid(material.Button(c.th, &c.mcpBtn, "MCP").Layout),
-		layout.Rigid(material.Button(c.th, &c.promptBtn, "Prompt").Layout),
-		layout.Flexed(1, layout.Spacer{}.Layout),
-		layout.Rigid(material.H6(c.th, "MAI Chat").Layout),
-		layout.Flexed(1, layout.Spacer{}.Layout),
-		layout.Rigid(material.Button(c.th, &c.settingsBtn, "Settings").Layout),
-	)
+	return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{
+			Axis: layout.Horizontal,
+		}.Layout(gtx,
+			layout.Rigid(material.Button(c.th, &c.mcpBtn, "MCP").Layout),
+			layout.Rigid(material.Button(c.th, &c.promptBtn, "Prompt").Layout),
+			layout.Flexed(1, layout.Spacer{}.Layout),
+			layout.Rigid(material.H6(c.th, "MAI Chat").Layout),
+			layout.Flexed(1, layout.Spacer{}.Layout),
+			layout.Rigid(material.Button(c.th, &c.settingsBtn, "Settings").Layout),
+		)
+	})
 }
 
 func (c *ChatApp) layoutMessages(gtx layout.Context) layout.Dimensions {
