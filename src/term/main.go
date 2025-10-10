@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -38,13 +40,74 @@ func main() {
 		panic(err)
 	}
 	defer listener.Close()
+	defer os.Remove(socketPath)
 
 	// Spawn command
-	cmd := exec.Command("/bin/sh", "-c", command)
+	var cmd *exec.Cmd
+	// For shells, run them directly with -i flag for interactive mode
+	if strings.HasSuffix(command, "/bash") || command == "/bin/bash" {
+		cmd = exec.Command(command, "-i")
+	} else if strings.HasSuffix(command, "/zsh") || command == "/bin/zsh" {
+		cmd = exec.Command(command, "-i")
+	} else if strings.HasSuffix(command, "/sh") || command == "/bin/sh" {
+		cmd = exec.Command(command, "-i")
+	} else {
+		cmd = exec.Command("/bin/sh", "-c", command)
+	}
+
+	// Ensure proper environment for terminal behavior
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	// Make sure TERM is set
+	hasTerm := false
+	hasColumns := false
+	hasLines := false
+	for _, env := range cmd.Env {
+		if strings.HasPrefix(env, "TERM=") {
+			hasTerm = true
+		} else if strings.HasPrefix(env, "COLUMNS=") {
+			hasColumns = true
+		} else if strings.HasPrefix(env, "LINES=") {
+			hasLines = true
+		}
+	}
+	if !hasTerm {
+		cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	}
+	if !hasColumns {
+		if term.IsTerminal(int(os.Stdout.Fd())) {
+			width, _, err := term.GetSize(int(os.Stdout.Fd()))
+			if err == nil {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("COLUMNS=%d", width))
+			}
+		}
+	}
+	if !hasLines {
+		if term.IsTerminal(int(os.Stdout.Fd())) {
+			_, height, err := term.GetSize(int(os.Stdout.Fd()))
+			if err == nil {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("LINES=%d", height))
+			}
+		}
+	}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		panic(err)
+	}
+
+	// Put stdin into raw mode for proper interactive behavior
+	var oldState *term.State
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: unable to set terminal raw mode: %v\n", err)
+		} else {
+			defer func() {
+				_ = term.Restore(int(os.Stdin.Fd()), oldState)
+			}()
+		}
 	}
 
 	// Set PTY size to match terminal
@@ -132,7 +195,12 @@ func main() {
 		}
 	}()
 
-	cmd.Wait()
+	err = cmd.Wait()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mai-term: command exited with error: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "mai-term: session ended\n")
+	}
 }
 
 func sendFramed(conn net.Conn, typ byte, data []byte) {

@@ -16,29 +16,19 @@ import (
 
 const version = "0.1.0"
 
-var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[mGJK]`)
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;?><=]*[a-zA-Z]`)
 
 func filterOutput(data string) (stdout string, stderr string) {
 	// Strip ANSI escape codes
 	data = ansiRegex.ReplaceAllString(data, "")
-
-	// Handle \r (carriage return) - take the last part after \r on each line
-	lines := strings.Split(data, "\n")
-	for i, line := range lines {
-		if strings.Contains(line, "\r") {
-			parts := strings.Split(line, "\r")
-			lines[i] = parts[len(parts)-1]
-		}
-	}
-	data = strings.Join(lines, "\n")
 
 	// Handle clearscreen (\x1b[2J) - if found, clear the buffer
 	if strings.Contains(data, "\x1b[2J") {
 		return "", ""
 	}
 
-	// For clearline (\x1b[2K), remove lines containing it, but since it's accumulated, approximate by removing the line
-	lines = strings.Split(data, "\n")
+	// For clearline (\x1b[2K), remove lines containing it
+	lines := strings.Split(data, "\n")
 	filteredLines := make([]string, 0)
 	for _, line := range lines {
 		if !strings.Contains(line, "\x1b[2K") {
@@ -47,8 +37,17 @@ func filterOutput(data string) (stdout string, stderr string) {
 	}
 	data = strings.Join(filteredLines, "\n")
 
-	// Remove other noise - perhaps control characters except \n \t
+	// Convert \r to \n (treat carriage returns as newlines)
+	data = strings.ReplaceAll(data, "\r", "\n")
+
+	// Remove duplicate newlines
+	data = regexp.MustCompile(`\n+`).ReplaceAllString(data, "\n")
+
+	// Remove other unwanted control characters (keep \n \t)
 	data = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f]`).ReplaceAllString(data, "")
+
+	// Trim spaces and newlines around the result
+	data = strings.TrimSpace(data)
 
 	return data, ""
 }
