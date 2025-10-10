@@ -35,9 +35,9 @@ type VolumeButton struct {
 func (vb *VolumeButton) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	// Colors
 	bottomColor := color.NRGBA{
-		R: uint8(max(0, int(vb.Color.R)-50)),
-		G: uint8(max(0, int(vb.Color.G)-50)),
-		B: uint8(max(0, int(vb.Color.B)-50)),
+		R: uint8(max(0, int(vb.Color.R)-80)),
+		G: uint8(max(0, int(vb.Color.G)-80)),
+		B: uint8(max(0, int(vb.Color.B)-80)),
 		A: vb.Color.A,
 	}
 	topColor := vb.Color
@@ -53,32 +53,41 @@ func (vb *VolumeButton) Layout(gtx layout.Context, th *material.Theme) layout.Di
 
 	// Layout function
 	layoutFunc := func(gtx layout.Context) layout.Dimensions {
-		// Draw bottom rect
-		bottomRect := image.Rect(0, 0, size.X, size.Y)
-		radius := gtx.Dp(unit.Dp(10))
-		rrectBottom := clip.RRect{Rect: bottomRect, SE: radius, SW: radius, NE: radius, NW: radius}
-		pathBottom := rrectBottom.Path(gtx.Ops)
-		strokeBottom := clip.Stroke{Path: pathBottom, Width: float32(gtx.Dp(unit.Dp(2)))}.Op()
-		paint.FillShape(gtx.Ops, bottomColor, strokeBottom)
-
 		// Draw top rect
 		offsetY := 0
 		if vb.Clickable.Pressed() {
-			offsetY = gtx.Dp(unit.Dp(3))
+			offsetY = gtx.Dp(unit.Dp(5))
 		}
-		topRect := image.Rect(0, offsetY, size.X, size.Y-gtx.Dp(unit.Dp(5)))
+		// Draw bottom rect
+		bottomRect := image.Rect(0, offsetY, size.X, size.Y)
+		radius := gtx.Dp(unit.Dp(10))
+		rrectBottom := clip.RRect{Rect: bottomRect, SE: radius, SW: radius, NE: radius, NW: radius}
+		pathBottom := rrectBottom.Path(gtx.Ops)
+		strokeBottom := clip.Stroke{Path: pathBottom, Width: float32(gtx.Dp(unit.Dp(3)))}.Op()
+		paint.FillShape(gtx.Ops, bottomColor, strokeBottom)
+
+		topRect := image.Rect(0, offsetY, size.X, offsetY+size.Y-gtx.Dp(unit.Dp(10)))
 		rrectTop := clip.RRect{Rect: topRect, SE: radius, SW: radius, NE: radius, NW: radius}
 		pathTop := rrectTop.Path(gtx.Ops)
-		strokeTop := clip.Stroke{Path: pathTop, Width: float32(gtx.Dp(unit.Dp(2)))}.Op()
+		strokeTop := clip.Stroke{Path: pathTop, Width: float32(gtx.Dp(unit.Dp(3)))}.Op()
 		paint.FillShape(gtx.Ops, topColor, strokeTop)
 
 		// Label
+		label := material.Body1(th, vb.Label)
+		var inset layout.Inset
+		if vb.Clickable.Pressed() {
+			inset = layout.Inset{Top: unit.Dp(10), Left: unit.Dp(20), Right: unit.Dp(4)}
+		} else {
+			inset = layout.Inset{Top: unit.Dp(5), Left: unit.Dp(20), Right: unit.Dp(4)}
+		}
 		return layout.Stack{}.Layout(gtx,
 			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: size}
 			}),
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-				return layout.Center.Layout(gtx, material.Body1(th, vb.Label).Layout)
+				return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Center.Layout(gtx, label.Layout)
+				})
 			}),
 		)
 	}
