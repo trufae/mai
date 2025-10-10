@@ -7,10 +7,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/creack/pty"
 	"golang.org/x/term"
@@ -119,18 +117,7 @@ func main() {
 	}
 
 	// Handle window resize
-	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGWINCH)
-		for range ch {
-			if term.IsTerminal(int(os.Stdout.Fd())) {
-				width, height, err := term.GetSize(int(os.Stdout.Fd()))
-				if err == nil {
-					pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(height), Cols: uint16(width)})
-				}
-			}
-		}
-	}()
+	go handleResize(ptmx)
 
 	var mu sync.Mutex
 	connections := make([]net.Conn, 0)
