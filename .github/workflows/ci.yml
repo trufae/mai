@@ -33,3 +33,27 @@ jobs:
         GOARCH: arm64
         CGO_ENABLED: 0
       run: make
+
+  build-windows:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.4'
+
+    - name: Compile for Windows
+      shell: bash
+      env:
+        GOOS: windows
+        GOARCH: amd64
+        CGO_ENABLED: 0
+      run: make
+
+    - name: Test
+      shell: bash
+      run: ./src/repl/mai-repl.exe -h
