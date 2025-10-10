@@ -44,6 +44,18 @@ type ChatApp struct {
 	cancel             context.CancelFunc
 	mu                 sync.Mutex
 	scrollToEnd        bool
+	settings           []Setting
+	providers          []string
+	models             []string
+	showDialog         bool
+	dialogTitle        string
+	dialogType         string // "editor" or "list"
+	dialogEditor       widget.Editor
+	dialogOptions      []string
+	dialogList         widget.List
+	dialogOk           widget.Clickable
+	dialogCancel       widget.Clickable
+	dialogCallback     func(string)
 }
 
 func main() {
@@ -206,7 +218,96 @@ func (c *ChatApp) layoutInput(gtx layout.Context) layout.Dimensions {
 }
 
 func (c *ChatApp) layoutSettings(gtx layout.Context) layout.Dimensions {
-	return layout.Center.Layout(gtx, material.H6(c.th, "Settings Panel - TODO").Layout)
+	if c.showDialog {
+		if c.dialogType == "editor" {
+			if c.dialogOk.Clicked(gtx) {
+				if c.dialogCallback != nil {
+					c.dialogCallback(c.dialogEditor.Text())
+				}
+				c.showDialog = false
+			}
+			if c.dialogCancel.Clicked(gtx) {
+				c.showDialog = false
+			}
+		}
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{
+				Axis: layout.Vertical,
+			}.Layout(gtx,
+				layout.Rigid(material.H6(c.th, c.dialogTitle).Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if c.dialogType == "editor" {
+						return material.Editor(c.th, &c.dialogEditor, "Enter new value").Layout(gtx)
+					} else {
+						return c.dialogList.Layout(gtx, len(c.dialogOptions), func(gtx layout.Context, idx int) layout.Dimensions {
+							opt := c.dialogOptions[idx]
+							btn := widget.Clickable{}
+							if btn.Clicked(gtx) {
+								if c.dialogCallback != nil {
+									c.dialogCallback(opt)
+								}
+								c.showDialog = false
+							}
+							return btn.Layout(gtx, material.Body1(c.th, opt).Layout)
+						})
+					}
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if c.dialogType == "editor" {
+						return layout.Flex{
+							Axis: layout.Horizontal,
+						}.Layout(gtx,
+							layout.Rigid(material.Button(c.th, &c.dialogCancel, "Cancel").Layout),
+							layout.Rigid(material.Button(c.th, &c.dialogOk, "OK").Layout),
+						)
+					}
+					return layout.Dimensions{}
+				}),
+			)
+		})
+	}
+	return c.list.Layout(gtx, len(c.settings), func(gtx layout.Context, index int) layout.Dimensions {
+		setting := c.settings[index]
+		return layout.Flex{
+			Axis: layout.Horizontal,
+		}.Layout(gtx,
+			layout.Flexed(1, material.Body1(c.th, setting.Name).Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				switch setting.Type {
+				case "bool":
+					sw := widget.Bool{Value: setting.Value.(bool)}
+					if sw.Update(gtx) && sw.Value != setting.Value.(bool) {
+						c.setSetting(setting.Name, sw.Value)
+					}
+					return material.Switch(c.th, &sw, "").Layout(gtx)
+				case "combo":
+					click := &widget.Clickable{}
+					if click.Clicked(gtx) {
+						c.showDialog = true
+						c.dialogType = "list"
+						c.dialogTitle = setting.Name
+						c.dialogOptions = setting.Options
+						c.dialogCallback = func(newVal string) {
+							c.setSetting(setting.Name, newVal)
+						}
+					}
+					return click.Layout(gtx, material.Body1(c.th, fmt.Sprintf("%v", setting.Value)).Layout)
+				default:
+					click := &widget.Clickable{}
+					if click.Clicked(gtx) {
+						c.showDialog = true
+						c.dialogType = "editor"
+						c.dialogTitle = setting.Name
+						c.dialogEditor.SetText(fmt.Sprintf("%v", setting.Value))
+						c.dialogCallback = func(newVal string) {
+							c.setSetting(setting.Name, newVal)
+						}
+					}
+					return click.Layout(gtx, material.Body1(c.th, fmt.Sprintf("%v", setting.Value)).Layout)
+				}
+			}),
+		)
+	})
 }
 
 func (c *ChatApp) startMAI() {
@@ -218,7 +319,7 @@ func (c *ChatApp) startMAI() {
 	}
 
 	// Start mai in MCP mode
-	c.cmd = exec.Command("../repl/mai-repl", "-M")
+	c.cmd = exec.Command("mai", "-M")
 	stdin, err := c.cmd.StdinPipe()
 	if err != nil {
 		c.addErrorMessage("Failed to create stdin pipe: " + err.Error())
@@ -266,6 +367,9 @@ func (c *ChatApp) startMAI() {
 	}
 
 	c.addErrorMessage(fmt.Sprintf("Connected to MAI MCP with %d tools", len(tools)))
+	c.loadProviders()
+	c.loadModels()
+	c.loadSettings()
 	c.running = true
 
 	// Start async response reader
