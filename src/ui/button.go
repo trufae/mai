@@ -63,14 +63,14 @@ func (vb *VolumeButton) Layout(gtx layout.Context, th *material.Theme) layout.Di
 		radius := gtx.Dp(unit.Dp(10))
 		rrectBottom := clip.RRect{Rect: bottomRect, SE: radius, SW: radius, NE: radius, NW: radius}
 		pathBottom := rrectBottom.Path(gtx.Ops)
-		strokeBottom := clip.Stroke{Path: pathBottom, Width: float32(gtx.Dp(unit.Dp(3)))}.Op()
-		paint.FillShape(gtx.Ops, bottomColor, strokeBottom)
+		outlineBottom := clip.Outline{Path: pathBottom}.Op()
+		paint.FillShape(gtx.Ops, bottomColor, outlineBottom)
 
 		topRect := image.Rect(0, offsetY, size.X, offsetY+size.Y-gtx.Dp(unit.Dp(10)))
 		rrectTop := clip.RRect{Rect: topRect, SE: radius, SW: radius, NE: radius, NW: radius}
 		pathTop := rrectTop.Path(gtx.Ops)
-		strokeTop := clip.Stroke{Path: pathTop, Width: float32(gtx.Dp(unit.Dp(3)))}.Op()
-		paint.FillShape(gtx.Ops, topColor, strokeTop)
+		outlineTop := clip.Outline{Path: pathTop}.Op()
+		paint.FillShape(gtx.Ops, topColor, outlineTop)
 
 		// Label
 		label := material.Body1(th, vb.Label)
