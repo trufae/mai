@@ -50,18 +50,31 @@ type ToolCallParams struct {
 
 // MCPServer represents an MCP server that can handle requests
 type MCPServer struct {
-	tools        []ToolDefinition
-	toolHandlers map[string]ToolHandler
-	reader       *bufio.Scanner
-	writer       io.Writer
-	prompts      []PromptDefinition
-	logFile      io.Writer
-	bufr         *bufio.Reader
-	useHeaders   bool
+	tools             []ToolDefinition
+	toolHandlers      map[string]ToolHandler
+	streamingHandlers map[string]StreamingToolHandler
+	reader            *bufio.Scanner
+	writer            io.Writer
+	prompts           []PromptDefinition
+	logFile           io.Writer
+	bufr              *bufio.Reader
+	useHeaders        bool
 }
 
 // ToolHandler is a function that handles a tool call
 type ToolHandler func(args map[string]interface{}) (interface{}, error)
+
+// ToolCallResult is a convenience type for handlers to return structured content
+type ToolCallResult struct {
+	Content       interface{} `json:"content,omitempty"`
+	IsError       bool        `json:"isError,omitempty"`
+	Page          int         `json:"page,omitempty"`
+	TotalPages    int         `json:"totalPages,omitempty"`
+	NextPageToken string      `json:"next_page_token,omitempty"`
+}
+
+// StreamingToolHandler is a special handler that can return streaming results
+type StreamingToolHandler func(args map[string]interface{}, sendChunk func(ToolCallResult) error) (ToolCallResult, error)
 
 // Tool represents a complete tool definition with handler
 type Tool struct {
@@ -75,11 +88,12 @@ type Tool struct {
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {
 	s := &MCPServer{
-		tools:        tools,
-		toolHandlers: make(map[string]ToolHandler),
-		reader:       bufio.NewScanner(os.Stdin),
-		writer:       os.Stdout,
-		bufr:         bufio.NewReader(os.Stdin),
+		tools:             tools,
+		toolHandlers:      make(map[string]ToolHandler),
+		streamingHandlers: make(map[string]StreamingToolHandler),
+		reader:            bufio.NewScanner(os.Stdin),
+		writer:            os.Stdout,
+		bufr:              bufio.NewReader(os.Stdin),
 	}
 	if logfile := os.Getenv("MCPLIB_LOGFILE"); logfile != "" {
 		if err := s.SetLogFile(logfile); err != nil {
@@ -141,6 +155,43 @@ func (s *MCPServer) ServeTCP(addr string) error {
 // RegisterTool registers a tool handler for a specific tool name
 func (s *MCPServer) RegisterTool(name string, handler ToolHandler) {
 	s.toolHandlers[name] = handler
+}
+
+// RegisterStreamingTool registers a streaming tool handler for a specific tool name
+func (s *MCPServer) RegisterStreamingTool(name string, handler StreamingToolHandler) {
+	s.streamingHandlers[name] = handler
+}
+
+// handleStreamingCall handles streaming tool calls
+func (s *MCPServer) handleStreamingCall(req JSONRPCRequest, params ToolCallParams, handler StreamingToolHandler) {
+	// For streaming, we send the result directly
+	result, err := handler(params.Arguments, func(chunk ToolCallResult) error {
+		// For now, just send the chunk as the result
+		// In a real streaming implementation, this would send multiple responses
+		out := map[string]interface{}{"isError": chunk.IsError}
+		if chunk.Content != nil {
+			out["content"] = chunk.Content
+		}
+		if chunk.NextPageToken != "" {
+			out["next_page_token"] = chunk.NextPageToken
+		}
+		s.sendResult(req.ID, out)
+		return nil
+	})
+	if err != nil {
+		s.sendError(req.ID, -32000, err.Error())
+		return
+	}
+
+	// Send the final result
+	out := map[string]interface{}{"isError": result.IsError}
+	if result.Content != nil {
+		out["content"] = result.Content
+	}
+	if result.NextPageToken != "" {
+		out["next_page_token"] = result.NextPageToken
+	}
+	s.sendResult(req.ID, out)
 }
 
 // Start starts the MCP server and begins processing requests
@@ -288,6 +339,13 @@ func (s *MCPServer) handleCall(req JSONRPCRequest) {
 		return
 	}
 
+	// Check for streaming handler first
+	if streamingHandler, exists := s.streamingHandlers[params.Name]; exists {
+		s.handleStreamingCall(req, params, streamingHandler)
+		return
+	}
+
+	// Fall back to regular handler
 	handler, exists := s.toolHandlers[params.Name]
 	if !exists {
 		s.sendError(req.ID, -32601, "Tool not found: "+params.Name)
@@ -305,15 +363,6 @@ func (s *MCPServer) handleCall(req JSONRPCRequest) {
 	// - string: treated as simple text content (backwards compatible)
 	// - ToolCallResult: library-native rich result
 	// - map[string]interface{} that already contains a "content" key: passed through
-
-	// ToolCallResult is a convenience type for handlers to return structured content
-	type ToolCallResult struct {
-		Content       interface{} `json:"content,omitempty"`
-		IsError       bool        `json:"isError,omitempty"`
-		Page          int         `json:"page,omitempty"`
-		TotalPages    int         `json:"totalPages,omitempty"`
-		NextPageToken string      `json:"next_page_token,omitempty"`
-	}
 
 	switch v := result.(type) {
 	case string:
@@ -399,6 +448,272 @@ func (s *MCPServer) writeFramed(data []byte) {
 	}
 	// newline-delimited fallback
 	fmt.Fprintln(s.writer, string(data))
+}
+
+// -------------------- MCP Client support --------------------
+
+// MCPClient represents an MCP client that can call tools
+type MCPClient struct {
+	writer     io.Writer
+	reader     *bufio.Scanner
+	bufr       *bufio.Reader
+	requestID  int
+	useHeaders bool
+}
+
+// NewMCPClient creates a new MCP client with stdin/stdout
+func NewMCPClient() *MCPClient {
+	return &MCPClient{
+		writer:    os.Stdout,
+		reader:    bufio.NewScanner(os.Stdin),
+		bufr:      bufio.NewReader(os.Stdin),
+		requestID: 1,
+	}
+}
+
+// SetIO allows overriding the client's input/output streams
+func (c *MCPClient) SetIO(r io.Reader, w io.Writer) {
+	if r != nil {
+		c.reader = bufio.NewScanner(r)
+		c.bufr = bufio.NewReader(r)
+	}
+	if w != nil {
+		c.writer = w
+	}
+}
+
+// Initialize sends the initialize request and waits for response
+func (c *MCPClient) Initialize() error {
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      c.requestID,
+		Method:  "initialize",
+		Params:  json.RawMessage(`{"protocolVersion": "2024-11-05"}`),
+	}
+	c.requestID++
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	c.writeFramed(data)
+
+	// Read response
+	respData, err := c.readNextMessage()
+	if err != nil {
+		return err
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if resp.Error != nil {
+		return fmt.Errorf("initialize error: %s", resp.Error.Message)
+	}
+
+	// Send initialized notification
+	notif := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "notifications/initialized",
+	}
+	notifData, err := json.Marshal(notif)
+	if err != nil {
+		return err
+	}
+	c.writeFramed(notifData)
+
+	return nil
+}
+
+// ListTools sends the tools/list request and returns available tools
+func (c *MCPClient) ListTools() ([]ToolDefinition, error) {
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      c.requestID,
+		Method:  "tools/list",
+	}
+	c.requestID++
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	c.writeFramed(data)
+
+	// Read response
+	respData, err := c.readNextMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, err
+	}
+
+	if resp.Error != nil {
+		return nil, fmt.Errorf("tools/list error: %s", resp.Error.Message)
+	}
+
+	// Parse tools from result
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid tools/list response")
+	}
+
+	toolsData, ok := result["tools"]
+	if !ok {
+		return nil, fmt.Errorf("no tools in response")
+	}
+
+	toolsJSON, err := json.Marshal(toolsData)
+	if err != nil {
+		return nil, err
+	}
+
+	var tools []ToolDefinition
+	if err := json.Unmarshal(toolsJSON, &tools); err != nil {
+		return nil, err
+	}
+
+	return tools, nil
+}
+
+// CallTool sends a tools/call request and returns the result
+func (c *MCPClient) CallTool(name string, args map[string]interface{}) (ToolCallResult, error) {
+	params := ToolCallParams{
+		Name:      name,
+		Arguments: args,
+	}
+
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return ToolCallResult{IsError: true}, err
+	}
+
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      c.requestID,
+		Method:  "tools/call",
+		Params:  paramsJSON,
+	}
+	c.requestID++
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return ToolCallResult{IsError: true}, err
+	}
+	c.writeFramed(data)
+
+	// Read response
+	respData, err := c.readNextMessage()
+	if err != nil {
+		return ToolCallResult{IsError: true}, err
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return ToolCallResult{IsError: true}, err
+	}
+
+	if resp.Error != nil {
+		return ToolCallResult{IsError: true}, fmt.Errorf("tool call error: %s", resp.Error.Message)
+	}
+
+	// Parse result
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		return ToolCallResult{IsError: true}, fmt.Errorf("invalid tool call response")
+	}
+
+	var toolResult ToolCallResult
+	if isError, ok := result["isError"].(bool); ok {
+		toolResult.IsError = isError
+	}
+	if content, ok := result["content"]; ok {
+		toolResult.Content = content
+	}
+	if nextPageToken, ok := result["next_page_token"].(string); ok {
+		toolResult.NextPageToken = nextPageToken
+	}
+
+	return toolResult, nil
+}
+
+// readNextMessage reads the next JSON-RPC message body
+func (c *MCPClient) readNextMessage() ([]byte, error) {
+	if c.bufr == nil {
+		c.bufr = bufio.NewReader(os.Stdin)
+	}
+	// Read header lines if present
+	var headers []string
+	firstLine, err := c.bufr.ReadString('\n')
+	if err != nil {
+		if err == io.EOF && len(firstLine) == 0 {
+			return nil, io.EOF
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	tl := strings.TrimRight(firstLine, "\r\n")
+	lower := strings.ToLower(tl)
+	if strings.Contains(lower, ":") && (strings.HasPrefix(lower, "content-length:") || strings.HasPrefix(lower, "content-type:")) {
+		headers = append(headers, tl)
+		// Keep reading headers until blank line
+		for {
+			h, err := c.bufr.ReadString('\n')
+			if err != nil {
+				return nil, err
+			}
+			th := strings.TrimRight(h, "\r\n")
+			if strings.TrimSpace(th) == "" {
+				break
+			}
+			headers = append(headers, th)
+		}
+		// Find Content-Length
+		var n int = -1
+		for _, h := range headers {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			if strings.TrimSpace(strings.ToLower(parts[0])) == "content-length" {
+				v := strings.TrimSpace(parts[1])
+				nn, e := strconv.Atoi(v)
+				if e == nil && nn >= 0 {
+					n = nn
+					break
+				}
+			}
+		}
+		if n < 0 {
+			return nil, fmt.Errorf("missing Content-Length header")
+		}
+		c.useHeaders = true
+		body := make([]byte, n)
+		if _, err := io.ReadFull(c.bufr, body); err != nil {
+			return nil, err
+		}
+		return body, nil
+	}
+	// Not header-framed; treat first line as JSON payload
+	return []byte(strings.TrimRight(firstLine, "\r\n")), nil
+}
+
+// writeFramed writes JSON payload using header framing if enabled
+func (c *MCPClient) writeFramed(data []byte) {
+	if c.useHeaders {
+		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
+		io.WriteString(c.writer, header)
+		c.writer.Write(data)
+		return
+	}
+	// newline-delimited fallback
+	fmt.Fprintln(c.writer, string(data))
 }
 
 // -------------------- Prompts support --------------------
