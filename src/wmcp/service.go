@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const MaiVersion = "1.2.0"
+const MaiVersion = "1.2.1"
 
 func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool, nonInteractive bool) *MCPService {
 	return &MCPService{
