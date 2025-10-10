@@ -7,6 +7,7 @@ BINS+=wttr
 BINS+=pipe
 BINS+=shell
 BINS+=time
+BINS+=term
 
 all clean:
 	for a in $(BINS); do $(MAKE) -C $$a $< || exit 1; done
