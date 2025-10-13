@@ -331,6 +331,7 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 			listener.Close()
 			repl.wmcpPort = port
 			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
+			os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
 			// Append the base URL argument
 			wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
 			cmd := exec.Command("mai-wmcp", wmcpArgs...)
@@ -449,6 +450,9 @@ func (r *REPL) showCommands() string {
 }
 
 func (r *REPL) cleanup() {
+	if r.wmcpProcess != nil && r.wmcpProcess.Process != nil {
+		r.wmcpProcess.Process.Kill()
+	}
 	if r.readline != nil {
 		r.readline.Restore()
 	} else if r.oldState != nil {
