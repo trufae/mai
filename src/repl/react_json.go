@@ -511,5 +511,8 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		fmt.Println("\x1b[33m" + FillLineWithTriangles() + "\x1b[0m")
 	}
 
-	return input + context + progress + "\n## Resolution Instructions\n\nBe concise in your response", nil
+	if context != "" {
+		return context + progress, nil //  + "\n## Resolution Instructions\n\nBe concise in your response", nil
+	}
+	return input, nil
 }

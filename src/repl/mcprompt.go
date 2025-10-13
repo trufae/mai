@@ -121,6 +121,12 @@ Return a concise JSON object only, with the fields:
 		return "", nil
 	}
 
+	// Validate that the chosen prompt is in the available list
+	if !strings.Contains(promptList, name) {
+		// Invalid choice, skip
+		return "", nil
+	}
+
 	// Fetch the selected template content and set it for newtools
 	content, err := GetMCPromptContent(name)
 	if err != nil {
