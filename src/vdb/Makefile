@@ -3,8 +3,15 @@ include ../../config.mk
 GOOS ?= $(shell go env GOOS)
 EXE = $(if $(filter windows,${GOOS}),.exe,)
 
-all:
-	go build -o mai-vdb${EXE} .
+SOURCES = $(wildcard *.go) $(wildcard vectordb/*.go)
+
+all: mai-vdb${EXE}
+
+mai-vdb${EXE}: $(SOURCES)
+	go build -o $@ .
+
+clean:
+	rm -f mai-vdb${EXE}
 
 indent fmt:
 	go fmt . && go fmt vectordb/*.go

@@ -1,7 +1,11 @@
 SUBS=mcps repl tool vdb wmcp bot term
 
-all:
-	for a in $(SUBS); do $(MAKE) -C $$a || exit 1; done
+all clean: $(SUBS)
+
+$(SUBS):
+	$(MAKE) -C $@ $(MAKECMDGOALS)
 
 fmt:
 	$(MAKE) -C .. fmt
+
+.PHONY: all clean fmt $(SUBS)

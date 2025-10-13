@@ -5,8 +5,15 @@ EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 BIN=mai-tool
 
-all:
-	go build -o $(BIN)${EXE} .
+SOURCES = $(wildcard *.go)
+
+all: $(BIN)${EXE}
+
+$(BIN)${EXE}: $(SOURCES)
+	go build -o $@ .
+
+clean:
+	rm -f $(BIN)${EXE}
 
 install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

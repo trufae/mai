@@ -3,8 +3,15 @@ include ../../config.mk
 GOOS ?= $(shell go env GOOS)
 EXE = $(if $(filter windows,${GOOS}),.exe,)
 
-all:
-	go build -o mai-repl${EXE} .
+SOURCES = $(wildcard *.go) $(wildcard llm/*.go) $(wildcard art/*.go)
+
+all: mai-repl${EXE}
+
+mai-repl${EXE}: $(SOURCES)
+	go build -o $@ .
+
+clean:
+	rm -f mai-repl${EXE}
 
 indent fmt:
 	go fmt . && cd llm && go fmt .

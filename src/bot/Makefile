@@ -3,8 +3,12 @@ include ../../config.mk
 GOOS ?= $(shell go env GOOS)
 EXE = $(if $(filter windows,${GOOS}),.exe,)
 
-all:
-	go build -o mai-bot${EXE}
+SOURCES = $(wildcard *.go)
+
+all: mai-bot${EXE}
+
+mai-bot${EXE}: $(SOURCES)
+	go build -o $@
 
 clean:
 	rm -f mai-bot${EXE}

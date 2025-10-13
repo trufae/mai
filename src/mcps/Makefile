@@ -10,8 +10,10 @@ BINS+=shell
 BINS+=time
 BINS+=term
 
-all clean:
-	for a in $(BINS); do $(MAKE) -C $$a $< || exit 1; done
+all clean: $(BINS)
+
+$(BINS):
+	$(MAKE) -C $@ $(MAKECMDGOALS)
 
 install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

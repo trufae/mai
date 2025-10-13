@@ -38,6 +38,7 @@ mcprun:
 	./src/wmcp/mai-wmcp 'r2pm -r r2mcp' src/mcps/wttr/mai-mcp-wttr
 
 clean:
+	$(MAKE) -C src clean
 	go clean
 	rm -f $(BINARY_NAME)
 
