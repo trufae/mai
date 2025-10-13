@@ -328,7 +328,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			request.Format = p.config.Schema
 		}
 		// Apply deterministic settings if enabled
-		if p.config.Deterministic || true {
+		if p.config.Deterministic {
 			request.Options = map[string]float64{
 				"repeat_last_n":  0,
 				"top_p":          0.0,
