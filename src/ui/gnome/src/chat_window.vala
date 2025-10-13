@@ -22,6 +22,13 @@ public class ChatWindow : Gtk.ApplicationWindow {
     }
 
     private void setup_ui () {
+        // Add close action
+        var close_action = new SimpleAction ("close", null);
+        close_action.activate.connect (() => {
+            this.close ();
+        });
+        add_action (close_action);
+
         // Add CSS for user messages
         var css_provider = new Gtk.CssProvider ();
         css_provider.load_from_data (".user-message { background-color: #f0f0f0; }".data);
