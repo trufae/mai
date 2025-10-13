@@ -1,7 +1,7 @@
 using Gtk;
 using Adw;
 
-public class MaiApplication : Adw.Application {
+public class MaiApplication : Gtk.Application {
     public MaiApplication () {
         Object (application_id: "com.mai.gnome", flags: ApplicationFlags.FLAGS_NONE);
     }
