@@ -242,7 +242,6 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 	if r.configOptions.GetBool("mcp.debug") {
 		art.DebugBanner("MCP Reasoning Prompt", query)
 	}
-
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)

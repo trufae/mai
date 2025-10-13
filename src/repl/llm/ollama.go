@@ -304,13 +304,12 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 				} `json:"tool_calls,omitempty"`
 			} `json:"message"`
 		}
-		fmt.Println(respBody)
 		if err := json.Unmarshal(respBody, &response); err != nil {
 			return "", err
 		}
 
 		// Handle tool_calls if content is empty
-		if response.Message.Content == "" && len(response.Message.ToolCalls) > 0 {
+		if len(response.Message.ToolCalls) > 0 {
 			// Construct JSON response for tool calling
 			toolCall := response.Message.ToolCalls[0] // Assume one tool call
 			planResponse := map[string]interface{}{
@@ -467,6 +466,7 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	// Build candidate endpoints and try them (handles shimmy/ollama/openai-like servers)
 	var candidates []string
+	/*
 	if p.config.Schema != nil {
 		candidates = []string{
 			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
@@ -475,13 +475,14 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
 		}
 	} else {
+	}
+		*/
 		candidates = []string{
 			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
 			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
 			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
 			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
 		}
-	}
 
 	if p.config.Debug {
 		art.DebugBanner("Ollama Request", string(jsonData))
@@ -524,6 +525,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		return "", fmt.Errorf("%s", response.Error)
 	}
 	if p.config.Schema != nil {
+		if response.Message.Content != "" {
+			// Tool Calling code
+			return string(response.Message.Content), nil
+		}
 		if response.Response == "" {
 			fmt.Printf("DEBUG: Ollama provider returned empty response with schema. Response body: %s\n", string(respBody))
 			return "", fmt.Errorf("LLM returned empty response in schema mode - this may indicate the model cannot generate valid structured output")
