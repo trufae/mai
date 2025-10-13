@@ -375,6 +375,11 @@ func (s *WeatherService) fetchWeatherJSON(location string) (*wttrResponse, error
 		return nil, err
 	}
 
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "Unknown location") {
+		return nil, fmt.Errorf("unknown location: %s", trimmed)
+	}
+
 	var result wttrResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
