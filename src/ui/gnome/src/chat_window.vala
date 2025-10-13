@@ -177,6 +177,10 @@ public class ChatWindow : Gtk.ApplicationWindow {
         // Messages
         messages_scroll = new Gtk.ScrolledWindow ();
         messages_scroll.vexpand = true;
+        messages_scroll.margin_start = 16;
+        messages_scroll.margin_end = 16;
+        messages_scroll.margin_top = 16;
+        messages_scroll.margin_bottom = 16;
         messages_list = new Gtk.ListBox ();
         messages_scroll.child = messages_list;
         chat_box.append (messages_scroll);
@@ -218,6 +222,9 @@ public class ChatWindow : Gtk.ApplicationWindow {
         content_stack.add_named (new Gtk.Label ("Context"), "context");
 
         content_stack.visible_child_name = "chat";
+
+        // Give focus to the input field on startup
+        input_entry.grab_focus ();
     }
 
     private void on_sidebar_selected (Gtk.ListBoxRow? row) {
@@ -280,6 +287,10 @@ public class ChatWindow : Gtk.ApplicationWindow {
             row.halign = Gtk.Align.START;
         }
         var box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        box.margin_start = 8;
+        box.margin_end = 8;
+        box.margin_top = 4;
+        box.margin_bottom = 4;
         var label = new Gtk.Label (text);
         label.wrap = true;
         label.xalign = 0;
