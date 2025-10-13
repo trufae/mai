@@ -358,6 +358,37 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	return "", fmt.Errorf("prompt not found: %s", promptName)
 }
 
+// handleInvalidConfigKey generates an error message for invalid configuration keys with suggestions
+func (r *REPL) handleInvalidConfigKey(key string) string {
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", key))
+
+	// Suggest similar keys
+	var suggestions []string
+	for _, k := range r.configOptions.GetAvailableOptions() {
+		if strings.Contains(k, key) || strings.Contains(key, k) {
+			suggestions = append(suggestions, k)
+		}
+	}
+	if len(suggestions) == 0 {
+		// Find keys with common prefix
+		for _, k := range r.configOptions.GetAvailableOptions() {
+			if strings.HasPrefix(k, strings.Split(key, ".")[0]+".") {
+				suggestions = append(suggestions, k)
+			}
+		}
+	}
+	if len(suggestions) > 0 {
+		output.WriteString("Did you mean one of these?\r\n")
+		for _, sug := range suggestions {
+			output.WriteString(fmt.Sprintf("  %s\r\n", sug))
+		}
+	} else {
+		output.WriteString("Use '/set' or '/get' without arguments to list all available options.\r\n")
+	}
+	return output.String()
+}
+
 // handleSetCommand handles the /set command with auto-completion and type validation
 func (r *REPL) handleSetCommand(args []string) (string, error) {
 	// Join all args after the command into a single input string. This
@@ -401,7 +432,42 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 	}
 
-	// If key ends with '.', list all keys that start with that prefix
+	// Check if the option exists (do this early to avoid showing "not set" for invalid keys)
+	if _, exists := r.configOptions.GetOptionInfo(key); !exists {
+		// Special case: if key ends with '.', list all keys that start with that prefix
+		if strings.HasSuffix(key, ".") {
+			var output strings.Builder
+			prefix := key
+			output.WriteString(fmt.Sprintf("Configuration options starting with '%s':\r\n", prefix))
+			found := false
+			for _, opt := range r.configOptions.GetAvailableOptions() {
+				if strings.HasPrefix(opt, prefix) {
+					val := r.configOptions.Get(opt)
+					var status string
+					if val == "" {
+						status = "not set"
+						if info, exists := r.configOptions.GetOptionInfo(opt); exists && info.Default != "" {
+							status = fmt.Sprintf("default: %s", info.Default)
+						}
+					} else {
+						status = val
+					}
+					optType := r.configOptions.GetOptionType(opt)
+					output.WriteString(fmt.Sprintf("  %-20s = %-15s (type: %s)\r\n", opt, status, optType))
+					found = true
+				}
+			}
+			if !found {
+				output.WriteString(fmt.Sprintf("No configuration options found starting with '%s'\r\n", prefix))
+			}
+			return output.String(), nil
+		}
+
+		// Invalid key
+		return r.handleInvalidConfigKey(key), nil
+	}
+
+	// If key ends with '.', list all keys that start with that prefix (for valid keys)
 	if strings.HasSuffix(key, ".") {
 		var output strings.Builder
 		prefix := key
@@ -484,37 +550,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 		r.configOptions.Set("mcp.reason", valLower)
 		return "", nil
-	}
-
-	// Check if the option exists
-	if _, exists := r.configOptions.GetOptionInfo(key); !exists {
-		var output strings.Builder
-		output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", key))
-
-		// Suggest similar keys
-		var suggestions []string
-		for _, k := range r.configOptions.GetAvailableOptions() {
-			if strings.Contains(k, key) || strings.Contains(key, k) {
-				suggestions = append(suggestions, k)
-			}
-		}
-		if len(suggestions) == 0 {
-			// Find keys with common prefix
-			for _, k := range r.configOptions.GetAvailableOptions() {
-				if strings.HasPrefix(k, strings.Split(key, ".")[0]+".") {
-					suggestions = append(suggestions, k)
-				}
-			}
-		}
-		if len(suggestions) > 0 {
-			output.WriteString("Did you mean one of these?\r\n")
-			for _, sug := range suggestions {
-				output.WriteString(fmt.Sprintf("  %s\r\n", sug))
-			}
-		} else {
-			output.WriteString("Use '/set' without arguments to list all available options.\r\n")
-		}
-		return output.String(), nil
 	}
 
 	// Set the option value with validation
@@ -633,32 +668,7 @@ func (r *REPL) handleGetCommand(args []string) (string, error) {
 
 	// Check if the option exists
 	if _, exists := r.configOptions.GetOptionInfo(option); !exists {
-		output.WriteString(fmt.Sprintf("Error: configuration key '%s' does not exist\r\n", option))
-
-		// Suggest similar keys
-		var suggestions []string
-		for _, key := range r.configOptions.GetAvailableOptions() {
-			if strings.Contains(key, option) || strings.Contains(option, key) {
-				suggestions = append(suggestions, key)
-			}
-		}
-		if len(suggestions) == 0 {
-			// Find keys with common prefix
-			for _, key := range r.configOptions.GetAvailableOptions() {
-				if strings.HasPrefix(key, strings.Split(option, ".")[0]+".") {
-					suggestions = append(suggestions, key)
-				}
-			}
-		}
-		if len(suggestions) > 0 {
-			output.WriteString("Did you mean one of these?\r\n")
-			for _, sug := range suggestions {
-				output.WriteString(fmt.Sprintf("  %s\r\n", sug))
-			}
-		} else {
-			output.WriteString("Use '/get' without arguments to list all available options.\r\n")
-		}
-		return output.String(), nil
+		return r.handleInvalidConfigKey(option), nil
 	}
 
 	value := r.configOptions.Get(option)
