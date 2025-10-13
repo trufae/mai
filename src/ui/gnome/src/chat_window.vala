@@ -41,9 +41,9 @@ public class ChatWindow : Gtk.ApplicationWindow {
         add_action (clear_chat_action);
 
         // Add CSS for user messages
-        var css_provider = new Gtk.CssProvider ();
-        css_provider.load_from_data (".user-message { background-color: #f0f0f0; }".data);
-        Gtk.StyleContext.add_provider_for_display (get_display (), css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+//        var css_provider = new Gtk.CssProvider ();
+//        css_provider.load_from_data (".user-message { background-color: #f0f0f0; }".data);
+//        css_provider.add_provider_for_display (get_display (), Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
 
         split_view = new Adw.NavigationSplitView ();
         split_view.min_sidebar_width = 0;
@@ -69,7 +69,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
         var new_window_button = new Gtk.Button.with_label ("New Window");
         new_window_button.clicked.connect (() => {
-            (this.application as Gtk.Application).activate_action ("new-window", null);
+            this.application.activate_action ("new-window", null);
         });
         box.append (new_window_button);
         var clear_chat_button = new Gtk.Button.with_label ("Clear Chat");
@@ -79,7 +79,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         box.append (clear_chat_button);
         var quit_button = new Gtk.Button.with_label ("Quit");
         quit_button.clicked.connect (() => {
-            (this.application as Gtk.Application).activate_action ("quit", null);
+            this.application.activate_action ("quit", null);
         });
         box.append (quit_button);
         popover.child = box;
@@ -259,12 +259,8 @@ public class ChatWindow : Gtk.ApplicationWindow {
         args["stream"] = "false";
 
         mcp_client.call_tool.begin ("send_message", args, (obj, res) => {
-            try {
-                var response = mcp_client.call_tool.end (res);
-                add_message (response, true);
-            } catch (Error e) {
-                add_message ("Error: " + e.message, true);
-            }
+            var response = mcp_client.call_tool.end (res);
+            add_message (response, true);
             is_waiting = false;
         });
     }
@@ -285,6 +281,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         var label = new Gtk.Label (text);
         label.wrap = true;
         label.xalign = 0;
+        label.selectable = true;
         box.append (label);
         row.child = box;
         messages_list.append (row);

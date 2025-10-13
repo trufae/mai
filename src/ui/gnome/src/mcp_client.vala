@@ -6,7 +6,6 @@ public class MCPClient : GLib.Object {
     private OutputStream? stdin_stream;
     private DataInputStream? stdout_stream;
     private int request_id = 1;
-    private bool use_headers = false;
 
     public signal void message_received (string message);
 
@@ -35,11 +34,12 @@ public class MCPClient : GLib.Object {
         var params = new Json.Object ();
         params.set_string_member ("name", name);
         var arguments = new Json.Object ();
-        args.foreach ((key, val) => {
+        foreach (string key in args.get_keys ()) {
+            var val = args[key];
             if (val != null) {
                 arguments.set_string_member (key, val.get_string ());
             }
-        });
+        }
         params.set_object_member ("arguments", arguments);
 
         var request = create_request ("tools/call", params);

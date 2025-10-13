@@ -5,7 +5,7 @@ public class MaiApplication : Gtk.Application {
     private MCPClient mcp_client;
 
     public MaiApplication () {
-        Object (application_id: "com.mai.gnome", flags: ApplicationFlags.FLAGS_NONE);
+        Object (application_id: "com.mai.gnome", flags: ApplicationFlags.DEFAULT_FLAGS);
         mcp_client = new MCPClient ();
     }
 
