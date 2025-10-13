@@ -255,7 +255,7 @@ func (s *WeatherService) GetMoonInfo(location string) (*MoonInfo, error) {
 // CreateWeatherTool creates a tool definition for the weather service.
 func CreateWeatherTool() mcplib.ToolDefinition {
 	return mcplib.ToolDefinition{
-		Name:        "getWeather",
+		Name:        "get_weather",
 		Description: "Get current weather, including local time and timezone. Location is optional.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
@@ -272,7 +272,7 @@ func CreateWeatherTool() mcplib.ToolDefinition {
 // CreateForecastTool defines the week-forecast tool.
 func CreateForecastTool() mcplib.ToolDefinition {
 	return mcplib.ToolDefinition{
-		Name:        "getWeatherForecast",
+		Name:        "get_weather_forecast",
 		Description: "Get the week-long weather forecast (up to 7 days) for a location.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
@@ -289,7 +289,7 @@ func CreateForecastTool() mcplib.ToolDefinition {
 // CreateMoonTool defines the moon phase tool.
 func CreateMoonTool() mcplib.ToolDefinition {
 	return mcplib.ToolDefinition{
-		Name:        "getMoonPhase",
+		Name:        "get_moon_phase",
 		Description: "Get current moon phase, local moon info, and the next full moon date.",
 		InputSchema: map[string]interface{}{
 			"type": "object",

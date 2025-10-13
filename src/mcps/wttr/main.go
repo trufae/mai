@@ -20,9 +20,9 @@ func main() {
 
 	server := mcplib.NewMCPServer([]mcplib.ToolDefinition{weatherTool, forecastTool, moonTool})
 
-	server.RegisterTool("getWeather", WeatherToolHandler(weatherService))
-	server.RegisterTool("getWeatherForecast", ForecastToolHandler(weatherService))
-	server.RegisterTool("getMoonPhase", MoonToolHandler(weatherService))
+	server.RegisterTool("get_weather", WeatherToolHandler(weatherService))
+	server.RegisterTool("get_weather_forecast", ForecastToolHandler(weatherService))
+	server.RegisterTool("get_moon_phase", MoonToolHandler(weatherService))
 
 	// Start the server
 	if *listen != "" {
