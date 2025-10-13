@@ -4,6 +4,7 @@ BINS=code
 BINS+=pancode
 BINS+=markdown
 BINS+=wttr
+BINS+=websearch
 BINS+=pipe
 BINS+=shell
 BINS+=time
