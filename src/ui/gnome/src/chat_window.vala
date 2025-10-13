@@ -13,12 +13,11 @@ public class ChatWindow : Gtk.ApplicationWindow {
     private MCPClient mcp_client;
     private bool is_waiting = false;
 
-    public ChatWindow (Gtk.Application app) {
+    public ChatWindow (Gtk.Application app, MCPClient client) {
         Object (application: app, title: "Mai", default_width: 800, default_height: 600);
 
-        mcp_client = new MCPClient ();
+        mcp_client = client;
         setup_ui ();
-        setup_mcp ();
     }
 
     private void setup_ui () {
@@ -245,15 +244,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         }
     }
 
-    private void setup_mcp () {
-        mcp_client.initialize.begin ((obj, res) => {
-            if (mcp_client.initialize.end (res)) {
-                // Connected
-            } else {
-                // Error
-            }
-        });
-    }
+
 
     private void send_message () {
         var text = input_entry.text.strip ();

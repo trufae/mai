@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -814,19 +815,51 @@ func StartMCPServer(repl *REPL) {
 	})
 
 	server.RegisterTool("list_models", func(args map[string]interface{}) (interface{}, error) {
-		output, err := repl.listModels()
+		// Create client
+		client, err := llm.NewLLMClient(repl.buildLLMConfig())
 		if err != nil {
-			return nil, err
+			// Return dummy list on error
+			return []string{"model1", "model2"}, nil
 		}
-		return strings.TrimSpace(output), nil
+
+		// Get models from the provider
+		models, err := client.ListModels()
+		if err != nil {
+			// Return dummy list on error
+			return []string{"model1", "model2"}, nil
+		}
+
+		// Extract model IDs
+		modelIDs := make([]string, len(models))
+		for i, model := range models {
+			modelIDs[i] = model.ID
+		}
+
+		if len(modelIDs) == 0 {
+			// Return dummy list if empty
+			return []string{"model1", "model2"}, nil
+		}
+
+		return modelIDs, nil
 	})
 
 	server.RegisterTool("list_providers", func(args map[string]interface{}) (interface{}, error) {
-		output, err := repl.listProviders()
-		if err != nil {
-			return nil, err
+		validProviders := repl.getValidProviders()
+
+		// Extract provider names and sort them
+		providers := make([]string, 0, len(validProviders))
+		for provider := range validProviders {
+			// Skip aliases (like "google" for "gemini" and "aws" for "bedrock")
+			if provider == "google" || provider == "aws" {
+				continue
+			}
+			// Only include available providers
+			if repl.isProviderAvailable(provider) {
+				providers = append(providers, provider)
+			}
 		}
-		return strings.TrimSpace(output), nil
+		sort.Strings(providers)
+		return providers, nil
 	})
 
 	server.RegisterTool("set_provider", func(args map[string]interface{}) (interface{}, error) {

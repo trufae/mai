@@ -59,13 +59,16 @@ public class SettingsWindow : Gtk.Box {
     private void on_provider_changed () {
         var selected = provider_combo.selected;
         if (selected >= 0) {
-            var provider = (provider_combo.model as Gtk.StringList).get_string (selected);
-            var args = new HashTable<string, Value?> (str_hash, str_equal);
-            args["provider"] = provider.down ();
-            mcp_client.call_tool.begin ("set_provider", args, (obj, res) => {
-                // Handle response
-                load_models ();
-            });
+            var model = provider_combo.model as Gtk.StringList;
+            if (model != null) {
+                var provider = model.get_string (selected);
+                var args = new HashTable<string, Value?> (str_hash, str_equal);
+                args["provider"] = provider.down ();
+                mcp_client.call_tool.begin ("set_provider", args, (obj, res) => {
+                    // Handle response
+                    load_models ();
+                });
+            }
         }
     }
 
