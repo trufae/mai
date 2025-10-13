@@ -235,6 +235,15 @@ func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
 	serverName := vars["server"]
 	promptName := vars["prompt"]
 
+	// Handle prompt names with server prefix (e.g., "server.prompt_name")
+	if serverName == "" && strings.Contains(promptName, ".") {
+		parts := strings.SplitN(promptName, ".", 2)
+		if len(parts) == 2 {
+			serverName = parts[0]
+			promptName = parts[1]
+		}
+	}
+
 	// Check for custom prompt
 	customPrompt := r.URL.Query().Get("custom_prompt")
 	if customPrompt != "" {
@@ -801,6 +810,15 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["server"]
 	toolName := vars["tool"]
+
+	// Handle tool names with server prefix (e.g., "mai-mcp-wttr.get_weather")
+	if serverName == "" && strings.Contains(toolName, ".") {
+		parts := strings.SplitN(toolName, ".", 2)
+		if len(parts) == 2 {
+			serverName = parts[0]
+			toolName = parts[1]
+		}
+	}
 
 	// Check for nonInteractive query parameter
 	nonInteractiveParam := r.URL.Query().Get("nonInteractive")

@@ -242,7 +242,6 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 	if r.configOptions.GetBool("mcp.debug") {
 		art.DebugBanner("MCP Reasoning Prompt", query)
 	}
-
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)
@@ -428,6 +427,9 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		step, err := r.newToolStep(dynamicToolsPrompt, input, context, toolList, chatHistory)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
+			if strings.Contains(err.Error(), "fallback to non-grammar mode") {
+				return "", fmt.Errorf("fallback to non-grammar mode")
+			}
 			if strings.Contains(err.Error(), "failed") {
 				break
 			}
