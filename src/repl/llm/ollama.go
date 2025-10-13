@@ -465,24 +465,12 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	// Build candidate endpoints and try them (handles shimmy/ollama/openai-like servers)
-	var candidates []string
-	/*
-	if p.config.Schema != nil {
-		candidates = []string{
-			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
-			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
-		}
-	} else {
+	candidates := []string{
+		buildURL("", p.config.BaseURL, "", "", "/api/chat"),
+		buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
+		buildURL("", p.config.BaseURL, "", "", "/api/generate"),
+		buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
 	}
-		*/
-		candidates = []string{
-			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
-			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
-		}
 
 	if p.config.Debug {
 		art.DebugBanner("Ollama Request", string(jsonData))
@@ -526,8 +514,28 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 	if p.config.Schema != nil {
 		if response.Message.Content != "" {
-			// Tool Calling code
-			return string(response.Message.Content), nil
+			return response.Message.Content, nil
+		}
+		// Handle tool_calls if present
+		if len(response.Message.ToolCalls) > 0 {
+			// Construct JSON response for tool calling
+			toolCall := response.Message.ToolCalls[0] // Assume one tool call
+			planResponse := map[string]interface{}{
+				"plan":               []string{"Call tool " + toolCall.Function.Name},
+				"current_plan_index": 0,
+				"progress":           response.Message.Thinking,
+				"reasoning":          response.Message.Thinking,
+				"next_step":          "Execute the tool",
+				"action":             "Iterate",
+				"tool_required":      true,
+				"tool":               toolCall.Function.Name,
+				"tool_params":        toolCall.Function.Arguments,
+			}
+			jsonBytes, err := json.Marshal(planResponse)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal tool call response: %v", err)
+			}
+			return string(jsonBytes), nil
 		}
 		if response.Response == "" {
 			fmt.Printf("DEBUG: Ollama provider returned empty response with schema. Response body: %s\n", string(respBody))
