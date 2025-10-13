@@ -28,6 +28,21 @@ public class ChatWindow : Gtk.ApplicationWindow {
         Gtk.StyleContext.add_provider_for_display (get_display (), css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
 
         split_view = new Adw.NavigationSplitView ();
+        split_view.min_sidebar_width = 0;
+
+        var header = new Adw.HeaderBar ();
+        var toggle_button = new Gtk.ToggleButton ();
+        toggle_button.icon_name = "sidebar-show-symbolic";
+        toggle_button.tooltip_text = "Toggle sidebar";
+        toggle_button.toggled.connect (() => {
+            split_view.collapsed = toggle_button.active;
+            if (toggle_button.active) {
+                split_view.show_content = true;
+            }
+        });
+        header.pack_start (toggle_button);
+        set_titlebar (header);
+
         set_child (split_view);
 
         // Sidebar
@@ -36,6 +51,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         sidebar = new Gtk.ListBox ();
         var chat_row = new Gtk.ListBoxRow ();
         var chat_row_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        chat_row_box.margin_start = 8;
         var chat_icon = new Gtk.Image.from_icon_name ("face-smile-symbolic");
         chat_icon.pixel_size = 24;
         chat_row_box.append (chat_icon);
@@ -45,6 +61,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         sidebar.append (chat_row);
         var settings_row = new Gtk.ListBoxRow ();
         var settings_row_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        settings_row_box.margin_start = 8;
         var settings_icon = new Gtk.Image.from_icon_name ("preferences-system");
         settings_icon.pixel_size = 24;
         settings_row_box.append (settings_icon);
