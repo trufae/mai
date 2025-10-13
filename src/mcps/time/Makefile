@@ -3,3 +3,6 @@ EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 all:
 	go build -o mai-mcp-time${EXE}
+
+clean:
+	rm -f mai-mcp-time${EXE}

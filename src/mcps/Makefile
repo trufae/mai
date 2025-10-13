@@ -10,7 +10,17 @@ BINS+=shell
 BINS+=time
 BINS+=term
 
-all clean: $(BINS)
+all:
+	for a in $(BINS); do \
+		$(MAKE) -C $$a all & \
+	done; \
+	wait
+
+clean:
+	for a in $(BINS); do \
+		$(MAKE) -C $$a clean & \
+	done; \
+	wait
 
 $(BINS):
 	$(MAKE) -C $@ $(MAKECMDGOALS)

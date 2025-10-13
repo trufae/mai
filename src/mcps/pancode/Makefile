@@ -3,3 +3,6 @@ EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 all:
 	go build -o mai-mcp-pancode${EXE}
+
+clean:
+	rm -f mai-mcp-pancode${EXE}

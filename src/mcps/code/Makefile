@@ -3,3 +3,6 @@ EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 all:
 	go build -o mai-mcp-code${EXE}
+
+clean:
+	rm -f mai-mcp-code${EXE}

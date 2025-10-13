@@ -3,3 +3,6 @@ EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 all:
 	go build -o mai-mcp-markdown${EXE}
+
+clean:
+	rm -f mai-mcp-markdown${EXE}
