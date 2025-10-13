@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -896,31 +897,66 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 
 	debugLog(s.debugMode, "Request sent to server %s, waiting for response", server.Name)
 
-	// Read response with timeout
-	type scanResult struct {
-		ok    bool
+	// Read response with timeout using MCP header framing
+	type readResult struct {
 		bytes []byte
 		err   error
 	}
 
-	resultChan := make(chan scanResult, 1)
+	resultChan := make(chan readResult, 1)
 	go func() {
-		scanner := bufio.NewScanner(server.Stdout)
-		buf := make([]byte, 10*1024*1024) // 10MB buffer
-		scanner.Buffer(buf, 10*1024*1024)
-		ok := scanner.Scan()
-		var err error
-		var bytes []byte
-		if ok {
-			bytes = scanner.Bytes()
-		} else {
-			err = scanner.Err()
+		// Read MCP header-framed message (similar to mcplib readNextMessage)
+		bufr := bufio.NewReader(server.Stdout)
+
+		// Read header lines
+		var headers []string
+		for {
+			line, err := bufr.ReadString('\n')
+			if err != nil {
+				resultChan <- readResult{bytes: nil, err: fmt.Errorf("failed to read header line: %v", err)}
+				return
+			}
+			tl := strings.TrimRight(line, "\r\n")
+			if strings.TrimSpace(tl) == "" {
+				break // Empty line marks end of headers
+			}
+			headers = append(headers, tl)
 		}
-		resultChan <- scanResult{ok: ok, bytes: bytes, err: err}
+
+		// Find Content-Length
+		var contentLength int = -1
+		for _, h := range headers {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			if strings.TrimSpace(strings.ToLower(parts[0])) == "content-length" {
+				v := strings.TrimSpace(parts[1])
+				cl, e := strconv.Atoi(v)
+				if e == nil && cl >= 0 {
+					contentLength = cl
+					break
+				}
+			}
+		}
+
+		if contentLength < 0 {
+			resultChan <- readResult{bytes: nil, err: fmt.Errorf("missing Content-Length header")}
+			return
+		}
+
+		// Read exactly contentLength bytes
+		body := make([]byte, contentLength)
+		if _, err := io.ReadFull(bufr, body); err != nil {
+			resultChan <- readResult{bytes: nil, err: fmt.Errorf("failed to read body: %v", err)}
+			return
+		}
+
+		resultChan <- readResult{bytes: body, err: nil}
 	}()
 
 	timeout := 30 * time.Second
-	var result scanResult
+	var result readResult
 	select {
 	case result = <-resultChan:
 		// Got result
@@ -929,13 +965,9 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 		return nil, fmt.Errorf("timeout waiting for response")
 	}
 
-	if !result.ok {
-		if result.err != nil {
-			log.Printf("ERROR: Scanner error while reading response from server %s: %v", server.Name, result.err)
-		} else {
-			log.Printf("ERROR: No response received from server %s (EOF or empty)", server.Name)
-		}
-		return nil, fmt.Errorf("failed to read response")
+	if result.err != nil {
+		log.Printf("ERROR: Failed to read response from server %s: %v", server.Name, result.err)
+		return nil, fmt.Errorf("failed to read response: %v", result.err)
 	}
 
 	// Get the response bytes
