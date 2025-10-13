@@ -428,6 +428,9 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		step, err := r.newToolStep(dynamicToolsPrompt, input, context, toolList, chatHistory)
 		if err != nil {
 			fmt.Printf("## ERROR: toolStep: %s\r\n", err)
+			if strings.Contains(err.Error(), "fallback to non-grammar mode") {
+				return "", fmt.Errorf("fallback to non-grammar mode")
+			}
 			if strings.Contains(err.Error(), "failed") {
 				break
 			}

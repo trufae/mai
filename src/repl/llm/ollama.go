@@ -294,7 +294,14 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 
 		var response struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
+				Thinking  string `json:"thinking,omitempty"`
+				ToolCalls []struct {
+					Function struct {
+						Name      string                 `json:"name"`
+						Arguments map[string]interface{} `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls,omitempty"`
 			} `json:"message"`
 		}
 		fmt.Println(respBody)
@@ -302,6 +309,31 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			return "", err
 		}
 
+		// Handle tool_calls if content is empty
+		if response.Message.Content == "" && len(response.Message.ToolCalls) > 0 {
+			// Construct JSON response for tool calling
+			toolCall := response.Message.ToolCalls[0] // Assume one tool call
+			planResponse := map[string]interface{}{
+				"plan":               []string{"Call tool " + toolCall.Function.Name},
+				"current_plan_index": 0,
+				"progress":           response.Message.Thinking,
+				"reasoning":          response.Message.Thinking,
+				"next_step":          "Execute the tool",
+				"action":             "Iterate",
+				"tool_required":      true,
+				"tool":               toolCall.Function.Name,
+				"tool_params":        toolCall.Function.Arguments,
+			}
+			jsonBytes, err := json.Marshal(planResponse)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal tool call response: %v", err)
+			}
+			return string(jsonBytes), nil
+		}
+
+		if response.Message.Content == "" {
+			fmt.Printf("DEBUG: Ollama provider returned empty content in image mode. Response body: %s\n", string(respBody))
+		}
 		return response.Message.Content, nil
 	}
 	if p.config.Rawdog {
@@ -379,6 +411,9 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 		if response.Error != "" {
 			return "", fmt.Errorf("%s", response.Error)
+		}
+		if response.Response == "" {
+			fmt.Printf("DEBUG: Ollama provider returned empty response in rawdog mode. Response body: %s\n", string(respBody))
 		}
 		// Return raw content - newline conversion happens in the REPL
 		return response.Response, nil
@@ -468,10 +503,17 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	var response struct {
 		Message struct {
-			Content string `json:"content""`
-		} `json:"message""`
-		Response string `json:"response,omitempty""`
-		Error    string `json:"error,omitempty""`
+			Content   string `json:"content"`
+			Thinking  string `json:"thinking,omitempty"`
+			ToolCalls []struct {
+				Function struct {
+					Name      string                 `json:"name"`
+					Arguments map[string]interface{} `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls,omitempty"`
+		} `json:"message"`
+		Response string `json:"response,omitempty"`
+		Error    string `json:"error,omitempty"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {
@@ -482,10 +524,39 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		return "", fmt.Errorf("%s", response.Error)
 	}
 	if p.config.Schema != nil {
+		if response.Response == "" {
+			fmt.Printf("DEBUG: Ollama provider returned empty response with schema. Response body: %s\n", string(respBody))
+			return "", fmt.Errorf("LLM returned empty response in schema mode - this may indicate the model cannot generate valid structured output")
+		}
 		return response.Response, nil
 	}
 
+	// Handle tool_calls if content is empty
+	if response.Message.Content == "" && len(response.Message.ToolCalls) > 0 {
+		// Construct JSON response for tool calling
+		toolCall := response.Message.ToolCalls[0] // Assume one tool call
+		planResponse := map[string]interface{}{
+			"plan":               []string{"Call tool " + toolCall.Function.Name},
+			"current_plan_index": 0,
+			"progress":           response.Message.Thinking,
+			"reasoning":          response.Message.Thinking,
+			"next_step":          "Execute the tool",
+			"action":             "Iterate",
+			"tool_required":      true,
+			"tool":               toolCall.Function.Name,
+			"tool_params":        toolCall.Function.Arguments,
+		}
+		jsonBytes, err := json.Marshal(planResponse)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal tool call response: %v", err)
+		}
+		return string(jsonBytes), nil
+	}
+
 	// Return raw content - newline conversion happens in the REPL
+	if response.Message.Content == "" {
+		fmt.Printf("DEBUG: Ollama provider returned empty message content. Response body: %s\n", string(respBody))
+	}
 	return response.Message.Content, nil
 }
 
