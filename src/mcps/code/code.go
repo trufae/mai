@@ -42,7 +42,7 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 	return []mcplib.Tool{
 		// Search tool for finding text in files
 		{
-			Name:        "SearchFiles",
+			Name:        "search_files",
 			Description: "Searches for text in files using ripgrep (rg), git grep, or grep.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -77,7 +77,7 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 		// Base tools from original implementation
 		// 1. ExecuteCommand
 		{
-			Name:        "ExecuteCommand",
+			Name:        "execute_command",
 			Description: "Executes shell commands on the MCP server and returns the standard output, standard error, and return code.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -99,7 +99,7 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - ReadFile
 		{
-			Name:        "ReadFile",
+			Name:        "read_file",
 			Description: "Reads content from a file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -115,9 +115,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleReadFile,
 		},
 
-		// 2. FileOperations - WriteFile
+		// 2. FileOperations - write_file
 		{
-			Name:        "WriteFile",
+			Name:        "write_file",
 			Description: "Writes content to a file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -137,9 +137,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleWriteFile,
 		},
 
-		// 2. FileOperations - AppendFile
+		// 2. FileOperations - append_file
 		{
-			Name:        "AppendFile",
+			Name:        "append_file",
 			Description: "Appends content to an existing file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -159,9 +159,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleAppendFile,
 		},
 
-		// 2. FileOperations - DeleteFile
+		// 2. FileOperations - delete_file
 		{
-			Name:        "DeleteFile",
+			Name:        "delete_file",
 			Description: "Deletes a file from the filesystem.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -177,9 +177,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleDeleteFile,
 		},
 
-		// 2. FileOperations - CreateFile
+		// 2. FileOperations - create_file
 		{
-			Name:        "CreateFile",
+			Name:        "create_file",
 			Description: "Creates a new file with the specified content.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -203,9 +203,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleCreateFile,
 		},
 
-		// 2. FileOperations - MoveFile
+		// 2. FileOperations - move_file
 		{
-			Name:        "MoveFile",
+			Name:        "move_file",
 			Description: "Moves a file from source to destination.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -225,9 +225,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleMoveFile,
 		},
 
-		// 2. FileOperations - RenameFile
+		// 2. FileOperations - rename_file
 		{
-			Name:        "RenameFile",
+			Name:        "rename_file",
 			Description: "Renames a file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -247,9 +247,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleRenameFile,
 		},
 
-		// 2. FileOperations - CopyFile
+		// 2. FileOperations - copy_file
 		{
-			Name:        "CopyFile",
+			Name:        "copy_file",
 			Description: "Copies a file from source to destination.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -269,9 +269,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleCopyFile,
 		},
 
-		// 2. FileOperations - CreateDirectory
+		// 2. FileOperations - create_directory
 		{
-			Name:        "CreateDirectory",
+			Name:        "create_directory",
 			Description: "Creates a new directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -287,9 +287,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleCreateDirectory,
 		},
 
-		// 2. FileOperations - RemoveDirectory
+		// 2. FileOperations - remove_directory
 		{
-			Name:        "RemoveDirectory",
+			Name:        "remove_directory",
 			Description: "Removes a directory and all its contents.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -309,9 +309,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleRemoveDirectory,
 		},
 
-		// 3. SystemInformation - GetOSInfo
+		// 3. SystemInformation - get_os_info
 		{
-			Name:        "GetOSInfo",
+			Name:        "get_os_info",
 			Description: "Gets information about the operating system.",
 			InputSchema: map[string]any{
 				"type":       "object",
@@ -321,9 +321,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleGetOSInfo,
 		},
 
-		// 3. SystemInformation - GetEnvironment
+		// 3. SystemInformation - get_environment
 		{
-			Name:        "GetEnvironment",
+			Name:        "get_environment",
 			Description: "Gets environment variables.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -338,9 +338,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleGetEnvironment,
 		},
 
-		// 3. SystemInformation - SetEnvironment
+		// 3. SystemInformation - set_environment
 		{
-			Name:        "SetEnvironment",
+			Name:        "set_environment",
 			Description: "Sets an environment variable.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -361,9 +361,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 		},
 
 		// Code-related tools
-		// 1. IdentifyLanguage
+		// 1. identify_language
 		{
-			Name:        "IdentifyLanguage",
+			Name:        "identify_language",
 			Description: "Identifies the programming language used in a file or directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -379,9 +379,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleIdentifyLanguage,
 		},
 
-		// 2. IdentifyBuildSystem
+		// 2. identify_build_system
 		{
-			Name:        "IdentifyBuildSystem",
+			Name:        "identify_build_system",
 			Description: "Identifies the build system used in a project directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -449,9 +449,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleRun,
 		},
 
-		// 5. ListFunctions
+		// 5. list_functions
 		{
-			Name:        "ListFunctions",
+			Name:        "list_functions",
 			Description: "Lists functions in a file or directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -471,9 +471,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleListFunctions,
 		},
 
-		// 6. GetFunctionBody
+		// 6. get_function_body
 		{
-			Name:        "GetFunctionBody",
+			Name:        "get_function_body",
 			Description: "Gets the body of a function given its name and file/directory path.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -497,9 +497,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleGetFunctionBody,
 		},
 
-		// 7. FileChangeCheck
+		// 7. file_change_check
 		{
-			Name:        "FileChangeCheck",
+			Name:        "file_change_check",
 			Description: "Checks if a file has been modified since it was last checked.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -515,9 +515,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleFileChangeCheck,
 		},
 
-		// 8. ApplyPatch
+		// 8. apply_patch
 		{
-			Name:        "ApplyPatch",
+			Name:        "apply_patch",
 			Description: "Applies a patch to a file by replacing specific lines.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -545,9 +545,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleApplyPatch,
 		},
 
-		// 9. QueryStructure
+		// 9. query_structure
 		{
-			Name:        "QueryStructure",
+			Name:        "query_structure",
 			Description: "Queries structure information (classes, interfaces, structs, etc.) in a file or directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -593,9 +593,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleMakeCmd,
 		},
 
-		// 3. SystemInformation - ListFiles
+		// 3. SystemInformation - list_files
 		{
-			Name:        "ListFiles",
+			Name:        "list_files",
 			Description: "Lists files in a directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -611,9 +611,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleListFiles,
 		},
 
-		// 3. SystemInformation - ChangeDirectory
+		// 3. SystemInformation - change_directory
 		{
-			Name:        "ChangeDirectory",
+			Name:        "change_directory",
 			Description: "Changes the current working directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -629,9 +629,9 @@ func (s *CodeService) GetTools() []mcplib.Tool {
 			Handler:       s.handleChangeDirectory,
 		},
 
-		// 3. SystemInformation - GetCurrentDirectory
+		// 3. SystemInformation - get_current_directory
 		{
-			Name:        "GetCurrentDirectory",
+			Name:        "get_current_directory",
 			Description: "Gets the current working directory.",
 			InputSchema: map[string]any{
 				"type":       "object",
@@ -741,7 +741,7 @@ func (s *CodeService) handleReadFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleWriteFile handles the WriteFile request
+// handleWriteFile handles the write_file request
 func (s *CodeService) handleWriteFile(args map[string]any) (any, error) {
 	filepath, ok := args["filepath"].(string)
 	if !ok || filepath == "" {
@@ -763,7 +763,7 @@ func (s *CodeService) handleWriteFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleMoveFile handles the MoveFile request
+// handleMoveFile handles the move_file request
 func (s *CodeService) handleMoveFile(args map[string]any) (any, error) {
 	source, ok := args["source"].(string)
 	if !ok || source == "" {
@@ -785,7 +785,7 @@ func (s *CodeService) handleMoveFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleCopyFile handles the CopyFile request
+// handleCopyFile handles the copy_file request
 func (s *CodeService) handleCopyFile(args map[string]any) (any, error) {
 	source, ok := args["source"].(string)
 	if !ok || source == "" {
@@ -814,7 +814,7 @@ func (s *CodeService) handleCopyFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleCreateDirectory handles the CreateDirectory request
+// handleCreateDirectory handles the create_directory request
 func (s *CodeService) handleCreateDirectory(args map[string]any) (any, error) {
 	directoryPath, ok := args["directory_path"].(string)
 	if !ok || directoryPath == "" {
@@ -831,7 +831,7 @@ func (s *CodeService) handleCreateDirectory(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleGetOSInfo handles the GetOSInfo request
+// handleGetOSInfo handles the get_os_info request
 func (s *CodeService) handleGetOSInfo(args map[string]any) (any, error) {
 	hostname, _ := os.Hostname()
 
@@ -848,7 +848,7 @@ func (s *CodeService) handleGetOSInfo(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleListFiles handles the ListFiles request
+// handleListFiles handles the list_files request
 func (s *CodeService) handleListFiles(args map[string]any) (any, error) {
 	directoryPath, ok := args["directory_path"].(string)
 	if !ok || directoryPath == "" {
@@ -877,7 +877,7 @@ func (s *CodeService) handleListFiles(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleChangeDirectory handles the ChangeDirectory request
+// handleChangeDirectory handles the change_directory request
 func (s *CodeService) handleChangeDirectory(args map[string]any) (any, error) {
 	directoryPath, ok := args["directory_path"].(string)
 	if !ok || directoryPath == "" {
@@ -896,7 +896,7 @@ func (s *CodeService) handleChangeDirectory(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleGetCurrentDirectory handles the GetCurrentDirectory request
+// handleGetCurrentDirectory handles the get_current_directory request
 func (s *CodeService) handleGetCurrentDirectory(args map[string]any) (any, error) {
 	currentDir := s.getCurrentDirectory()
 	return map[string]any{
@@ -913,7 +913,7 @@ func (s *CodeService) getCurrentDirectory() string {
 	return dir
 }
 
-// handleAppendFile handles the AppendFile request
+// handleAppendFile handles the append_file request
 func (s *CodeService) handleAppendFile(args map[string]any) (any, error) {
 	filepath, ok := args["filepath"].(string)
 	if !ok || filepath == "" {
@@ -942,7 +942,7 @@ func (s *CodeService) handleAppendFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleDeleteFile handles the DeleteFile request
+// handleDeleteFile handles the delete_file request
 func (s *CodeService) handleDeleteFile(args map[string]any) (any, error) {
 	filepath, ok := args["filepath"].(string)
 	if !ok || filepath == "" {
@@ -959,7 +959,7 @@ func (s *CodeService) handleDeleteFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleRenameFile handles the RenameFile request
+// handleRenameFile handles the rename_file request
 func (s *CodeService) handleRenameFile(args map[string]any) (any, error) {
 	filepath, ok := args["filepath"].(string)
 	if !ok || filepath == "" {
@@ -987,7 +987,7 @@ func (s *CodeService) handleRenameFile(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleRemoveDirectory handles the RemoveDirectory request
+// handleRemoveDirectory handles the remove_directory request
 func (s *CodeService) handleRemoveDirectory(args map[string]any) (any, error) {
 	directoryPath, ok := args["directory_path"].(string)
 	if !ok || directoryPath == "" {
@@ -1014,7 +1014,7 @@ func (s *CodeService) handleRemoveDirectory(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleGetEnvironment handles the GetEnvironment request
+// handleGetEnvironment handles the get_environment request
 func (s *CodeService) handleGetEnvironment(args map[string]any) (any, error) {
 	variable, ok := args["variable"].(string)
 
@@ -1041,7 +1041,7 @@ func (s *CodeService) handleGetEnvironment(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleSetEnvironment handles the SetEnvironment request
+// handleSetEnvironment handles the set_environment request
 func (s *CodeService) handleSetEnvironment(args map[string]any) (any, error) {
 	variable, ok := args["variable"].(string)
 	if !ok || variable == "" {
@@ -1065,7 +1065,7 @@ func (s *CodeService) handleSetEnvironment(args map[string]any) (any, error) {
 	}, nil
 }
 
-// handleIdentifyLanguage identifies the programming language used in a file or directory
+// handleIdentifyLanguage handles the identify_language request
 func (s *CodeService) handleIdentifyLanguage(args map[string]any) (any, error) {
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
@@ -1427,7 +1427,7 @@ func containsString(slice []string, str string) bool {
 	return false
 }
 
-// handleIdentifyBuildSystem identifies the build system used in a project directory
+// handleIdentifyBuildSystem handles the identify_build_system request
 func (s *CodeService) handleIdentifyBuildSystem(args map[string]any) (any, error) {
 	directory, ok := args["directory"].(string)
 	if !ok || directory == "" {
@@ -1689,7 +1689,7 @@ func (s *CodeService) getBuildCommands(buildSystem string) map[string]string {
 	return map[string]string{}
 }
 
-// handleListFunctions lists functions in a file or directory
+// handleListFunctions handles the list_functions request
 func (s *CodeService) handleListFunctions(args map[string]any) (any, error) {
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
@@ -1929,7 +1929,7 @@ func min(a, b int) int {
 	return b
 }
 
-// handleGetFunctionBody retrieves the full function body
+// handleGetFunctionBody handles the get_function_body request
 func (s *CodeService) handleGetFunctionBody(args map[string]any) (any, error) {
 	functionName, ok := args["function_name"].(string)
 	if !ok || functionName == "" {
@@ -2233,7 +2233,7 @@ func (s *CodeService) getIndentLevel(line string) int {
 	return indent
 }
 
-// handleQueryStructure queries structure information in a file or directory
+// handleQueryStructure handles the query_structure request
 func (s *CodeService) handleQueryStructure(args map[string]any) (any, error) {
 	path, ok := args["path"].(string)
 	if !ok || path == "" {
@@ -2517,7 +2517,7 @@ func (s *CodeService) getStructureType(language, declaration string) string {
 	}
 }
 
-// handleFileChangeCheck checks if a file has been modified since it was last checked
+// handleFileChangeCheck handles the file_change_check request
 func (s *CodeService) handleFileChangeCheck(args map[string]any) (any, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok || filePath == "" {
@@ -2559,7 +2559,7 @@ func (s *CodeService) handleFileChangeCheck(args map[string]any) (any, error) {
 	return response, nil
 }
 
-// handleApplyPatch applies a patch to a file by replacing specific lines
+// handleApplyPatch handles the apply_patch request
 func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok || filePath == "" {
@@ -3640,7 +3640,7 @@ func (s *CodeService) findGoMainPackage(dirPath string) (string, error) {
 	return "", fmt.Errorf("no main package found")
 }
 
-// handleCreateFile handles the CreateFile request
+// handleCreateFile handles the create_file request
 func (s *CodeService) handleCreateFile(args map[string]any) (any, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok || filePath == "" {
