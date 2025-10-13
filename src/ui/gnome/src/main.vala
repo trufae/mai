@@ -15,7 +15,15 @@ public class MaiApplication : Gtk.Application {
             window.present ();
         });
         add_action (new_window_action);
+
+        var quit_action = new SimpleAction ("quit", null);
+        quit_action.activate.connect (() => {
+            this.quit ();
+        });
+        add_action (quit_action);
+
         set_accels_for_action ("app.new-window", {"<Control>n"});
+        set_accels_for_action ("app.quit", {"<Control>q"});
         set_accels_for_action ("win.close", {"<Control>w"});
     }
 

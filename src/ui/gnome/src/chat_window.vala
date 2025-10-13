@@ -29,6 +29,18 @@ public class ChatWindow : Gtk.ApplicationWindow {
         });
         add_action (close_action);
 
+        // Add clear chat action
+        var clear_chat_action = new SimpleAction ("clear-chat", null);
+        clear_chat_action.activate.connect (() => {
+            var child = messages_list.get_first_child ();
+            while (child != null) {
+                var next = child.get_next_sibling ();
+                messages_list.remove (child);
+                child = next;
+            }
+        });
+        add_action (clear_chat_action);
+
         // Add CSS for user messages
         var css_provider = new Gtk.CssProvider ();
         css_provider.load_from_data (".user-message { background-color: #f0f0f0; }".data);
@@ -36,11 +48,13 @@ public class ChatWindow : Gtk.ApplicationWindow {
 
         split_view = new Adw.NavigationSplitView ();
         split_view.min_sidebar_width = 0;
+        // split_view.collapsed = true;
 
         var header = new Adw.HeaderBar ();
         var toggle_button = new Gtk.ToggleButton ();
         toggle_button.icon_name = "sidebar-show-symbolic";
         toggle_button.tooltip_text = "Toggle sidebar";
+        toggle_button.active = true;
         toggle_button.toggled.connect (() => {
             split_view.collapsed = toggle_button.active;
             if (toggle_button.active) {
@@ -48,6 +62,30 @@ public class ChatWindow : Gtk.ApplicationWindow {
             }
         });
         header.pack_start (toggle_button);
+
+        var menu_button = new Gtk.MenuButton ();
+        menu_button.icon_name = "open-menu-symbolic";
+        var popover = new Gtk.Popover ();
+        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+        var new_window_button = new Gtk.Button.with_label ("New Window");
+        new_window_button.clicked.connect (() => {
+            (this.application as Gtk.Application).activate_action ("new-window", null);
+        });
+        box.append (new_window_button);
+        var clear_chat_button = new Gtk.Button.with_label ("Clear Chat");
+        clear_chat_button.clicked.connect (() => {
+            this.activate_action ("clear-chat", null);
+        });
+        box.append (clear_chat_button);
+        var quit_button = new Gtk.Button.with_label ("Quit");
+        quit_button.clicked.connect (() => {
+            (this.application as Gtk.Application).activate_action ("quit", null);
+        });
+        box.append (quit_button);
+        popover.child = box;
+        menu_button.popover = popover;
+        header.pack_end (menu_button);
+
         set_titlebar (header);
 
         set_child (split_view);
@@ -76,6 +114,51 @@ public class ChatWindow : Gtk.ApplicationWindow {
         settings_row.child = settings_row_box;
         settings_row.set_size_request (-1, 48); // Minimum height
         sidebar.append (settings_row);
+
+        var tools_row = new Gtk.ListBoxRow ();
+        var tools_row_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        tools_row_box.margin_start = 8;
+        var tools_icon = new Gtk.Image.from_icon_name ("applications-utilities");
+        tools_icon.pixel_size = 24;
+        tools_row_box.append (tools_icon);
+        tools_row_box.append (new Gtk.Label ("Tools"));
+        tools_row.child = tools_row_box;
+        tools_row.set_size_request (-1, 48);
+        sidebar.append (tools_row);
+
+        var prompts_row = new Gtk.ListBoxRow ();
+        var prompts_row_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        prompts_row_box.margin_start = 8;
+        var prompts_icon = new Gtk.Image.from_icon_name ("document-edit");
+        prompts_icon.pixel_size = 24;
+        prompts_row_box.append (prompts_icon);
+        prompts_row_box.append (new Gtk.Label ("Prompts"));
+        prompts_row.child = prompts_row_box;
+        prompts_row.set_size_request (-1, 48);
+        sidebar.append (prompts_row);
+
+        var sessions_row = new Gtk.ListBoxRow ();
+        var sessions_row_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        sessions_row_box.margin_start = 8;
+        var sessions_icon = new Gtk.Image.from_icon_name ("user-bookmarks");
+        sessions_icon.pixel_size = 24;
+        sessions_row_box.append (sessions_icon);
+        sessions_row_box.append (new Gtk.Label ("Sessions"));
+        sessions_row.child = sessions_row_box;
+        sessions_row.set_size_request (-1, 48);
+        sidebar.append (sessions_row);
+
+        var context_row = new Gtk.ListBoxRow ();
+        var context_row_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        context_row_box.margin_start = 8;
+        var context_icon = new Gtk.Image.from_icon_name ("dialog-information");
+        context_icon.pixel_size = 24;
+        context_row_box.append (context_icon);
+        context_row_box.append (new Gtk.Label ("Context"));
+        context_row.child = context_row_box;
+        context_row.set_size_request (-1, 48);
+        sidebar.append (context_row);
+
         sidebar.row_selected.connect (on_sidebar_selected);
         sidebar_box.append (sidebar);
         sidebar_page.child = sidebar_box;
@@ -121,6 +204,18 @@ public class ChatWindow : Gtk.ApplicationWindow {
         settings_window = new SettingsWindow (mcp_client);
         content_stack.add_named (settings_window, "settings");
 
+        // Tools View
+        content_stack.add_named (new Gtk.Label ("Tools"), "tools");
+
+        // Prompts View
+        content_stack.add_named (new Gtk.Label ("Prompts"), "prompts");
+
+        // Sessions View
+        content_stack.add_named (new Gtk.Label ("Sessions"), "sessions");
+
+        // Context View
+        content_stack.add_named (new Gtk.Label ("Context"), "context");
+
         content_stack.visible_child_name = "chat";
     }
 
@@ -131,6 +226,14 @@ public class ChatWindow : Gtk.ApplicationWindow {
             content_stack.visible_child_name = "chat";
         } else if (index == 1) {
             content_stack.visible_child_name = "settings";
+        } else if (index == 2) {
+            content_stack.visible_child_name = "tools";
+        } else if (index == 3) {
+            content_stack.visible_child_name = "prompts";
+        } else if (index == 4) {
+            content_stack.visible_child_name = "sessions";
+        } else if (index == 5) {
+            content_stack.visible_child_name = "context";
         }
     }
 
