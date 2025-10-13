@@ -438,16 +438,11 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 	s.writeFramed(data)
 }
 
-// writeFramed writes JSON payload using header framing if enabled, else newline JSON.
+// writeFramed writes JSON payload using header framing.
 func (s *MCPServer) writeFramed(data []byte) {
-	if s.useHeaders {
-		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-		io.WriteString(s.writer, header)
-		s.writer.Write(data)
-		return
-	}
-	// newline-delimited fallback
-	fmt.Fprintln(s.writer, string(data))
+	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
+	io.WriteString(s.writer, header)
+	s.writer.Write(data)
 }
 
 // -------------------- MCP Client support --------------------
@@ -704,16 +699,11 @@ func (c *MCPClient) readNextMessage() ([]byte, error) {
 	return []byte(strings.TrimRight(firstLine, "\r\n")), nil
 }
 
-// writeFramed writes JSON payload using header framing if enabled
+// writeFramed writes JSON payload using header framing
 func (c *MCPClient) writeFramed(data []byte) {
-	if c.useHeaders {
-		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-		io.WriteString(c.writer, header)
-		c.writer.Write(data)
-		return
-	}
-	// newline-delimited fallback
-	fmt.Fprintln(c.writer, string(data))
+	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
+	io.WriteString(c.writer, header)
+	c.writer.Write(data)
 }
 
 // -------------------- Prompts support --------------------
