@@ -24,7 +24,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 	return []mcplib.Tool{
 		// 1. CommandExecutor
 		{
-			Name:        "CommandExecutor",
+			Name:        "command_executor",
 			Description: "Executes shell commands on the MCP server and returns the standard output, standard error, and return code.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -46,7 +46,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - ReadFile
 		{
-			Name:        "ReadFile",
+			Name:        "read_file",
 			Description: "Reads content from a file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -64,7 +64,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - WriteFile
 		{
-			Name:        "WriteFile",
+			Name:        "write_file",
 			Description: "Writes content to a file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -86,7 +86,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - AppendFile
 		{
-			Name:        "AppendFile",
+			Name:        "append_file",
 			Description: "Appends content to an existing file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -108,7 +108,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - DeleteFile
 		{
-			Name:        "DeleteFile",
+			Name:        "delete_file",
 			Description: "Deletes a file from the filesystem.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -126,7 +126,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - MoveFile
 		{
-			Name:        "MoveFile",
+			Name:        "move_file",
 			Description: "Moves a file from source to destination.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -148,7 +148,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - RenameFile
 		{
-			Name:        "RenameFile",
+			Name:        "rename_file",
 			Description: "Renames a file.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -170,7 +170,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - CopyFile
 		{
-			Name:        "CopyFile",
+			Name:        "copy_file",
 			Description: "Copies a file from source to destination.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -192,7 +192,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - CreateDirectory
 		{
-			Name:        "CreateDirectory",
+			Name:        "create_directory",
 			Description: "Creates a new directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -210,7 +210,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 2. FileOperations - RemoveDirectory
 		{
-			Name:        "RemoveDirectory",
+			Name:        "remove_directory",
 			Description: "Removes a directory and all its contents.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -232,7 +232,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 3. SystemInformation - GetOSInfo
 		{
-			Name:        "GetOSInfo",
+			Name:        "get_os_info",
 			Description: "Gets information about the operating system.",
 			InputSchema: map[string]any{
 				"type":       "object",
@@ -244,7 +244,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 3. SystemInformation - GetEnvironment
 		{
-			Name:        "GetEnvironment",
+			Name:        "get_environment",
 			Description: "Gets environment variables.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -261,7 +261,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 3. SystemInformation - SetEnvironment
 		{
-			Name:        "SetEnvironment",
+			Name:        "set_environment",
 			Description: "Sets an environment variable.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -283,7 +283,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 3. SystemInformation - ListFiles
 		{
-			Name:        "ListFiles",
+			Name:        "list_files",
 			Description: "Lists files in a directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -301,7 +301,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 3. SystemInformation - ChangeDirectory
 		{
-			Name:        "ChangeDirectory",
+			Name:        "change_directory",
 			Description: "Changes the current working directory.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -319,7 +319,7 @@ func (s *ShellService) GetTools() []mcplib.Tool {
 
 		// 3. SystemInformation - GetCurrentDirectory
 		{
-			Name:        "GetCurrentDirectory",
+			Name:        "get_current_directory",
 			Description: "Gets the current working directory.",
 			InputSchema: map[string]any{
 				"type":       "object",
