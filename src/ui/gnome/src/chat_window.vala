@@ -48,15 +48,16 @@ public class ChatWindow : Gtk.ApplicationWindow {
 
         split_view = new Adw.NavigationSplitView ();
         split_view.min_sidebar_width = 0;
-        // split_view.collapsed = true;
+                split_view.show_content = true;
+        split_view.collapsed = true;
 
         var header = new Adw.HeaderBar ();
         var toggle_button = new Gtk.ToggleButton ();
         toggle_button.icon_name = "sidebar-show-symbolic";
         toggle_button.tooltip_text = "Toggle sidebar";
-        toggle_button.active = true;
+        toggle_button.active = false;
         toggle_button.toggled.connect (() => {
-            split_view.collapsed = toggle_button.active;
+            split_view.collapsed = !toggle_button.active;
             if (toggle_button.active) {
                 split_view.show_content = true;
             }
