@@ -4,6 +4,7 @@ using Adw;
 public class SettingsWindow : Gtk.Box {
     private Gtk.DropDown provider_combo;
     private Gtk.DropDown model_combo;
+    private Gtk.Entry baseurl_entry;
     private MCPClient mcp_client;
 
     public SettingsWindow (MCPClient client) {
@@ -21,13 +22,30 @@ public class SettingsWindow : Gtk.Box {
         var model_model = new Gtk.StringList (null);
         model_combo = new Gtk.DropDown (model_model, null);
 
+        var baseurl_label = new Gtk.Label ("Base URL:");
+        baseurl_entry = new Gtk.Entry ();
+
         append (provider_label);
         append (provider_combo);
         append (model_label);
         append (model_combo);
+        append (baseurl_label);
+        append (baseurl_entry);
 
         provider_combo.notify["selected"].connect (on_provider_changed);
         model_combo.notify["selected"].connect (on_model_changed);
+        baseurl_entry.activate.connect (() => {
+            var args = new HashTable<string, Value?> (str_hash, str_equal);
+            args["key"] = "ai.baseurl";
+            args["value"] = baseurl_entry.text;
+            mcp_client.call_tool.begin ("set_config", args, (obj, res) => {
+                try {
+                    var result = mcp_client.call_tool.end (res);
+                } catch (Error e) {
+                    stdout.printf ("SettingsWindow.set_baseurl: set_config error: %s\n", e.message);
+                }
+            });
+        });
 
         // Load providers and models from MCP
         load_providers ();
@@ -70,6 +88,7 @@ public class SettingsWindow : Gtk.Box {
                     var config_obj = root.get_object ();
                     var provider = config_obj.get_string_member ("ai.provider");
                     var model = config_obj.get_string_member ("ai.model");
+                    var baseurl = config_obj.get_string_member ("ai.baseurl");
 
                     // Set selected provider
                     if (provider != null) {
@@ -92,13 +111,18 @@ public class SettingsWindow : Gtk.Box {
                                 model_combo.selected = i;
                                 break;
                             }
-                        }
-                    }
-                }
-            } catch (Error e) {
-                stdout.printf ("SettingsWindow.sync_current_config: Error: %s\n", e.message);
-            }
-        });
+                         }
+                     }
+
+                     // Set baseurl
+                     if (baseurl != null) {
+                         baseurl_entry.text = baseurl;
+                     }
+                 }
+             } catch (Error e) {
+                 stdout.printf ("SettingsWindow.sync_current_config: Error: %s\n", e.message);
+             }
+         });
     }
 
     private void on_provider_changed () {
