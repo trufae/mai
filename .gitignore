@@ -15,3 +15,55 @@ src/repl/mai
 src/mcps/shell/mai-mcp-shell
 **/.DS_Store
 **/*.swp
+
+# Generated binaries and build artifacts
+src/mcps/**/mai-mcp-*
+src/mcps/**/mytime
+src/mcps/**/mcppipe
+src/mcps/**/websearch
+src/mcps/**/websearch*
+
+# Go build cache for repl
+src/repl/.gocache/
+
+# Repl temporary/backups
+src/repl/*.orig
+src/repl/*.rej
+src/repl/*.bak
+src/repl/repl
+
+# Swift/Xcode build artifacts
+src/ui/swift/.build/
+src/ui/swift/**/.build/
+src/ui/swift/**/ModuleCache/
+src/ui/swift/**/MaiUI.dSYM/
+src/ui/swift/**/MaiUI.product/
+**/*.swiftmodule
+**/*.swiftdoc
+**/*.swiftsourceinfo
+
+# Common build outputs to ignore
+src/term/mai-term
+src/vdb/mai-vdb
+src/vdb/main
+src/wmcp/wmcp
+
+# Logs and temporary files
+*.log
+src/bot/*.log
+*.tmp
+*.temp
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Executables
+*.exe
+*.out
+*.a
+
+
