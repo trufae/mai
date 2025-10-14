@@ -3191,10 +3191,10 @@ func (r *REPL) setModel(model string) error {
 	r.configOptions.Set("ai.model", model)
 	prov := r.configOptions.Get("ai.provider")
 	if prov == "" {
-		fmt.Printf("Model set to %s\r\n", model)
+		fmt.Fprintf(os.Stderr, "Model set to %s\n", model)
 		return nil
 	}
-	fmt.Printf("%s model set to %s\r\n", strings.Title(prov), model)
+	fmt.Fprintf(os.Stderr, "%s model set to %s\n", strings.Title(prov), model)
 	return nil
 }
 
@@ -3293,8 +3293,8 @@ func (r *REPL) setProvider(provider string) error {
 	provider = strings.ToLower(provider)
 
 	if !validProviders[provider] {
-		fmt.Printf("Invalid provider: %s\r\n", provider)
-		fmt.Print("Valid providers: ollama, lmstudio, openai, shimmy, claude, gemini/google, mistral, deepseek, bedrock/aws, xai\r\n")
+		fmt.Fprintf(os.Stderr, "Invalid provider: %s\n", provider)
+		fmt.Fprintln(os.Stderr, "Valid providers: ollama, lmstudio, openai, shimmy, claude, gemini/google, mistral, deepseek, bedrock/aws, xai")
 		return nil
 	}
 
