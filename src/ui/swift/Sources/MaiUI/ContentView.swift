@@ -192,11 +192,21 @@ struct ContentView: View {
 
         do {
             let response = try await client.callTool("list_providers", arguments: [:])
-            print("ContentView.loadProviders received: \(response)")
+            print("ContentView.loadProviders received raw text: \(response)")
 
-            let data = response.data(using: .utf8)!
-            providers = try JSONDecoder().decode([ProviderInfo].self, from: data)
-            print("ContentView.loadProviders loaded \(providers.count) providers")
+            let data = Data(response.utf8)
+            var loaded: [ProviderInfo] = []
+            if let decoded = try? JSONDecoder().decode([ProviderInfo].self, from: data) {
+                loaded = decoded
+                print("ContentView.loadProviders decoded ProviderInfo objects: \(loaded.count)")
+            } else if let decodedNames = try? JSONDecoder().decode([String].self, from: data) {
+                loaded = decodedNames.map { ProviderInfo(name: $0) }
+                print("ContentView.loadProviders decoded string providers: \(loaded.count)")
+            } else {
+                print("ContentView.loadProviders failed to decode providers JSON")
+            }
+            await MainActor.run { self.providers = loaded }
+            print("ContentView.loadProviders set providers: \(loaded.count)")
         } catch {
             print("ContentView.loadProviders error: \(error)")
         }

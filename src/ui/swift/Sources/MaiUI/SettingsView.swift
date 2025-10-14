@@ -4,6 +4,7 @@ struct SettingsView: View {
     @AppStorage("aiProvider") private var aiProvider = "openai"
     @AppStorage("aiModel") private var aiModel = "gpt-4"
     @AppStorage("theme") private var theme = "system"
+    @AppStorage("aiBaseURL") private var aiBaseURL = ""
 
     @State private var models: [ModelInfo] = []
 
@@ -20,6 +21,7 @@ struct SettingsView: View {
                     }
                 }
                 .onChange(of: aiProvider) { newProvider in
+                    print("SettingsView: Provider changed to \(newProvider)")
                     Task {
                         await setProviderAndLoadModels(newProvider)
                     }
@@ -32,9 +34,23 @@ struct SettingsView: View {
                     }
                 }
                 .onChange(of: aiModel) { newModel in
+                    print("SettingsView: Model changed to \\(newModel)")
                     Task {
                         await setModel(newModel)
                     }
+                }
+
+                HStack {
+                    Text("Base URL")
+                    TextField("(f.ex: https://127.0.0.1:11434/v1)", text: $aiBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            print("SettingsView: Base URL submitted: \\(aiBaseURL)")
+                            Task { await setBaseURL(aiBaseURL) }
+                        }
+                }
+                .onChange(of: aiBaseURL) { newURL in
+                    print("SettingsView: Base URL changed to \\(newURL)")
                 }
             }
 
@@ -49,88 +65,144 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .navigationTitle("Settings")
         .onAppear {
-            // Set current provider from the data
-            if let currentProvider = providers.first(where: { $0.current }) {
-                aiProvider = currentProvider.name
+            print("SettingsView.onAppear")
+            // If providers are empty, try loading them here too
+            if providers.isEmpty {
+                Task { await loadProviders() }
             }
-            loadModels()
+            Task { await syncCurrentConfigAndModels() }
         }
     }
 
     private func loadModels() {
         guard let client = mcpClient else {
+            print("SettingsView.loadModels: no MCP client")
             return
         }
 
         Task {
             do {
                 let response = try await client.callTool("list_models", arguments: [:])
+                print("SettingsView.loadModels raw: \(response)")
+                let data = Data(response.utf8)
 
-                let data = response.data(using: .utf8)!
-                let loadedModels = try JSONDecoder().decode([ModelInfo].self, from: data)
+                var loadedModels: [ModelInfo] = []
+                if let decoded = try? JSONDecoder().decode([ModelInfo].self, from: data) {
+                    loadedModels = decoded
+                    print("SettingsView.loadModels decoded objects: \(loadedModels.count)")
+                } else if let ids = try? JSONDecoder().decode([String].self, from: data) {
+                    loadedModels = ids.map { ModelInfo(id: $0, description: "", current: false) }
+                    print("SettingsView.loadModels decoded strings: \(loadedModels.count)")
+                } else {
+                    print("SettingsView.loadModels: failed to decode models JSON")
+                }
 
                 await MainActor.run {
-                    models = loadedModels
-                    // Set current model from the data
-                    if let currentModel = models.first(where: { $0.current }) {
-                        aiModel = currentModel.id
+                    self.models = loadedModels
+                    // If no current flag provided, try to keep selection consistent
+                    if !loadedModels.contains(where: { $0.id == aiModel }) {
+                        if let first = loadedModels.first {
+                            aiModel = first.id
+                        }
                     }
                 }
             } catch {
-                await MainActor.run {
-                    models = []
-                }
+                print("SettingsView.loadModels error: \(error)")
+                await MainActor.run { models = [] }
             }
         }
     }
 
     private func setProviderAndLoadModels(_ provider: String) async {
         guard let client = mcpClient else {
+            print("SettingsView.setProviderAndLoadModels: no MCP client")
             return
         }
 
         do {
             _ = try await client.callTool("set_provider", arguments: ["provider": provider])
-            // Reload providers to update current flag
             await loadProviders()
-            // Clear current models while loading new ones
-            await MainActor.run {
-                models = []
-            }
+            await MainActor.run { models = [] }
             loadModels()
         } catch {
-            // Handle error if needed
+            print("SettingsView.setProviderAndLoadModels error: \(error)")
         }
     }
 
     private func setModel(_ model: String) async {
         guard let client = mcpClient else {
+            print("SettingsView.setModel: no MCP client")
             return
         }
 
         do {
             _ = try await client.callTool("set_model", arguments: ["model": model])
         } catch {
-            // Handle error if needed
+            print("SettingsView.setModel error: \(error)")
+        }
+    }
+
+    private func setBaseURL(_ url: String) async {
+        guard let client = mcpClient else {
+            print("SettingsView.setBaseURL: no MCP client")
+            return
+        }
+        do {
+            _ = try await client.callTool("set_setting", arguments: ["name": "ai.baseurl", "value": url])
+            print("SettingsView.setBaseURL applied: \(url)")
+        } catch {
+            print("SettingsView.setBaseURL error: \(error)")
         }
     }
 
     private func loadProviders() async {
         guard let client = mcpClient else {
+            print("SettingsView.loadProviders: no MCP client")
             return
         }
 
         do {
             let response = try await client.callTool("list_providers", arguments: [:])
-
-            let data = response.data(using: .utf8)!
-            let loadedProviders = try JSONDecoder().decode([ProviderInfo].self, from: data)
-
-            await MainActor.run {
-                providers = loadedProviders
+            print("SettingsView.loadProviders raw: \(response)")
+            let data = Data(response.utf8)
+            var loaded: [ProviderInfo] = []
+            if let decoded = try? JSONDecoder().decode([ProviderInfo].self, from: data) {
+                loaded = decoded
+            } else if let names = try? JSONDecoder().decode([String].self, from: data) {
+                loaded = names.map { ProviderInfo(name: $0) }
             }
+            await MainActor.run { providers = loaded }
+            print("SettingsView.loadProviders loaded: \(loaded.count)")
         } catch {
-            // Handle error if needed
+            print("SettingsView.loadProviders error: \(error)")
+        }
+    }
+
+    private func syncCurrentConfigAndModels() async {
+        guard let client = mcpClient else {
+            print("SettingsView.syncCurrentConfigAndModels: no MCP client")
+            return
+        }
+        do {
+            let resp = try await client.callTool("get_settings", arguments: [:])
+            print("SettingsView.get_settings raw: \(resp.prefix(200))")
+            if let data = resp.data(using: .utf8),
+               let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let provider = (dict["ai.provider"] as? String) ?? aiProvider
+                let model = (dict["ai.model"] as? String) ?? aiModel
+                let baseurl = (dict["ai.baseurl"] as? String) ?? aiBaseURL
+                await MainActor.run {
+                    aiProvider = provider
+                    aiModel = model
+                    aiBaseURL = baseurl
+                }
+            }
+            // Ensure models list reflects current provider
+            loadModels()
+        } catch {
+            print("SettingsView.syncCurrentConfigAndModels error: \(error)")
+            // Still try to load models with current UI state
+            loadModels()
         }
     }
 }
