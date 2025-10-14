@@ -75,6 +75,7 @@ struct SettingsView: View {
     }
 
     private func loadModels() {
+        print("SettingsView.loadModels: starting")
         guard let client = mcpClient else {
             print("SettingsView.loadModels: no MCP client")
             return
@@ -82,30 +83,52 @@ struct SettingsView: View {
 
         Task {
             do {
-                let response = try await client.callTool("list_models", arguments: [:])
-                print("SettingsView.loadModels raw: \(response)")
+                var response: String
+                print("SettingsView.loadModels: attempting get_models")
+                do {
+                    response = try await client.callTool("get_models", arguments: [:])
+                    print("SettingsView.loadModels: get_models succeeded, raw response: \(response)")
+                } catch {
+                    print("SettingsView.loadModels: get_models failed: \(error). Falling back to list_models")
+                    response = try await client.callTool("list_models", arguments: [:])
+                    print("SettingsView.loadModels: list_models succeeded, raw response: \(response)")
+                }
                 let data = Data(response.utf8)
+                print("SettingsView.loadModels: converting response to data")
 
                 var loadedModels: [ModelInfo] = []
+                print("SettingsView.loadModels: attempting to decode as ModelInfo array")
                 if let decoded = try? JSONDecoder().decode([ModelInfo].self, from: data) {
                     loadedModels = decoded
-                    print("SettingsView.loadModels decoded objects: \(loadedModels.count)")
+                    print("SettingsView.loadModels: decoded objects: \(loadedModels.count)")
                 } else if let ids = try? JSONDecoder().decode([String].self, from: data) {
                     loadedModels = ids.map { ModelInfo(id: $0, description: "", current: false) }
-                    print("SettingsView.loadModels decoded strings: \(loadedModels.count)")
+                    print("SettingsView.loadModels: decoded strings: \(loadedModels.count)")
                 } else {
                     print("SettingsView.loadModels: failed to decode models JSON")
                 }
 
+                print("SettingsView.loadModels: updating UI on main actor")
                 await MainActor.run {
+                    print("SettingsView.loadModels: setting models to \(loadedModels.count) items")
                     self.models = loadedModels
-                    // If no current flag provided, try to keep selection consistent
-                    if !loadedModels.contains(where: { $0.id == aiModel }) {
+                    // Prefer server-reported current model if available
+                    if let current = loadedModels.first(where: { $0.current }) {
+                        print("SettingsView.loadModels: setting aiModel to current: \(current.id)")
+                        aiModel = current.id
+                    } else if !loadedModels.contains(where: { $0.id == aiModel }) {
+                        // Otherwise keep selection if still present; else pick first
                         if let first = loadedModels.first {
+                            print("SettingsView.loadModels: aiModel not in list, setting to first: \(first.id)")
                             aiModel = first.id
+                        } else {
+                            print("SettingsView.loadModels: no models available")
                         }
+                    } else {
+                        print("SettingsView.loadModels: keeping existing aiModel: \(aiModel)")
                     }
                 }
+                print("SettingsView.loadModels: completed successfully")
             } catch {
                 print("SettingsView.loadModels error: \(error)")
                 await MainActor.run { models = [] }
@@ -114,16 +137,39 @@ struct SettingsView: View {
     }
 
     private func setProviderAndLoadModels(_ provider: String) async {
+        print("SettingsView.setProviderAndLoadModels: starting for provider \(provider)")
         guard let client = mcpClient else {
             print("SettingsView.setProviderAndLoadModels: no MCP client")
             return
         }
 
         do {
+            print("SettingsView.setProviderAndLoadModels: calling set_provider")
             _ = try await client.callTool("set_provider", arguments: ["provider": provider])
+            print("SettingsView.setProviderAndLoadModels: set_provider succeeded")
+            print("SettingsView.setProviderAndLoadModels: calling loadProviders")
             await loadProviders()
-            await MainActor.run { models = [] }
+            print("SettingsView.setProviderAndLoadModels: loadProviders completed")
+            print("SettingsView.setProviderAndLoadModels: calling list_config")
+            let resp = try await client.callTool("list_config", arguments: [:])
+            print("SettingsView.setProviderAndLoadModels: list_config succeeded")
+            if let data = resp.data(using: .utf8),
+               let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let model = dict["ai.model"] as? String {
+                await MainActor.run {
+                    print("SettingsView.setProviderAndLoadModels: setting aiModel to \(model)")
+                    aiModel = model
+                }
+            } else {
+                print("SettingsView.setProviderAndLoadModels: failed to parse ai.model from list_config")
+            }
+            await MainActor.run {
+                print("SettingsView.setProviderAndLoadModels: clearing models array")
+                models = []
+            }
+            print("SettingsView.setProviderAndLoadModels: calling loadModels")
             loadModels()
+            print("SettingsView.setProviderAndLoadModels: loadModels completed")
         } catch {
             print("SettingsView.setProviderAndLoadModels error: \(error)")
         }
@@ -148,7 +194,7 @@ struct SettingsView: View {
             return
         }
         do {
-            _ = try await client.callTool("set_setting", arguments: ["name": "ai.baseurl", "value": url])
+            _ = try await client.callTool("set_config", arguments: ["key": "ai.baseurl", "value": url])
             print("SettingsView.setBaseURL applied: \(url)")
         } catch {
             print("SettingsView.setBaseURL error: \(error)")
@@ -184,8 +230,8 @@ struct SettingsView: View {
             return
         }
         do {
-            let resp = try await client.callTool("get_settings", arguments: [:])
-            print("SettingsView.get_settings raw: \(resp.prefix(200))")
+            let resp = try await client.callTool("list_config", arguments: [:])
+            print("SettingsView.list_config raw: \(resp.prefix(200))")
             if let data = resp.data(using: .utf8),
                let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 let provider = (dict["ai.provider"] as? String) ?? aiProvider

@@ -107,7 +107,6 @@ func StartMCPServer(repl *REPL) {
 						"description": "The configuration key to set",
 					},
 					"value": map[string]interface{}{
-						"type":        "string",
 						"description": "The value to set",
 					},
 				},
@@ -116,37 +115,13 @@ func StartMCPServer(repl *REPL) {
 		},
 		{
 			Name:        "list_config",
-			Description: "List all available configuration options",
-			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
-			},
-		},
-		{
-			Name:        "get_settings",
 			Description: "Get all configuration settings",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
 			},
 		},
-		{
-			Name:        "set_setting",
-			Description: "Set a configuration setting",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"name": map[string]interface{}{
-						"type":        "string",
-						"description": "The setting name",
-					},
-					"value": map[string]interface{}{
-						"description": "The setting value",
-					},
-				},
-				"required": []string{"name", "value"},
-			},
-		},
+
 		{
 			Name:        "execute_command",
 			Description: "Execute a mai-repl command",
@@ -337,9 +312,10 @@ func StartMCPServer(repl *REPL) {
 				"required": []string{"command"},
 			},
 		},
+
 		{
-			Name:        "list_models",
-			Description: "List available models for the current provider",
+			Name:        "get_models",
+			Description: "Get available models with metadata (id, description, current)",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -552,47 +528,6 @@ func StartMCPServer(repl *REPL) {
 		if !ok {
 			return nil, fmt.Errorf("key must be a string")
 		}
-		value, ok := args["value"].(string)
-		if !ok {
-			return nil, fmt.Errorf("value must be a string")
-		}
-		repl.configOptions.Set(key, value)
-		return fmt.Sprintf("Set %s = %s", key, value), nil
-	})
-
-	server.RegisterTool("list_config", func(args map[string]interface{}) (interface{}, error) {
-		options := repl.configOptions.GetAvailableOptions()
-		result := make(map[string]interface{})
-		for _, key := range options {
-			result[key] = repl.configOptions.Get(key)
-		}
-		return result, nil
-	})
-
-	server.RegisterTool("get_settings", func(args map[string]interface{}) (interface{}, error) {
-		options := repl.configOptions.GetAvailableOptions()
-		result := make(map[string]interface{})
-		for _, key := range options {
-			val := repl.configOptions.Get(key)
-			info, _ := repl.configOptions.GetOptionInfo(key)
-			switch info.Type {
-			case BooleanOption:
-				result[key] = repl.configOptions.GetBool(key)
-			case NumberOption:
-				num, _ := repl.configOptions.GetNumber(key)
-				result[key] = num
-			default:
-				result[key] = val
-			}
-		}
-		return result, nil
-	})
-
-	server.RegisterTool("set_setting", func(args map[string]interface{}) (interface{}, error) {
-		name, ok := args["name"].(string)
-		if !ok {
-			return nil, fmt.Errorf("name must be string")
-		}
 		value := args["value"]
 		var strValue string
 		switch v := value.(type) {
@@ -609,11 +544,30 @@ func StartMCPServer(repl *REPL) {
 		default:
 			strValue = fmt.Sprintf("%v", v)
 		}
-		err := repl.configOptions.Set(name, strValue)
+		err := repl.configOptions.Set(key, strValue)
 		if err != nil {
 			return nil, err
 		}
-		return fmt.Sprintf("Set %s = %s", name, strValue), nil
+		return fmt.Sprintf("Set %s = %s", key, strValue), nil
+	})
+
+	server.RegisterTool("list_config", func(args map[string]interface{}) (interface{}, error) {
+		options := repl.configOptions.GetAvailableOptions()
+		result := make(map[string]interface{})
+		for _, key := range options {
+			val := repl.configOptions.Get(key)
+			info, _ := repl.configOptions.GetOptionInfo(key)
+			switch info.Type {
+			case BooleanOption:
+				result[key] = repl.configOptions.GetBool(key)
+			case NumberOption:
+				num, _ := repl.configOptions.GetNumber(key)
+				result[key] = num
+			default:
+				result[key] = val
+			}
+		}
+		return result, nil
 	})
 
 	server.RegisterTool("execute_command", func(args map[string]interface{}) (interface{}, error) {
@@ -814,33 +768,69 @@ func StartMCPServer(repl *REPL) {
 		return "Command executed successfully", nil
 	})
 
-	server.RegisterTool("list_models", func(args map[string]interface{}) (interface{}, error) {
+	server.RegisterTool("get_models", func(args map[string]interface{}) (interface{}, error) {
 		// Create client
 		client, err := llm.NewLLMClient(repl.buildLLMConfig())
 		if err != nil {
-			// Return dummy list on error
-			return []string{"model1", "model2"}, nil
+			// Return minimal shape on error
+			return []map[string]interface{}{
+				{"id": "model1", "description": "", "current": false},
+				{"id": "model2", "description": "", "current": false},
+			}, nil
 		}
 
-		// Get models from the provider
+		currentModel := repl.configOptions.Get("ai.model")
+		provider := repl.configOptions.Get("ai.provider")
+
+		// Check for API keys and return dummy if not available
+		switch provider {
+		case "openai":
+			if os.Getenv("OPENAI_API_KEY") == "" {
+				return []map[string]interface{}{
+					{"id": "gpt-4o", "description": "GPT-4 Optimized", "current": "gpt-4o" == currentModel},
+					{"id": "gpt-4", "description": "GPT-4", "current": "gpt-4" == currentModel},
+					{"id": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo", "current": "gpt-3.5-turbo" == currentModel},
+				}, nil
+			}
+		case "claude":
+			if os.Getenv("ANTHROPIC_API_KEY") == "" {
+				return []map[string]interface{}{
+					{"id": "claude-3-5-sonnet-20241022", "description": "Claude 3.5 Sonnet", "current": "claude-3-5-sonnet-20241022" == currentModel},
+					{"id": "claude-3-haiku-20240307", "description": "Claude 3 Haiku", "current": "claude-3-haiku-20240307" == currentModel},
+				}, nil
+			}
+			// Add more providers as needed
+		}
+
+		// Fetch models
 		models, err := client.ListModels()
 		if err != nil {
-			// Return dummy list on error
-			return []string{"model1", "model2"}, nil
+			return []map[string]interface{}{
+				{"id": "model1", "description": "", "current": false},
+				{"id": "model2", "description": "", "current": false},
+			}, nil
 		}
 
-		// Extract model IDs
-		modelIDs := make([]string, len(models))
-		for i, model := range models {
-			modelIDs[i] = model.ID
+		out := make([]map[string]interface{}, 0, len(models))
+		for _, m := range models {
+			desc := m.Description
+			if desc == "" {
+				desc = m.Name
+			}
+			out = append(out, map[string]interface{}{
+				"id":          m.ID,
+				"description": desc,
+				"current":     m.ID == currentModel,
+			})
 		}
-
-		if len(modelIDs) == 0 {
-			// Return dummy list if empty
-			return []string{"model1", "model2"}, nil
+		// Fallback dummy if provider returns none
+		if len(out) == 0 {
+			out = []map[string]interface{}{
+				{"id": "model1", "description": "", "current": currentModel == "model1"},
+				{"id": "model2", "description": "", "current": currentModel == "model2"},
+			}
 		}
-
-		return modelIDs, nil
+		return out, nil
 	})
 
 	server.RegisterTool("list_providers", func(args map[string]interface{}) (interface{}, error) {

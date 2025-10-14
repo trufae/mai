@@ -3301,15 +3301,7 @@ func (r *REPL) setProvider(provider string) error {
 	// Update the provider in the configOptions
 	r.configOptions.Set("ai.provider", provider)
 
-	// Resolve a default model for the new provider from env/provider defaults
-	if dm := r.resolveDefaultModelForProvider(provider); dm != "" {
-		r.configOptions.Set("ai.model", dm)
-	}
-
-	fmt.Printf("Provider set to %s\r\n", provider)
-
-	// Also show the current model for this provider
-	r.showCurrentModel()
+	// Prints removed to avoid interfering with MCP protocol
 
 	return nil
 }

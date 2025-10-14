@@ -73,7 +73,7 @@ public class SettingsWindow : Gtk.Box {
     }
 
     private void load_models () {
-        mcp_client.call_tool.begin ("list_models", new HashTable<string, Value?> (str_hash, str_equal), (obj, res) => {
+        mcp_client.call_tool.begin ("get_models", new HashTable<string, Value?> (str_hash, str_equal), (obj, res) => {
             try {
                 var result = mcp_client.call_tool.end (res);
                 // The result is JSON string containing the models array
@@ -88,9 +88,12 @@ public class SettingsWindow : Gtk.Box {
                         model_model.remove (0);
                     }
                     for (var i = 0; i < models_array.get_length (); i++) {
-                        var model = models_array.get_string_element (i);
-                        if (model != null) {
-                            model_model.append (model);
+                        var model_obj = models_array.get_object_element (i);
+                        if (model_obj != null) {
+                            var model_id = model_obj.get_string_member ("id");
+                            if (model_id != null) {
+                                model_model.append (model_id);
+                            }
                         }
                     }
                 }
