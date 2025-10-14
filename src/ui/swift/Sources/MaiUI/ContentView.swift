@@ -52,6 +52,14 @@ struct ContentView: View {
                     .tag("Chat")
                 Label("Settings", systemImage: "gear")
                     .tag("Settings")
+                Label("Tools", systemImage: "wrench")
+                    .tag("Tools")
+                Label("Prompts", systemImage: "doc.plaintext")
+                    .tag("Prompts")
+                Label("Sessions", systemImage: "person.crop.circle")
+                    .tag("Sessions")
+                Label("Context", systemImage: "info.circle")
+                    .tag("Context")
             }
             .listStyle(.sidebar)
             .navigationTitle("Mai")
@@ -153,8 +161,23 @@ struct ContentView: View {
                 } message: {
                     Text(errorMessage)
                 }
-            } else {
+            } else if selectedTab == "Settings" {
                 SettingsView(mcpClient: mcpClient, providers: $providers)
+            } else if selectedTab == "Tools" {
+                Text("Tools")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if selectedTab == "Prompts" {
+                Text("Prompts")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if selectedTab == "Sessions" {
+                Text("Sessions")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if selectedTab == "Context" {
+                Text("Context")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text("")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
