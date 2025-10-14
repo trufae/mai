@@ -5,10 +5,11 @@ public class SettingsWindow : Gtk.Box {
     private Gtk.DropDown provider_combo;
     private Gtk.DropDown model_combo;
     private Gtk.Entry baseurl_entry;
+    private Gtk.CheckButton deterministic_check;
     private MCPClient mcp_client;
 
     public SettingsWindow (MCPClient client) {
-        Object (orientation: Gtk.Orientation.VERTICAL, spacing: 12);
+        Object (orientation: Gtk.Orientation.VERTICAL, spacing: 12, margin_start: 12, margin_end: 12, margin_top: 12, margin_bottom: 12);
         mcp_client = client;
         setup_ui ();
     }
@@ -25,12 +26,40 @@ public class SettingsWindow : Gtk.Box {
         var baseurl_label = new Gtk.Label ("Base URL:");
         baseurl_entry = new Gtk.Entry ();
 
-        append (provider_label);
-        append (provider_combo);
-        append (model_label);
-        append (model_combo);
-        append (baseurl_label);
-        append (baseurl_entry);
+        var deterministic_label = new Gtk.Label ("Deterministic:");
+        deterministic_check = new Gtk.CheckButton ();
+
+        // Provider row
+        var provider_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
+        provider_label.hexpand = false;
+        provider_combo.hexpand = true;
+        provider_box.append (provider_label);
+        provider_box.append (provider_combo);
+        append (provider_box);
+
+        // Model row
+        var model_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
+        model_label.hexpand = false;
+        model_combo.hexpand = true;
+        model_box.append (model_label);
+        model_box.append (model_combo);
+        append (model_box);
+
+        // Base URL row
+        var baseurl_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
+        baseurl_label.hexpand = false;
+        baseurl_entry.hexpand = true;
+        baseurl_box.append (baseurl_label);
+        baseurl_box.append (baseurl_entry);
+        append (baseurl_box);
+
+        // Deterministic row
+        var deterministic_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
+        deterministic_check.hexpand = false;
+        deterministic_label.hexpand = false;
+        deterministic_box.append (deterministic_check);
+        deterministic_box.append (deterministic_label);
+        append (deterministic_box);
 
         provider_combo.notify["selected"].connect (on_provider_changed);
         model_combo.notify["selected"].connect (on_model_changed);
@@ -43,6 +72,18 @@ public class SettingsWindow : Gtk.Box {
                     var result = mcp_client.call_tool.end (res);
                 } catch (Error e) {
                     stdout.printf ("SettingsWindow.set_baseurl: set_config error: %s\n", e.message);
+                }
+            });
+        });
+        deterministic_check.toggled.connect (() => {
+            var args = new HashTable<string, Value?> (str_hash, str_equal);
+            args["key"] = "ai.deterministic";
+            args["value"] = deterministic_check.active;
+            mcp_client.call_tool.begin ("set_config", args, (obj, res) => {
+                try {
+                    var result = mcp_client.call_tool.end (res);
+                } catch (Error e) {
+                    stdout.printf ("SettingsWindow.set_deterministic: set_config error: %s\n", e.message);
                 }
             });
         });
@@ -89,6 +130,7 @@ public class SettingsWindow : Gtk.Box {
                     var provider = config_obj.get_string_member ("ai.provider");
                     var model = config_obj.get_string_member ("ai.model");
                     var baseurl = config_obj.get_string_member ("ai.baseurl");
+                    var deterministic = config_obj.get_boolean_member ("ai.deterministic");
 
                     // Set selected provider
                     if (provider != null) {
@@ -114,10 +156,13 @@ public class SettingsWindow : Gtk.Box {
                          }
                      }
 
-                     // Set baseurl
-                     if (baseurl != null) {
-                         baseurl_entry.text = baseurl;
-                     }
+                      // Set baseurl
+                      if (baseurl != null) {
+                          baseurl_entry.text = baseurl;
+                      }
+
+                      // Set deterministic
+                      deterministic_check.active = deterministic;
                  }
              } catch (Error e) {
                  stdout.printf ("SettingsWindow.sync_current_config: Error: %s\n", e.message);
