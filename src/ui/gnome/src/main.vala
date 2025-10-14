@@ -14,7 +14,8 @@ public class MaiApplication : Gtk.Application {
 
         // Initialize MCP client
         mcp_client.initialize.begin ((obj, res) => {
-            if (!mcp_client.initialize.end (res)) {
+            var success = mcp_client.initialize.end (res);
+            if (!success) {
                 // Handle initialization error
             }
         });

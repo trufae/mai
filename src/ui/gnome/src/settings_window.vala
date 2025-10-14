@@ -27,9 +27,12 @@ public class SettingsWindow : Gtk.Box {
         append (model_combo);
 
         provider_combo.notify["selected"].connect (on_provider_changed);
+        model_combo.notify["selected"].connect (on_model_changed);
 
-        // Load providers from MCP
+        // Load providers and models from MCP
         load_providers ();
+        load_models ();
+        sync_current_config ();
     }
 
     private void load_providers () {
@@ -51,7 +54,49 @@ public class SettingsWindow : Gtk.Box {
                     }
                 }
             } catch (Error e) {
-                // Handle error
+                stdout.printf ("SettingsWindow.load_providers: Error: %s\n", e.message);
+            }
+        });
+    }
+
+    private void sync_current_config () {
+        mcp_client.call_tool.begin ("list_config", new HashTable<string, Value?> (str_hash, str_equal), (obj, res) => {
+            try {
+                var result = mcp_client.call_tool.end (res);
+                var parser = new Json.Parser ();
+                parser.load_from_data (result);
+                var root = parser.get_root ();
+                if (root != null && root.get_node_type () == Json.NodeType.OBJECT) {
+                    var config_obj = root.get_object ();
+                    var provider = config_obj.get_string_member ("ai.provider");
+                    var model = config_obj.get_string_member ("ai.model");
+
+                    // Set selected provider
+                    if (provider != null) {
+                        var provider_model = provider_combo.model as Gtk.StringList;
+                        for (uint i = 0; i < provider_model.get_n_items (); i++) {
+                            var item = provider_model.get_string (i);
+                            if (item == provider) {
+                                provider_combo.selected = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Set selected model
+                    if (model != null) {
+                        var model_model = model_combo.model as Gtk.StringList;
+                        for (uint i = 0; i < model_model.get_n_items (); i++) {
+                            var item = model_model.get_string (i);
+                            if (item == model) {
+                                model_combo.selected = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Error e) {
+                stdout.printf ("SettingsWindow.sync_current_config: Error: %s\n", e.message);
             }
         });
     }
@@ -65,8 +110,31 @@ public class SettingsWindow : Gtk.Box {
                 var args = new HashTable<string, Value?> (str_hash, str_equal);
                 args["provider"] = provider.down ();
                 mcp_client.call_tool.begin ("set_provider", args, (obj, res) => {
-                    // Handle response
-                    load_models ();
+                    try {
+                        var result = mcp_client.call_tool.end (res);
+                        load_models ();
+                    } catch (Error e) {
+                        stdout.printf ("SettingsWindow.on_provider_changed: set_provider error: %s\n", e.message);
+                    }
+                });
+            }
+        }
+    }
+
+    private void on_model_changed () {
+        var selected = model_combo.selected;
+        if (selected >= 0) {
+            var model = model_combo.model as Gtk.StringList;
+            if (model != null) {
+                var model_id = model.get_string (selected);
+                var args = new HashTable<string, Value?> (str_hash, str_equal);
+                args["model"] = model_id;
+                mcp_client.call_tool.begin ("set_model", args, (obj, res) => {
+                    try {
+                        var result = mcp_client.call_tool.end (res);
+                    } catch (Error e) {
+                        stdout.printf ("SettingsWindow.on_model_changed: set_model error: %s\n", e.message);
+                    }
                 });
             }
         }
@@ -87,18 +155,33 @@ public class SettingsWindow : Gtk.Box {
                     while (model_model.get_n_items () > 0) {
                         model_model.remove (0);
                     }
+                    string? current_model = null;
                     for (var i = 0; i < models_array.get_length (); i++) {
                         var model_obj = models_array.get_object_element (i);
                         if (model_obj != null) {
                             var model_id = model_obj.get_string_member ("id");
+                            var is_current = model_obj.get_boolean_member ("current");
                             if (model_id != null) {
                                 model_model.append (model_id);
+                                if (is_current) {
+                                    current_model = model_id;
+                                }
+                            }
+                        }
+                    }
+                    // Set selected model if we found a current one
+                    if (current_model != null) {
+                        for (uint i = 0; i < model_model.get_n_items (); i++) {
+                            var item = model_model.get_string (i);
+                            if (item == current_model) {
+                                model_combo.selected = i;
+                                break;
                             }
                         }
                     }
                 }
             } catch (Error e) {
-                // Handle error
+                stdout.printf ("SettingsWindow.load_models: Error: %s\n", e.message);
             }
         });
     }

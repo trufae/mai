@@ -9,9 +9,10 @@ public class ChatWindow : Gtk.ApplicationWindow {
     private Gtk.ListBox messages_list;
     private Gtk.Entry input_entry;
     private Gtk.Button send_button;
-    private SettingsWindow settings_window;
+    private SettingsWindow? settings_window;
     private MCPClient mcp_client;
     private bool is_waiting = false;
+    private bool mcp_initialized = false;
 
     public ChatWindow (Gtk.Application app, MCPClient client) {
         Object (application: app, title: "Mai", default_width: 800, default_height: 600);
@@ -40,10 +41,7 @@ public class ChatWindow : Gtk.ApplicationWindow {
         });
         add_action (clear_chat_action);
 
-        // Add CSS for user messages
-//        var css_provider = new Gtk.CssProvider ();
-//        css_provider.load_from_data (".user-message { background-color: #f0f0f0; }".data);
-//        css_provider.add_provider_for_display (get_display (), Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+
 
         split_view = new Adw.NavigationSplitView ();
         split_view.min_sidebar_width = 0;
@@ -204,9 +202,9 @@ public class ChatWindow : Gtk.ApplicationWindow {
 
         content_stack.add_named (chat_box, "chat");
 
-        // Settings View
-        settings_window = new SettingsWindow (mcp_client);
-        content_stack.add_named (settings_window, "settings");
+        // Settings View - will be created when MCP is ready
+        // settings_window = new SettingsWindow (mcp_client);
+        // content_stack.add_named (settings_window, "settings");
 
         // Tools View
         content_stack.add_named (new Gtk.Label ("Tools"), "tools");
@@ -222,8 +220,26 @@ public class ChatWindow : Gtk.ApplicationWindow {
 
         content_stack.visible_child_name = "chat";
 
+        // Initialize MCP and create settings window when ready
+        initialize_mcp_and_settings ();
+
         // Give focus to the input field on startup
         input_entry.grab_focus ();
+    }
+
+    private void initialize_mcp_and_settings () {
+        // Try to initialize MCP client if not already done
+        mcp_client.initialize.begin ((obj, res) => {
+            var success = mcp_client.initialize.end (res);
+            if (success) {
+                mcp_initialized = true;
+                // Create settings window now that MCP is ready
+                if (settings_window == null) {
+                    settings_window = new SettingsWindow (mcp_client);
+                    content_stack.add_named (settings_window, "settings");
+                }
+            }
+        });
     }
 
     private void on_sidebar_selected (Gtk.ListBoxRow? row) {
@@ -232,7 +248,14 @@ public class ChatWindow : Gtk.ApplicationWindow {
         if (index == 0) {
             content_stack.visible_child_name = "chat";
         } else if (index == 1) {
-            content_stack.visible_child_name = "settings";
+            // Create settings window if MCP is ready and it doesn't exist
+            if (mcp_initialized && settings_window == null) {
+                settings_window = new SettingsWindow (mcp_client);
+                content_stack.add_named (settings_window, "settings");
+            }
+            if (settings_window != null) {
+                content_stack.visible_child_name = "settings";
+            }
         } else if (index == 2) {
             content_stack.visible_child_name = "tools";
         } else if (index == 3) {
