@@ -4,79 +4,156 @@
 
 [![CI](https://github.com/trufae/mai/actions/workflows/ci.yml/badge.svg)](https://github.com/trufae/mai/actions/workflows/ci.yml)
 
-Set of commandline tools to use in batch or interactive mode against local and remote AI providers bringing powerful shell style oneliners in conjuntion of MCP agents.
+MAI is a comprehensive AI toolkit providing unified access to multiple AI providers through a powerful REPL shell, MCP (Model Context Protocol) ecosystem, and specialized tools for coding, shell operations, and more.
 
---pancake
+## Components
 
-## Tools
+* **mai**: Main REPL shell with multi-provider AI support
+* **mai-wmcp**: MCP proxy server exposing tools via REST API
+* **mai-tool**: Client for interacting with MCP proxy servers
+* **mai-bot**: Telegram/IRC bot integration
+* **mai-vdb**: Vector database for semantic document search
+* **mai-term**: Terminal multiplexer for shared PTY sessions
+* **MCP Servers**: Specialized servers for shell, weather, coding, time, markdown, fediverse, and code analysis
 
-* **mai** the main commandline tool and repl shell
-* **mai-wmcp** MCP web proxy exposing tools in json and markdown
-* **mai-tool** execute and inspect MCP servers loaded in wmcp
+## Key Features
 
-## Features
+* **Multi-Provider Support**: Single interface for Ollama, OpenAI, Claude, Gemini, DeepSeek, Mistral, Bedrock
+* **MCP Ecosystem**: Rich tool ecosystem with standardized protocol for AI-tool integration
+* **Shell Integration**: Command substitution, environment variables, inline expressions
+* **Multi-Modal**: Image attachments and processing
+* **HTTP API**: OpenAI-compatible endpoints plus simplified chat/generate APIs
+* **Prompt Templating**: Custom prompts with variable substitution
+* **Batch Processing**: Non-interactive modes for automation
+* **Terminal Multiplexing**: Multiple clients sharing PTY sessions
+* **Bot Integration**: Full REPL functionality in chat platforms
+* **Vector Search**: Semantic search across documents
+* **Multi-Platform UIs**: Native interfaces for GNOME, macOS, iOS
 
-- 🚀 **Multi-server support**: Run multiple MCP servers simultaneously
-- 🔧 **Auto-discovery**: Automatically discovers and catalogs tools
-- 🌐 **REST API**: Simple HTTP endpoints for all MCP operations
-- 📝 **Human-readable output**: Returns responses in json/markdown format
-- 🔄 **Flexible input**: Supports JSON, form data, and query parameters
-- 🛡️ **Error handling**: Robust error handling and graceful shutdown
+## Distinctive Capabilities
+
+* **Unified MCP Implementation**: Complete MCP ecosystem with servers for coding, shell operations, weather, and more
+* **Terminal-Aware MCP Tools**: MCP servers that interact with terminal sessions
+* **Shell-Style AI Interactions**: Deep integration with command-line environments
+* **Multi-UI Backend**: Single backend powering different native UIs
+* **Bot with Full REPL**: Chat bots exposing complete REPL functionality
 
 ## Usage
 
-Type `mai` to access the REPL. Then, enter `/help` and press `<tab>` to view all available commands.
-
-* 🔄 Substitute LLM expressions by using inline backticks.
-* 💻 Use `$()` for command shell substitution.
-* 🌐 Insert environment variables using `${}`.
-* 📁 Load custom prompts with the `#` symbol.
-* 📝 Apply querying templates with `$`.
-* 🚀 Enable batch mode through vim-like `%!mai`.
-* 🖼️ Upload images using `-i` or `/image`.
-* 🔧 Access tools through `mai-wmcp` with `-t` flag.
-* ⚙️ Fully configure options using `/set`.
-* 📊 Choose any model from any provider.
-* 🎉 And so much more to explore!
-
-### MCP Proxy Server
-
-Start multiple MCP servers in a single line of shell.
-
-1. Start each MCP server as a subprocess
-2. Perform the MCP handshake with each server via stdio
-3. Discover available tools from each server
-4. Start the HTTP server on port 8989 (or $PORT environment variable)
-
+### REPL Shell
 ```bash
-./mai-wmcp "r2pm -r r2mcp" "src/mcps/wttr/mai-mcp-wttr"
+mai                    # Start interactive REPL
+mai "hello world"      # Send message directly
+mai -t "analyze code"  # Use MCP tools
+mai -i image.png "describe this image"
+echo "prompt" | mai    # Pipe input
 ```
 
-Claude/VScode config files are supported, and use any MCP with **Mai**.
-
-* Curl `localhost:8989` or use the `mai-tool` client for quiet, json or markdown output.
-
+### MCP Proxy
 ```bash
-# List all available tools
+# Start proxy with multiple MCP servers
+mai-wmcp "src/mcps/shell/mai-mcp-shell" "src/mcps/wttr/mai-mcp-wttr"
+
+# List tools
 mai-tool list
 
-# Call a specific tool
-mai-tool call server1/mytool param1=value1
-
-# Get JSON output
-mai-tool -j call server1/mytool param1=value1
+# Call tools
+mai-tool call shell/run_command command="ls -la"
+mai-tool call wttr/get_weather location="New York"
 ```
 
-## Building
+### Vector Database
+```bash
+# Search documents semantically
+mai-vdb -s docs/ -n 5 "machine learning algorithms"
+```
 
-Written in **Go** and orchestrated with **Makefiles**:
+### HTTP API
+```bash
+# Start HTTP server
+mai
+/serve start
 
+# Use OpenAI-compatible API
+curl -X POST http://localhost:9000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gemma3:1b", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+## Download
+
+### Source Code
+```bash
+git clone https://github.com/trufae/mai.git
+cd mai
+```
+
+### Releases
+Download pre-built binaries from [GitHub Releases](https://github.com/trufae/mai/releases)
+
+## Build from Source
+
+### Prerequisites
+* Go 1.21+
+* Make
+
+### Build All Components
 ```bash
 make
+```
+
+### Build Specific Components
+```bash
+make -C src/repl     # Main REPL
+make -C src/wmcp     # MCP proxy
+make -C src/tool     # MCP client
+make -C src/mcps     # All MCP servers
+make -C src/vdb      # Vector database
+make -C src/bot      # Bot integration
+```
+
+## Install
+
+### System-wide Installation
+```bash
 make install
 ```
 
-Right now that will create symlinks, so there's no need to install everytime you recompile.
+This creates symlinks in `/usr/local/bin`, no need to reinstall after recompiling.
+
+### Uninstall
+```bash
+make uninstall
+```
+
+## Configuration
+
+### Environment Variables
+```bash
+# Provider selection
+MAI_PROVIDER=ollama|openai|claude|gemini|deepseek|mistral|bedrock
+
+# API keys (provider-specific)
+OPENAI_API_KEY=sk-...
+CLAUDE_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+DEEPSEEK_API_KEY=...
+
+# Local models
+OLLAMA_MODEL=gemma3:1b
+
+# Custom endpoints
+MAI_BASEURL=https://api.example.com
+MAI_USERAGENT=mai-repl/1.0
+```
+
+### REPL Configuration
+```bash
+mai
+/set provider ollama
+/set model gemma3:1b
+/set listen 0.0.0.0:9000
+```
 
 ## Author
 
