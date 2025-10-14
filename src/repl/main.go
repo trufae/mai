@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/trufae/mai/src/repl/llm"
+	mcplib "mai/src/mcps/lib"
 )
 
 // runStdinMode handles sending messages to LLM in stdin mode.
@@ -163,7 +164,8 @@ func showHelp() {
 -r <command>     execute command and enter REPL (allows piping input)
 -s <string>      send string directly to AI (can be used multiple times)
 -t               enable tools processing
--T               enable tools with grammar disabled
+-tt              enable tools processing with mcp.grammar=false
+-T <dsl>         execute DSL commands using tools
 -U               update project by running git pull ; make in project directory
 -v               show version
 
@@ -354,15 +356,25 @@ func main() {
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-t":
-			// Enable legacy tools flow
 			configOptions.Set("mcp.use", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
-		case "-T":
+		case "-tt":
 			configOptions.Set("mcp.use", "true")
 			configOptions.Set("mcp.grammar", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
+		case "-T":
+			if i+1 < len(args) {
+				dslString := args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+				runDSLMode(config, configOptions, dslString)
+				return
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -tt requires a DSL string argument\n")
+				os.Exit(1)
+			}
 		case "-1":
 			config.NoStream = true
 			// Keep REPL in sync with stdin mode: disable streaming in options
@@ -577,6 +589,26 @@ func runMCPMode(config *llm.Config, configOptions *ConfigOptions) {
 
 	// Start MCP server
 	StartMCPServer(repl)
+}
+
+// runDSLMode executes DSL commands using mai-repl tools
+func runDSLMode(config *llm.Config, configOptions *ConfigOptions, dsl string) {
+	// Initialize REPL for DSL mode (no readline needed)
+	repl, err := NewREPL(*configOptions, "", true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing REPL for DSL mode: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get tools from REPL
+	tools := getREPLTools(repl)
+
+	// Execute DSL
+	err = mcplib.RunDSLTests(tools, dsl)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "DSL execution error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // resolveProjectDirectory resolves the project directory by following the symlink of argv0
