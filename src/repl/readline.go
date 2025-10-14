@@ -184,9 +184,9 @@ func (r *ReadLine) Read() (string, error) {
 	// Show the prompt immediately when starting to read
 	// Choose appropriate prompt based on mode
 	if r.isHeredoc || r.isContinuation {
-		fmt.Printf("\r\x1b[33m%s ", r.readlinePrompt)
+		fmt.Printf("\r\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 	} else {
-		fmt.Printf("\r\x1b[33m%s ", r.prompt)
+		fmt.Printf("\r\x1b[33m%s\x1b[0m ", r.prompt)
 	}
 	r.refreshLine()
 
@@ -237,7 +237,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add the line to heredoc buffer
 					r.heredocBuffer = append(r.heredocBuffer, result)
 					// Show the prompt again for next line
-					fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
+					fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -253,7 +253,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add line without the trailing backslash to buffer
 					r.continuationBuffer = append(r.continuationBuffer, result[:len(result)-1])
 					// Show prompt for next line
-					fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
+					fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -300,7 +300,7 @@ func (r *ReadLine) Read() (string, error) {
 				}
 
 				// Show the prompt for next line
-				fmt.Printf("\x1b[33m%s ", r.readlinePrompt)
+				fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -355,7 +355,7 @@ func (r *ReadLine) Read() (string, error) {
 				return "", io.EOF
 			}
 		case '\f': // Ctrl+L
-			fmt.Printf("\033[2J\033[H\033[33m%s ", r.prompt) // Clear screen ANSI
+			fmt.Printf("\033[2J\033[H\x1b[33m%s\x1b[0m ", r.prompt) // Clear screen ANSI
 
 		case 3: // Ctrl+C
 			// This case may not get triggered if our custom terminal mode allows
@@ -370,7 +370,7 @@ func (r *ReadLine) Read() (string, error) {
 				r.interruptFunc()
 			}
 			// Continue reading input after interruption instead of returning error
-			fmt.Printf("\x1b[33m%s ", r.prompt)
+			fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
 			continue
 
 		case 23: // Ctrl+W (delete word)
@@ -464,10 +464,10 @@ func (r *ReadLine) refreshLine() {
 	}
 
 	// Clear the current line
-	fmt.Print("\r\033[K")
+	fmt.Print("\r\033[2K")
 
 	// Print prompt with color
-	fmt.Printf("\x1b[33m%s ", r.prompt)
+	fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
 
 	// Print visible portion of the buffer
 	visibleText := string(r.buffer[r.scrollPos:visibleEnd])
@@ -854,8 +854,8 @@ func (r *ReadLine) exitSearchMode() {
 	}
 
 	// Clear the search prompt and show normal prompt
-	fmt.Print("\r\033[K")
-	fmt.Printf("\x1b[33m%s ", r.prompt)
+	fmt.Print("\r\033[2K")
+	fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
 	r.refreshLine()
 }
 
