@@ -433,11 +433,16 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "text/plain")
 
 	var output strings.Builder
-	output.WriteString("Available tools:\n")
 
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
+		var notFirst = false
 		for _, tool := range server.Tools {
+			if notFirst {
+				output.WriteString("--\n")
+			} else {
+				notFirst = true
+			}
 			// Simple format: TOOLNAME: description
 			output.WriteString(fmt.Sprintf("TOOLNAME: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
