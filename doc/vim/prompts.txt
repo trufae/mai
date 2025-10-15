@@ -1,0 +1,6 @@
+translate to catalan
+resstructure this text into a TODO list with markdown checkboxes
+sumarize in a sentence
+improve wording
+fix typos
+add an emoji at the begining of each sentence
