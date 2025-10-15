@@ -58,9 +58,24 @@ type mcpPromptChoice struct {
 func (r *REPL) prepareMCPromptTemplate(userInput string, messages []llm.Message) (string, error) {
 	// List all available MCP prompts
 	promptList, err := GetAvailableMCPrompts(Markdown)
-	if err != nil || strings.TrimSpace(promptList) == "" {
+	if err != nil {
 		// If we can't retrieve prompts, silently skip
 		return "", err
+	}
+
+	// Check if there are any actual prompts available
+	lines := strings.Split(promptList, "\n")
+	hasPrompts := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && trimmed != "# Prompts Catalog" {
+			hasPrompts = true
+			break
+		}
+	}
+	if !hasPrompts {
+		// No prompts available, skip
+		return "", nil
 	}
 
 	// Build a selection prompt
