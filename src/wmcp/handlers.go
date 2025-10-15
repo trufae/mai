@@ -163,7 +163,6 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
 				}
 			*/
-			output.WriteString("----\n")
 		}
 		server.mutex.RUnlock()
 	}
@@ -440,7 +439,6 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
 			// Simple format: TOOLNAME: description
-			output.WriteString("----\n")
 			output.WriteString(fmt.Sprintf("TOOLNAME: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
 
@@ -485,9 +483,6 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 					output.WriteString("\n")
 				}
 			}
-
-			// Add 2 newlines between tools
-			output.WriteString("\n\n")
 		}
 		server.mutex.RUnlock()
 	}
