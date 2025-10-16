@@ -133,7 +133,7 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 				// Print CLI-style arguments list
 				// Use the prepared Parameters array if available
 				if len(tool.Parameters) > 0 {
-					output.WriteString("Arguments:\n")
+					output.WriteString("Parameters:\n")
 					for _, param := range tool.Parameters {
 						// Format: name=<value> : description (type) [required]
 						reqText := ""
@@ -143,8 +143,6 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 						output.WriteString(fmt.Sprintf("- %s=<value> : %s (%s)%s\n",
 							param.Name, param.Description, param.Type, reqText))
 					}
-				} else {
-					//		output.WriteString("Arguments: None\n")
 				}
 			}
 			/*
@@ -188,7 +186,7 @@ func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) 
 				output.WriteString(fmt.Sprintf("Description: %s\n", prompt.Description))
 			}
 			if len(prompt.Arguments) > 0 {
-				output.WriteString("Arguments:\n")
+				output.WriteString("Parameters:\n")
 				for _, a := range prompt.Arguments {
 					req := ""
 					if a.Required {
@@ -556,9 +554,9 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 				section.WriteString("Purpose: (no description provided)\n")
 			}
 			if len(entry.Args) == 0 {
-				section.WriteString("Arguments: (none)\n")
+				section.WriteString("Parameters: (none)\n")
 			} else {
-				section.WriteString("Arguments:\n")
+				section.WriteString("Parameters:\n")
 				for _, arg := range entry.Args {
 					section.WriteString(formatQuietArgument(arg))
 					section.WriteByte('\n')
