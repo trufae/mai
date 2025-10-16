@@ -109,7 +109,7 @@ func (r *REPL) buildLLMConfig() *llm.Config {
 	// Respect REPL streaming option
 	cfg.NoStream = !r.configOptions.GetBool("llm.stream")
 	// Set demo mode option
-	cfg.DemoMode = r.configOptions.GetBool("repl.demo")
+	cfg.DemoMode = r.configOptions.GetBool("ui.demo")
 	return cfg
 }
 
@@ -246,7 +246,7 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 	// the action label so the demo loop continues running and will display
 	// tokens as they arrive.
 	repl.stopDemoCallback = func() {
-		if repl.configOptions.GetBool("repl.demo") {
+		if repl.configOptions.GetBool("ui.demo") {
 			// Stop the demo entirely. We only call this callback when the
 			// first token from the model is not a <think> tag, so the
 			// greyscaled scroller should be stopped.
@@ -1602,7 +1602,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// If demo mode is active, let the LLM client notify the demo stop callback
 	// as soon as the first streaming token arrives. We set the callback on the
 	// client so it will be embedded into the request context used by providers.
-	if r.configOptions.GetBool("repl.demo") && client != nil {
+	if r.configOptions.GetBool("ui.demo") && client != nil {
 		client.SetResponseStopCallback(r.stopDemoCallback)
 		defer client.SetResponseStopCallback(nil)
 
@@ -1620,7 +1620,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		defer llm.SetDemoPhaseCallback(nil)
 
 		llm.SetDemoTokenCallback(func(phase string, token string) {
-			if !r.configOptions.GetBool("repl.demo") {
+			if !r.configOptions.GetBool("ui.demo") {
 				return
 			}
 			// Feed text into the demo scroller; filtering/newline removal is
@@ -1633,7 +1633,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// Start the demo animation immediately; it will remain visible until
 	// the first token arrives. If the first token is not a <think> tag the
 	// streaming parser will invoke the stop callback to stop the animation.
-	if r.configOptions.GetBool("repl.demo") && client != nil {
+	if r.configOptions.GetBool("ui.demo") && client != nil {
 		art.StartLoop("Thinking...")
 	}
 
@@ -1641,7 +1641,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	// Stop the animation after SendMessage returns (for non-streaming)
 	// For streaming, the animation will be stopped when the first token arrives.
-	if r.configOptions.GetBool("repl.demo") && !streamEnabled {
+	if r.configOptions.GetBool("ui.demo") && !streamEnabled {
 		art.StopLoop()
 	}
 
@@ -1693,7 +1693,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 			if !streamEnabled {
 				// Optionally strip <think> regions from printed output in demo mode
 				out := response
-				if r.configOptions.GetBool("repl.demo") {
+				if r.configOptions.GetBool("ui.demo") {
 					out = llm.FilterOutThinkForOutput(out)
 					out = strings.TrimLeft(out, " \t\r\n")
 				}

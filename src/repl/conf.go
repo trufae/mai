@@ -99,7 +99,7 @@ func NewConfigOptions() *ConfigOptions {
 
 	// REPL behavior options
 	co.RegisterOption("repl.debug", BooleanOption, "Show internal processing logs", "false")
-	co.RegisterOption("repl.demo", BooleanOption, "Enable demo mode with waiting animation", "false")
+	co.RegisterOption("ui.demo", BooleanOption, "Enable demo mode with waiting animation", "false")
 	co.RegisterOption("repl.history", BooleanOption, "Enable REPL history", "true")
 	co.RegisterOption("repl.prompt", StringOption, "Main prompt string for input", ">>>")
 	co.RegisterOption("repl.prompt2", StringOption, "Prompt string for heredoc/continuation lines", "...")
