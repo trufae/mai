@@ -12,15 +12,16 @@ import (
 
 // GeminiProvider implements the LLM provider interface for Google's Gemini
 type GeminiProvider struct {
-	config *Config
-	apiKey string
-	ctx    context.Context
+	BaseProvider
 }
 
-func NewGeminiProvider(config *Config) *GeminiProvider {
+func NewGeminiProvider(config *Config, ctx context.Context) *GeminiProvider {
 	return &GeminiProvider{
-		config: config,
-		apiKey: GetAPIKey("GEMINI_API_KEY", "~/.r2ai.gemini-key"),
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: GetAPIKey("GEMINI_API_KEY", "~/.r2ai.gemini-key"),
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -106,8 +107,7 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	p.ctx = ctx
+func (p *GeminiProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Gemini")
 	}
@@ -185,13 +185,13 @@ func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, st
 
 	// If streaming requested, use the streaming helper which will call our parser
 	if stream {
-		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
+		return llmMakeStreamingRequestWithTiming(p.ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 			return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
 		}, nil, nil, nil)
 	}
 
 	// non-streaming fallback
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}

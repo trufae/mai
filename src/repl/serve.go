@@ -202,10 +202,10 @@ func (sm *ServerManager) getLLMClient() (*llm.LLMClient, error) {
 			return cc, nil
 		}
 		// Otherwise, create a new client using REPL's config
-		return llm.NewLLMClient(sm.repl.buildLLMConfig())
+		return llm.NewLLMClient(sm.repl.buildLLMConfig(), sm.repl.ctx)
 	}
 	// Fallback to server config if REPL is not present
-	return llm.NewLLMClient(sm.config)
+	return llm.NewLLMClient(sm.config, context.Background())
 }
 
 // executeInputWithCapture runs a plain user input through the REPL and captures output
@@ -750,7 +750,7 @@ func (sm *ServerManager) handleGetProviderModels(w http.ResponseWriter, r *http.
 	tempConfig.PROVIDER = provider
 
 	// Create a temporary LLM client for the requested provider
-	tempClient, err := llm.NewLLMClient(&tempConfig)
+	tempClient, err := llm.NewLLMClient(&tempConfig, context.Background())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create client for provider %s: %v", provider, err), http.StatusInternalServerError)
 		return

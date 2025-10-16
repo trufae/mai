@@ -96,7 +96,7 @@ func sendMessageCore(repl *REPL, args map[string]interface{}) (mcplib.ToolCallRe
 	}
 
 	// create client
-	client, err := llm.NewLLMClient(repl.buildLLMConfig())
+	client, err := llm.NewLLMClient(repl.buildLLMConfig(), repl.ctx)
 	if err != nil {
 		return mcplib.ToolCallResult{IsError: true}, fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -777,7 +777,7 @@ func StartMCPServer(repl *REPL) {
 
 	server.RegisterTool("get_models", func(args map[string]interface{}) (interface{}, error) {
 		// Create client
-		client, err := llm.NewLLMClient(repl.buildLLMConfig())
+		client, err := llm.NewLLMClient(repl.buildLLMConfig(), repl.ctx)
 		if err != nil {
 			// Return minimal shape on error
 			return []map[string]interface{}{
@@ -1405,7 +1405,7 @@ func getREPLTools(repl *REPL) []mcplib.Tool {
 			},
 			Handler: func(args map[string]interface{}) (interface{}, error) {
 				// Create client
-				client, err := llm.NewLLMClient(repl.buildLLMConfig())
+				client, err := llm.NewLLMClient(repl.buildLLMConfig(), repl.ctx)
 				if err != nil {
 					// Return minimal shape on error
 					return []map[string]interface{}{

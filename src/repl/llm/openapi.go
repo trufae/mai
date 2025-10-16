@@ -13,15 +13,19 @@ import (
 
 // OpenAPIProvider implements the LLM provider interface for OpenAPI
 type OpenAPIProvider struct {
-	config *Config
+	BaseProvider
 }
 
-func NewOpenAPIProvider(config *Config) *OpenAPIProvider {
+func NewOpenAPIProvider(config *Config, ctx context.Context) *OpenAPIProvider {
 	if config.BaseURL == "" {
 		config.BaseURL = "http://localhost:8989"
 	}
 	return &OpenAPIProvider{
-		config: config,
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: "",
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -122,7 +126,7 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}, nil
 }
 
-func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+func (p *OpenAPIProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: OpenAPI")
 	}
@@ -155,7 +159,7 @@ func (p *OpenAPIProvider) SendMessage(ctx context.Context, messages []Message, s
 	apiURL := strings.TrimRight(p.config.BaseURL, "/") + "/completion"
 
 	// OpenAPI doesn't support streaming in our implementation
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}

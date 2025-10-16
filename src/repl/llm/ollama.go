@@ -17,8 +17,7 @@ import (
 
 // OllamaProvider implements the LLM provider interface for Ollama
 type OllamaProvider struct {
-	config *Config
-	ctx    context.Context
+	BaseProvider
 }
 
 // OllamaModelsResponse is the response structure for Ollama model list endpoint
@@ -31,12 +30,16 @@ type OllamaModelsResponse struct {
 	} `json:"models"`
 }
 
-func NewOllamaProvider(config *Config) *OllamaProvider {
+func NewOllamaProvider(config *Config, ctx context.Context) *OllamaProvider {
 	if config.BaseURL == "" {
 		config.BaseURL = "http://localhost:11434"
 	}
 	return &OllamaProvider{
-		config: config,
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: "",
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -218,8 +221,7 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return nil, fmt.Errorf("invalid response from Ollama API (tried %d endpoints)", len(candidates))
 }
 
-func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	p.ctx = ctx
+func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	// If images are attached, construct request injecting images into the last user message
 	if len(images) > 0 {
 		// Build request JSON, injecting only raw base64 images into the first/last user message
@@ -286,10 +288,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		}
 
 		if stream {
-			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
+			return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
 		}
 
-		respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
+		respBody, err := tryPostCandidatesNonStream(p.ctx, candidates, headers, jsonData)
 		if err != nil {
 			return "", err
 		}
@@ -393,10 +395,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			if p.config.Debug {
 				art.DebugBanner("Ollama Request", string(jsonData))
 			}
-			return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
+			return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
 		}
 
-		respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
+		respBody, err := tryPostCandidatesNonStream(p.ctx, candidates, headers, jsonData)
 		if err != nil {
 			return "", err
 		}
@@ -478,10 +480,10 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 		art.DebugBanner("Ollama Request", string(jsonData))
 	}
 	if stream {
-		return tryPostCandidatesStream(ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
+		return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
 	}
 
-	respBody, err := tryPostCandidatesNonStream(ctx, candidates, headers, jsonData)
+	respBody, err := tryPostCandidatesNonStream(p.ctx, candidates, headers, jsonData)
 	if err != nil {
 		return "", err
 	}

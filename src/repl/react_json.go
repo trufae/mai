@@ -229,11 +229,11 @@ func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList
 	tools := fmt.Sprintf("%s\n<tools-catalog>%s</tools-catalog>\n", toolPrompt, toolList)
 	query := fmt.Sprintf("<user-request>%s</user-request>\n<context>%s</context>\n</context>", chatHistory, ctx)
 	return query + tools // tools + query
-		/*
-	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<context>%s<conversation-log>%s</conversation></context>\n</input>\n<tools>%s<catalog>%s</catalog></tools>", userInput, ctx, chatHistory, toolPrompt, toolList)
-	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<tool-selection-prompt>%s</tool-selection-prompt><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><conversation-log>%s</conversation-log>",
-		userInput, toolPrompt, ctx, toolList, chatHistory)
-		*/
+	/*
+		return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<context>%s<conversation-log>%s</conversation></context>\n</input>\n<tools>%s<catalog>%s</catalog></tools>", userInput, ctx, chatHistory, toolPrompt, toolList)
+		return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<tool-selection-prompt>%s</tool-selection-prompt><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><conversation-log>%s</conversation-log>",
+			userInput, toolPrompt, ctx, toolList, chatHistory)
+	*/
 }
 
 func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string, chatHistory string) (PlanResponse, error) {
@@ -399,7 +399,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	// Store inline schema JSON in options for providers to consume
 	_ = r.configOptions.Set("llm.schema", schemaString)
 	// Recreate client with the new schema
-	r.currentClient, _ = llm.NewLLMClient(r.buildLLMConfig())
+	r.currentClient, _ = llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	// toolList, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
 	toolList, err := GetAvailableToolsWithConfig(r.configOptions, Quiet)
 	if err != nil {
@@ -502,9 +502,9 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 			nextTok := ""
 			if tokIdx := strings.Index(rest, "next_page_token:"); tokIdx != -1 {
 				// token follows
-					tokStart := tokIdx + len("next_page_token:")
-			tokStr := strings.TrimSpace(rest[tokStart:])
-					// trim trailing ')' or '\n'
+				tokStart := tokIdx + len("next_page_token:")
+				tokStr := strings.TrimSpace(rest[tokStart:])
+				// trim trailing ')' or '\n'
 				tokStr = strings.Trim(tokStr, " )\n\r")
 				nextTok = tokStr
 			}

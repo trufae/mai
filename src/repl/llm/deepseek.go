@@ -11,14 +11,16 @@ import (
 
 // DeepSeekProvider implements the LLM provider interface for DeepSeek
 type DeepSeekProvider struct {
-	config *Config
-	apiKey string
+	BaseProvider
 }
 
-func NewDeepSeekProvider(config *Config) *DeepSeekProvider {
+func NewDeepSeekProvider(config *Config, ctx context.Context) *DeepSeekProvider {
 	return &DeepSeekProvider{
-		config: config,
-		apiKey: GetAPIKey("DEEPSEEK_API_KEY", "~/.r2ai.deepseek-key"),
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: GetAPIKey("DEEPSEEK_API_KEY", "~/.r2ai.deepseek-key"),
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -124,7 +126,7 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+func (p *DeepSeekProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: DeepSeek")
 	}
@@ -159,7 +161,7 @@ func (p *DeepSeekProvider) SendMessage(ctx context.Context, messages []Message, 
 	}
 
 	// DeepSeek doesn't support streaming in our implementation yet
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err

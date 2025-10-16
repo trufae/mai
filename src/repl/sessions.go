@@ -413,7 +413,7 @@ func (r *REPL) generateTopic() (string, error) {
 	lastMessage := r.messages[len(r.messages)-1].Content.(string)
 	prompt := "Summarize the following text in a few words:\n\n" + lastMessage
 
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}

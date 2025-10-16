@@ -510,7 +510,7 @@ func (r *REPL) interruptResponse() {
 		r.ctx, r.cancel = context.WithCancel(context.Background())
 
 		// Also interrupt the LLM client if it's active
-		client, err := llm.NewLLMClient(r.buildLLMConfig())
+		client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 		if err == nil && client != nil {
 			client.InterruptResponse()
 			r.mu.Lock()
@@ -1145,7 +1145,7 @@ func (r *REPL) generateMemory() error {
 		}
 	}
 
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -1444,7 +1444,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	// Create client
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -1779,7 +1779,7 @@ func (r *REPL) regularResponse(input string) error {
 	messages = append(messages, llm.Message{Role: "user", Content: input})
 
 	// Create client and send message
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -2783,7 +2783,7 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 // executeLLMQueryWithoutStreaming executes an LLM query without streaming and returns the result
 func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	// Create a new client for this query
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -3232,7 +3232,7 @@ func (r *REPL) isProviderAvailable(provider string) bool {
 	cfg.PROVIDER = provider
 
 	// Create provider instance
-	prov, err := llm.CreateProvider(cfg)
+	prov, err := llm.CreateProvider(cfg, context.Background())
 	if err != nil {
 		return false
 	}
@@ -3310,7 +3310,7 @@ func (r *REPL) setProvider(provider string) error {
 func (r *REPL) resolveDefaultModelForProvider(provider string) string {
 	cfg := r.buildLLMConfig()
 	cfg.PROVIDER = provider
-	client, err := llm.NewLLMClient(cfg)
+	client, err := llm.NewLLMClient(cfg, context.Background())
 	if err != nil || client == nil {
 		return ""
 	}
@@ -3322,7 +3322,7 @@ func (r *REPL) listModels() (string, error) {
 	var output strings.Builder
 
 	// Create client
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
@@ -3504,7 +3504,7 @@ func (r *REPL) handleCompactCommand() error {
 	fmt.Print("Compacting conversation...\r\n")
 
 	// Create client and send message
-	client, err := llm.NewLLMClient(r.buildLLMConfig())
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
 	if err != nil {
 		// Restore original messages on error
 		r.messages = originalMessages

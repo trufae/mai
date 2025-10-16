@@ -13,9 +13,7 @@ import (
 
 // XAIProvider implements the LLM provider interface for xAI
 type XAIProvider struct {
-	config *Config
-	apiKey string
-	ctx    context.Context
+	BaseProvider
 }
 
 // XAIModelsResponse is the response structure for xAI model list endpoint
@@ -29,10 +27,13 @@ type XAIModelsResponse struct {
 	} `json:"data"`
 }
 
-func NewXAIProvider(config *Config) *XAIProvider {
+func NewXAIProvider(config *Config, ctx context.Context) *XAIProvider {
 	return &XAIProvider{
-		config: config,
-		apiKey: GetAPIKey("XAI_API_KEY", "~/.r2ai.xai-key"),
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: GetAPIKey("XAI_API_KEY", "~/.r2ai.xai-key"),
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -90,8 +91,7 @@ func (p *XAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return chatModels, nil
 }
 
-func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	p.ctx = ctx
+func (p *XAIProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	// If images are provided, prepend a user message with xAI vision content blocks
 	if len(images) > 0 {
 		fmt.Println("sending images")
@@ -155,13 +155,13 @@ func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, strea
 	apiURL := buildURL("https://api.x.ai/v1/chat/completions", p.config.BaseURL, "", "", "/chat/completions")
 
 	if stream {
-		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL,
+		return llmMakeStreamingRequestWithTiming(p.ctx, "POST", apiURL,
 			headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 				return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
 			}, nil, nil, nil)
 	}
 
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err

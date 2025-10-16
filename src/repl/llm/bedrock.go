@@ -12,14 +12,16 @@ import (
 
 // BedrockProvider implements the LLM provider interface for AWS Bedrock
 type BedrockProvider struct {
-	config *Config
-	apiKey string
+	BaseProvider
 }
 
-func NewBedrockProvider(config *Config) *BedrockProvider {
+func NewBedrockProvider(config *Config, ctx context.Context) *BedrockProvider {
 	return &BedrockProvider{
-		config: config,
-		apiKey: GetAPIKey("AWS_ACCESS_KEY_ID", "~/.r2ai.bedrock-key"),
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: GetAPIKey("AWS_ACCESS_KEY_ID", "~/.r2ai.bedrock-key"),
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -82,7 +84,7 @@ func isLlamaModel(modelId string) bool {
 	return strings.HasPrefix(modelId, "meta.llama")
 }
 
-func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+func (p *BedrockProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Bedrock")
 	}
@@ -132,7 +134,7 @@ func (p *BedrockProvider) SendMessage(ctx context.Context, messages []Message, s
 	responseFile.Close()
 
 	// Run AWS CLI command
-	cmd := exec.CommandContext(ctx, "aws", "bedrock-runtime", "invoke-model",
+	cmd := exec.CommandContext(p.ctx, "aws", "bedrock-runtime", "invoke-model",
 		"--model-id", model,
 		"--body", fmt.Sprintf("file://%s", tempFile.Name()),
 		"--cli-binary-format", "raw-in-base64-out",

@@ -15,9 +15,7 @@ import (
 
 // OpenAIProvider implements the LLM provider interface for OpenAI
 type OpenAIProvider struct {
-	config *Config
-	apiKey string
-	ctx    context.Context
+	BaseProvider
 }
 
 // OpenAIModelsResponse is the response structure for OpenAI model list endpoint
@@ -31,7 +29,7 @@ type OpenAIModelsResponse struct {
 	} `json:"data""`
 }
 
-func NewOpenAIProvider(config *Config) *OpenAIProvider {
+func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 	var apiKey string
 	switch strings.ToLower(config.PROVIDER) {
 	case "openai":
@@ -58,8 +56,11 @@ func NewOpenAIProvider(config *Config) *OpenAIProvider {
 		}
 	}
 	return &OpenAIProvider{
-		config: config,
-		apiKey: apiKey,
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: apiKey,
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -217,8 +218,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// nothing more to do; parsing helper already returned results or an error
 }
 
-func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	p.ctx = ctx
+func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	// If images are provided, prepend a user message with OpenAI vision content blocks
 	if len(images) > 0 {
 		fmt.Println("sending images")
@@ -291,13 +291,13 @@ func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, st
 		art.DebugBanner("OpenAI Request", string(jsonData))
 	}
 	if stream {
-		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL,
+		return llmMakeStreamingRequestWithTiming(p.ctx, "POST", apiURL,
 			headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 				return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
 			}, nil, nil, nil)
 	}
 
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL,
 		headers, jsonData)
 	if p.config.Debug {
 		art.DebugBanner("OpenAI Response", string(respBody))

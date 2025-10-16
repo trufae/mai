@@ -12,9 +12,7 @@ import (
 
 // ClaudeProvider implements the LLM provider interface for Claude
 type ClaudeProvider struct {
-	config *Config
-	apiKey string
-	ctx    context.Context
+	BaseProvider
 }
 
 // ClaudeModelsResponse is the response structure for Claude model list endpoint
@@ -29,10 +27,13 @@ type ClaudeModelsResponse struct {
 	} `json:"data""`
 }
 
-func NewClaudeProvider(config *Config) *ClaudeProvider {
+func NewClaudeProvider(config *Config, ctx context.Context) *ClaudeProvider {
 	return &ClaudeProvider{
-		config: config,
-		apiKey: GetAPIKey("CLAUDE_API_KEY", "~/.r2ai.anthropic-key"),
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: GetAPIKey("CLAUDE_API_KEY", "~/.r2ai.anthropic-key"),
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -96,8 +97,7 @@ func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	p.ctx = ctx
+func (p *ClaudeProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Claude")
 	}
@@ -155,13 +155,13 @@ func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, st
 	}
 
 	if stream {
-		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL,
+		return llmMakeStreamingRequestWithTiming(p.ctx, "POST", apiURL,
 			headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 				return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
 			}, nil, nil, nil)
 	}
 
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL,
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL,
 		headers, jsonData)
 	if err != nil {
 		return "", err

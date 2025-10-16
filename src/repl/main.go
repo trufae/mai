@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -22,7 +23,7 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 	input := readInput(args)
 
 	// Create LLM client
-	client, err := llm.NewLLMClient(config)
+	client, err := llm.NewLLMClient(config, context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
 		os.Exit(1)
@@ -510,7 +511,7 @@ func main() {
 		applyConfigOptionsToLLMConfig(config, configOptions)
 
 		// Create LLM client
-		client, err := llm.NewLLMClient(config)
+		client, err := llm.NewLLMClient(config, context.Background())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
 			os.Exit(1)

@@ -12,15 +12,16 @@ import (
 
 // MistralProvider implements the LLM provider interface for Mistral
 type MistralProvider struct {
-	config *Config
-	apiKey string
-	ctx    context.Context
+	BaseProvider
 }
 
-func NewMistralProvider(config *Config) *MistralProvider {
+func NewMistralProvider(config *Config, ctx context.Context) *MistralProvider {
 	return &MistralProvider{
-		config: config,
-		apiKey: GetAPIKey("MISTRAL_API_KEY", "~/.r2ai.mistral-key"),
+		BaseProvider: BaseProvider{
+			config: config,
+			apiKey: GetAPIKey("MISTRAL_API_KEY", "~/.r2ai.mistral-key"),
+			ctx:    ctx,
+		},
 	}
 }
 
@@ -112,8 +113,7 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
-	p.ctx = ctx
+func (p *MistralProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Mistral")
 	}
@@ -172,12 +172,12 @@ func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, s
 
 	// Handle streaming if requested
 	if stream {
-		return llmMakeStreamingRequestWithTiming(ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
+		return llmMakeStreamingRequestWithTiming(p.ctx, "POST", apiURL, headers, jsonData, func(r io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
 			return p.parseStreamWithTiming(r, stopCallback, firstTokenCallback, streamEndCallback)
 		}, nil, nil, nil)
 	}
 
-	respBody, err := llmMakeRequest(ctx, "POST", apiURL, headers, jsonData)
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL, headers, jsonData)
 	if err != nil {
 		return "", err
 	}

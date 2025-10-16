@@ -280,7 +280,7 @@ func (sd *StreamDemo) OnStreamEnd() {
 // LLMProvider is a generic interface for all LLM providers
 type LLMProvider interface {
 	// SendMessage sends a message to the LLM and returns the response
-	SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error)
+	SendMessage(messages []Message, stream bool, images []string) (string, error)
 
 	// GetName returns the name of the provider
 	GetName() string
@@ -293,6 +293,12 @@ type LLMProvider interface {
 
 	// IsAvailable returns true if the provider is available (can reach baseurl and has required API key if needed)
 	IsAvailable() bool
+}
+
+type BaseProvider struct {
+	config *Config
+	apiKey string
+	ctx    context.Context
 }
 
 type ContentBlock struct {
@@ -336,8 +342,8 @@ type ListModelsResult struct {
 }
 
 // NewLLMClient creates a new LLM client for the specified provider
-func NewLLMClient(config *Config) (*LLMClient, error) {
-	provider, err := CreateProvider(config)
+func NewLLMClient(config *Config, ctx context.Context) (*LLMClient, error) {
+	provider, err := CreateProvider(config, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -387,37 +393,37 @@ func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 }
 
 // CreateProvider instantiates the appropriate provider based on config
-func CreateProvider(config *Config) (LLMProvider, error) {
+func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 	provider := strings.ToLower(config.PROVIDER)
 
 	switch provider {
 	case "ollama":
-		return NewOllamaProvider(config), nil
+		return NewOllamaProvider(config, ctx), nil
 	case "lmstudio":
-		return NewOpenAIProvider(config), nil
+		return NewOpenAIProvider(config, ctx), nil
 	case "shimmy":
-		return NewOpenAIProvider(config), nil
+		return NewOpenAIProvider(config, ctx), nil
 	case "ollamacloud":
-		return NewOpenAIProvider(config), nil
+		return NewOpenAIProvider(config, ctx), nil
 	case "openai":
-		return NewOpenAIProvider(config), nil
+		return NewOpenAIProvider(config, ctx), nil
 	case "claude":
-		return NewClaudeProvider(config), nil
+		return NewClaudeProvider(config, ctx), nil
 	case "gemini", "google":
-		return NewGeminiProvider(config), nil
+		return NewGeminiProvider(config, ctx), nil
 	case "mistral":
-		return NewMistralProvider(config), nil
+		return NewMistralProvider(config, ctx), nil
 	case "deepseek":
-		return NewDeepSeekProvider(config), nil
+		return NewDeepSeekProvider(config, ctx), nil
 	case "bedrock", "aws":
-		return NewBedrockProvider(config), nil
+		return NewBedrockProvider(config, ctx), nil
 	case "xai":
-		return NewXAIProvider(config), nil
+		return NewXAIProvider(config, ctx), nil
 	case "openapi":
-		return NewOpenAPIProvider(config), nil
+		return NewOpenAPIProvider(config, ctx), nil
 	default:
 		// Default to Claude if unknown provider
-		return NewClaudeProvider(config), nil
+		return NewClaudeProvider(config, ctx), nil
 	}
 }
 
@@ -510,13 +516,10 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 		}
 	}
 
-	ctx, cancel := c.newContext()
-	defer cancel()
-
 	// Single entry point for all providers; providers handle images support.
 	// Delegate to provider and capture response so we can debug-print it
 	isStreaming := stream && !c.Config.NoStream
-	resp, err := c.provider.SendMessage(ctx, messagesToSend, isStreaming, images)
+	resp, err := c.provider.SendMessage(messagesToSend, isStreaming, images)
 
 	// For non-streaming responses, simulate timing callbacks
 	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && resp != "" {
