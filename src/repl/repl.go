@@ -2099,6 +2099,14 @@ func (r *REPL) initCommands() {
 		},
 	}
 
+	r.commands["\"\""] = Command{
+		Name:        "_",
+		Description: "Print the last assistant reply",
+		Handler: func(r *REPL, args []string) (string, error) {
+			err := r.sendToAI("", "", "", true, false)
+			return "", err
+		},
+	}
 	// Last reply command
 	r.commands["_"] = Command{
 		Name:        "_",
