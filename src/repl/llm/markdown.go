@@ -172,8 +172,14 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				if r.collectingBold && c == r.boldMarker {
 					// End of bold, add the element
 					r.collectingBold = false
-					result.WriteString(BoldColor + r.currentElement.Content + Reset)
-					r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+					formatted := BoldColor + r.currentElement.Content + Reset
+					if r.collectingListItem {
+						r.currentElement.Type = ListItemElement
+						r.currentElement.Content = formatted
+					} else {
+						result.WriteString(formatted)
+						r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+					}
 				} else if !r.collectingBold && !r.collectingItalic {
 					// Start of bold
 					if r.currentElement.Content != "" {
@@ -328,8 +334,14 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			if r.collectingInlineCode {
 				// End of inline code, add the element
 				r.collectingInlineCode = false
-				result.WriteString(InlineCodeColor + r.currentElement.Content + Reset)
-				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+				formatted := InlineCodeColor + r.currentElement.Content + Reset
+				if r.collectingListItem {
+					r.currentElement.Type = ListItemElement
+					r.currentElement.Content = formatted
+				} else {
+					result.WriteString(formatted)
+					r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+				}
 			} else {
 				// Start of inline code
 				if r.currentElement.Content != "" {
@@ -349,8 +361,14 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				if r.collectingBold && c == r.boldMarker {
 					// End of bold, add the element
 					r.collectingBold = false
-					result.WriteString(BoldColor + r.currentElement.Content + Reset)
-					r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+					formatted := BoldColor + r.currentElement.Content + Reset
+					if r.collectingListItem {
+						r.currentElement.Type = ListItemElement
+						r.currentElement.Content = formatted
+					} else {
+						result.WriteString(formatted)
+						r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+					}
 					i++ // Skip the second * or _
 				} else if !r.collectingBold && !r.collectingItalic {
 					// Start of bold
@@ -379,8 +397,14 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				if r.collectingItalic && c == r.italicMarker {
 					// End of italic, add the element
 					r.collectingItalic = false
-					result.WriteString(ItalicColor + r.currentElement.Content + Reset)
-					r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+					formatted := ItalicColor + r.currentElement.Content + Reset
+					if r.collectingListItem {
+						r.currentElement.Type = ListItemElement
+						r.currentElement.Content = formatted
+					} else {
+						result.WriteString(formatted)
+						r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
+					}
 					continue
 				} else if !r.collectingItalic {
 					// Start of italic
