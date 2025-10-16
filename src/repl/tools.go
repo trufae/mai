@@ -82,7 +82,7 @@ func GetAvailableTools(f Format) (string, error) {
 // GetAvailableToolsWithConfig gets available tools using the specified config
 func GetAvailableToolsWithConfig(configOptions ConfigOptions, defaultFormat Format) (string, error) {
 	toolFormat := configOptions.Get("mcp.toolformat")
-	if toolFormat == "" {
+	if toolFormat == "" || toolFormat == "?" {
 		return GetAvailableTools(defaultFormat)
 	}
 	format := parseToolFormat(toolFormat)
