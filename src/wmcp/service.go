@@ -140,6 +140,11 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 		}
 	}
 
+	// Load resources (best-effort)
+	if err := s.loadResources(server); err != nil {
+		log.Printf("Warning: failed to load resources for server %s: %v", name, err)
+	}
+
 	log.Printf("Started MCP server: %s", name)
 	return nil
 }
@@ -152,8 +157,9 @@ func (s *MCPService) initializeServer(server *MCPServer) error {
 		Params: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
 			"capabilities": map[string]interface{}{
-				"tools":   map[string]interface{}{},
-				"prompts": map[string]interface{}{},
+				"tools":     map[string]interface{}{},
+				"prompts":   map[string]interface{}{},
+				"resources": map[string]interface{}{},
 			},
 			"clientInfo": map[string]interface{}{
 				"name":    "mai-wmcp",
@@ -257,6 +263,40 @@ func (s *MCPService) loadPrompts(server *MCPServer) error {
 	server.mutex.Unlock()
 
 	log.Printf("Loaded %d prompts for server %s", len(list.Prompts), server.Name)
+	return nil
+}
+
+// loadResources loads available resources from the server
+func (s *MCPService) loadResources(server *MCPServer) error {
+	resourcesRequest := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "resources/list",
+		Params:  map[string]interface{}{},
+		ID:      4,
+	}
+
+	response, err := s.sendRequest(server, resourcesRequest)
+	if err != nil {
+		return err
+	}
+
+	if response.Error != nil {
+		// Not all servers implement resources; don't treat as fatal
+		log.Printf("resources/list failed on %s: %v", server.Name, response.Error)
+		return nil
+	}
+
+	resultBytes, _ := json.Marshal(response.Result)
+	var list ResourcesListResult
+	if err := json.Unmarshal(resultBytes, &list); err != nil {
+		return fmt.Errorf("failed to parse resources response: %v", err)
+	}
+
+	server.mutex.Lock()
+	server.Resources = list.Resources
+	server.mutex.Unlock()
+
+	log.Printf("Loaded %d resources for server %s", len(list.Resources), server.Name)
 	return nil
 }
 
@@ -1104,6 +1144,11 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 		if err := s.loadPrompts(server); err != nil {
 			log.Printf("Warning: failed to load prompts for restarted server %s: %v", server.Name, err)
 		}
+	}
+
+	// Re-load resources
+	if err := s.loadResources(server); err != nil {
+		log.Printf("Warning: failed to load resources for restarted server %s: %v", server.Name, err)
 	}
 
 	return nil

@@ -56,6 +56,8 @@ type MCPServer struct {
 	reader            *bufio.Scanner
 	writer            io.Writer
 	prompts           []PromptDefinition
+	resources         []ResourceDefinition
+	resourceHandlers  map[string]ResourceHandler
 	logFile           io.Writer
 	bufr              *bufio.Reader
 	useHeaders        bool
@@ -85,12 +87,38 @@ type Tool struct {
 	Handler       ToolHandler
 }
 
+// ResourceDefinition represents a resource that can be read by the MCP
+type ResourceDefinition struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// ResourceReadParams represents the parameters for a resource read request
+type ResourceReadParams struct {
+	URI string `json:"uri"`
+}
+
+// ResourceHandler is a function that handles a resource read request
+type ResourceHandler func(uri string) (interface{}, error)
+
+// Resource represents a complete resource definition with handler
+type Resource struct {
+	URI         string
+	Name        string
+	Description string
+	MimeType    string
+	Handler     ResourceHandler
+}
+
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {
 	s := &MCPServer{
 		tools:             tools,
 		toolHandlers:      make(map[string]ToolHandler),
 		streamingHandlers: make(map[string]StreamingToolHandler),
+		resourceHandlers:  make(map[string]ResourceHandler),
 		reader:            bufio.NewScanner(os.Stdin),
 		writer:            os.Stdout,
 		bufr:              bufio.NewReader(os.Stdin),
@@ -162,6 +190,16 @@ func (s *MCPServer) RegisterStreamingTool(name string, handler StreamingToolHand
 	s.streamingHandlers[name] = handler
 }
 
+// RegisterResource registers a resource handler for a specific URI
+func (s *MCPServer) RegisterResource(uri string, handler ResourceHandler) {
+	s.resourceHandlers[uri] = handler
+}
+
+// SetResources configures the server's available resources
+func (s *MCPServer) SetResources(resources []ResourceDefinition) {
+	s.resources = resources
+}
+
 // handleStreamingCall handles streaming tool calls
 func (s *MCPServer) handleStreamingCall(req JSONRPCRequest, params ToolCallParams, handler StreamingToolHandler) {
 	// For streaming, we send the result directly
@@ -227,13 +265,19 @@ func (s *MCPServer) Start() {
 			if proto == "" {
 				proto = "2024-11-05"
 			}
-			// Advertise capabilities for tools and prompts
+			// Advertise capabilities for tools, prompts, and resources
 			caps := map[string]interface{}{"tools": map[string]interface{}{}}
 			if len(s.prompts) > 0 {
 				caps["prompts"] = map[string]interface{}{}
 			} else {
 				// Many clients still tolerate declaring prompts capability even if empty
 				caps["prompts"] = map[string]interface{}{}
+			}
+			if len(s.resources) > 0 {
+				caps["resources"] = map[string]interface{}{}
+			} else {
+				// Many clients still tolerate declaring resources capability even if empty
+				caps["resources"] = map[string]interface{}{}
 			}
 			s.sendResult(req.ID, map[string]interface{}{
 				"protocolVersion": proto,
@@ -260,6 +304,10 @@ func (s *MCPServer) Start() {
 			s.handlePromptsGet(req)
 		case "prompts/apply":
 			s.handlePromptsApply(req)
+		case "resources/list":
+			s.handleResourcesList(req)
+		case "resources/read":
+			s.handleResourcesRead(req)
 		default:
 			s.sendError(req.ID, -32601, "Method not found: "+req.Method)
 		}
@@ -716,6 +764,122 @@ func (c *MCPClient) writeFramed(data []byte) {
 	fmt.Fprintln(c.writer, string(data))
 }
 
+// ListResources sends the resources/list request and returns available resources
+func (c *MCPClient) ListResources() ([]ResourceDefinition, error) {
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      c.requestID,
+		Method:  "resources/list",
+	}
+	c.requestID++
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	c.writeFramed(data)
+
+	// Read response
+	respData, err := c.readNextMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if resp.Error != nil {
+		return nil, fmt.Errorf("resources/list error: %s", resp.Error.Message)
+	}
+
+	// Parse resources from result
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid resources/list response")
+	}
+
+	resourcesData, ok := result["resources"]
+	if !ok {
+		return nil, fmt.Errorf("no resources in response")
+	}
+
+	resourcesJSON, err := json.Marshal(resourcesData)
+	if err != nil {
+		return nil, err
+	}
+
+	var resources []ResourceDefinition
+	if err := json.Unmarshal(resourcesJSON, &resources); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
+}
+
+// ReadResource sends a resources/read request and returns the resource content
+func (c *MCPClient) ReadResource(uri string) ([]interface{}, error) {
+	params := ResourceReadParams{URI: uri}
+
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      c.requestID,
+		Method:  "resources/read",
+		Params:  paramsJSON,
+	}
+	c.requestID++
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	c.writeFramed(data)
+
+	// Read response
+	respData, err := c.readNextMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	if resp.Error != nil {
+		return nil, fmt.Errorf("resource read error: %s", resp.Error.Message)
+	}
+
+	// Parse contents from result
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid resource read response")
+	}
+
+	contentsData, ok := result["contents"]
+	if !ok {
+		return nil, fmt.Errorf("no contents in response")
+	}
+
+	contentsJSON, err := json.Marshal(contentsData)
+	if err != nil {
+		return nil, err
+	}
+
+	var contents []interface{}
+	if err := json.Unmarshal(contentsJSON, &contents); err != nil {
+		return nil, err
+	}
+
+	return contents, nil
+}
+
 // -------------------- Prompts support --------------------
 
 // Content represents a piece of message content.
@@ -818,4 +982,68 @@ func (s *MCPServer) handlePromptsApply(req JSONRPCRequest) {
 		}
 	}
 	s.sendError(req.ID, -32601, "Prompt not found: "+params.Name)
+}
+
+// resources/list
+func (s *MCPServer) handleResourcesList(req JSONRPCRequest) {
+	s.sendResult(req.ID, map[string]interface{}{
+		"resources": s.resources,
+	})
+}
+
+// resources/read
+func (s *MCPServer) handleResourcesRead(req JSONRPCRequest) {
+	var params ResourceReadParams
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.URI == "" {
+		s.sendError(req.ID, -32602, "Invalid params")
+		return
+	}
+
+	handler, exists := s.resourceHandlers[params.URI]
+	if !exists {
+		s.sendError(req.ID, -32601, "Resource not found: "+params.URI)
+		return
+	}
+
+	content, err := handler(params.URI)
+	if err != nil {
+		s.sendError(req.ID, -32000, err.Error())
+		return
+	}
+
+	// Format content as MCP resource content
+	var contents []interface{}
+	switch v := content.(type) {
+	case string:
+		contents = []interface{}{map[string]interface{}{
+			"uri":      params.URI,
+			"mimeType": "text/plain",
+			"text":     v,
+		}}
+	case []byte:
+		contents = []interface{}{map[string]interface{}{
+			"uri":      params.URI,
+			"mimeType": "application/octet-stream",
+			"blob":     string(v),
+		}}
+	default:
+		// Try to marshal as JSON
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			contents = []interface{}{map[string]interface{}{
+				"uri":      params.URI,
+				"mimeType": "application/json",
+				"text":     string(b),
+			}}
+		} else {
+			contents = []interface{}{map[string]interface{}{
+				"uri":      params.URI,
+				"mimeType": "text/plain",
+				"text":     fmt.Sprintf("%v", v),
+			}}
+		}
+	}
+
+	s.sendResult(req.ID, map[string]interface{}{
+		"contents": contents,
+	})
 }

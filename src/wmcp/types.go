@@ -170,6 +170,37 @@ type Report struct {
 	Entries []ReportEntry `json:"entries"`
 }
 
+// Resource represents a resource available on the server
+type Resource struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// ResourcesListResult is the result for resources/list
+type ResourcesListResult struct {
+	Resources []Resource `json:"resources"`
+}
+
+// ReadResourceParams is the params object for resources/read
+type ReadResourceParams struct {
+	URI string `json:"uri"`
+}
+
+// ReadResourceResult is the result for resources/read
+type ReadResourceResult struct {
+	Contents []ResourceContent `json:"contents"`
+}
+
+// ResourceContent represents content returned by resources/read
+type ResourceContent struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
+}
+
 // MCP Server represents a running MCP server process
 type MCPServer struct {
 	Name          string
@@ -180,6 +211,7 @@ type MCPServer struct {
 	Stderr        io.ReadCloser
 	Tools         []Tool
 	Prompts       []Prompt
+	Resources     []Resource
 	mutex         sync.RWMutex
 	stderrDone    chan struct{}
 	stderrActive  bool

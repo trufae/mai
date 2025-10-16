@@ -378,6 +378,101 @@ func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response.Result)
 }
 
+// listResourcesHandler returns all resources from all servers
+func (s *MCPService) listResourcesHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	var output strings.Builder
+	output.WriteString("# Resources Catalog\n\n")
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
+		output.WriteString(fmt.Sprintf("Resources: %d\n\n", len(server.Resources)))
+
+		for _, resource := range server.Resources {
+			output.WriteString(fmt.Sprintf("- URI: %s\n", resource.URI))
+			output.WriteString(fmt.Sprintf("  Name: %s\n", resource.Name))
+			if resource.Description != "" {
+				output.WriteString(fmt.Sprintf("  Description: %s\n", resource.Description))
+			}
+			if resource.MimeType != "" {
+				output.WriteString(fmt.Sprintf("  MIME Type: %s\n", resource.MimeType))
+			}
+			output.WriteString("\n")
+		}
+		server.mutex.RUnlock()
+	}
+
+	w.Write([]byte(output.String()))
+}
+
+// jsonResourcesHandler returns all resources in JSON format
+func (s *MCPService) jsonResourcesHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	result := make(map[string][]Resource)
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		resources := make([]Resource, len(server.Resources))
+		copy(resources, server.Resources)
+		server.mutex.RUnlock()
+		result[serverName] = resources
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// readResourceHandler reads a specific resource
+func (s *MCPService) readResourceHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["server"]
+	resourceURI := vars["uri"]
+
+	// Always log HTTP requests
+	log.Printf("HTTP %s %s - Server: %s, Resource: %s", r.Method, r.URL.String(), serverName, resourceURI)
+
+	s.mutex.RLock()
+	server, exists := s.servers[serverName]
+	s.mutex.RUnlock()
+	if !exists {
+		http.Error(w, fmt.Sprintf("Server '%s' not found", serverName), http.StatusNotFound)
+		return
+	}
+
+	req := JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "resources/read",
+		Params: ReadResourceParams{
+			URI: resourceURI,
+		},
+		ID: 5,
+	}
+
+	response, err := s.sendRequest(server, req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read resource: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if response.Error != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Return result as JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response.Result)
+}
+
 // jsonToolsHandler returns all tools from all servers in JSON format
 func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
@@ -1150,7 +1245,9 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		output.WriteString(fmt.Sprintf("Command: `%s`\n", server.Command))
 		output.WriteString(fmt.Sprintf("Status: Running\n"))
-		output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
+		output.WriteString(fmt.Sprintf("Tools: %d\n", len(server.Tools)))
+		output.WriteString(fmt.Sprintf("Prompts: %d\n", len(server.Prompts)))
+		output.WriteString(fmt.Sprintf("Resources: %d\n\n", len(server.Resources)))
 		server.mutex.RUnlock()
 	}
 

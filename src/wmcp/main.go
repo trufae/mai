@@ -229,6 +229,11 @@ func main() {
 	router.HandleFunc("/prompts/{prompt}", service.getPromptHandler).Methods("GET", "POST")
 	router.HandleFunc("/prompts/{server}/{prompt}", service.getPromptHandler).Methods("GET", "POST")
 
+	// Resources endpoints
+	router.HandleFunc("/resources", service.listResourcesHandler).Methods("GET")
+	router.HandleFunc("/resources/json", service.jsonResourcesHandler).Methods("GET")
+	router.HandleFunc("/resources/{server}/{uri}", service.readResourceHandler).Methods("GET")
+
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
 
@@ -257,13 +262,18 @@ Available endpoints:
 - POST /call/{server}/{tool} - Call tool with JSON body or form data
 - POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
 
-Prompts endpoints:
-- GET /prompts - List all available prompts
-- GET /prompts/json - List all available prompts in JSON format
-- GET /prompts/{server}/{prompt} - Get a prompt by name from a server (args as query)
-- GET /prompts/{prompt} - Get a prompt by name via auto-discovery
-- POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
-- POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
+ Prompts endpoints:
+ - GET /prompts - List all available prompts
+ - GET /prompts/json - List all available prompts in JSON format
+ - GET /prompts/{server}/{prompt} - Get a prompt by name from a server (args as query)
+ - GET /prompts/{prompt} - Get a prompt by name via auto-discovery
+ - POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
+ - POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
+
+ Resources endpoints:
+ - GET /resources - List all available resources
+ - GET /resources/json - List all available resources in JSON format
+ - GET /resources/{server}/{uri} - Read a resource by URI from a server
 
  Examples:
  - curl http://localhost:8989/tools
