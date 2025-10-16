@@ -13,6 +13,127 @@ import (
 	"time"
 )
 
+// OllamaProvider implements the LLM provider interface for Ollama
+type OllamaProvider struct {
+	BaseProvider
+}
+
+func NewOllamaProvider(config *Config, ctx context.Context) *OllamaProvider {
+	if config.BaseURL == "" {
+		config.BaseURL = "http://localhost:11434"
+	}
+	return &OllamaProvider{
+		BaseProvider: BaseProvider{
+			config: config,
+			ctx:    ctx,
+		},
+	}
+}
+
+func (p *OllamaProvider) GetName() string {
+	return "Ollama"
+}
+
+func (p *OllamaProvider) DefaultModel() string {
+	if v := os.Getenv("OLLAMA_MODEL"); v != "" {
+		return v
+	}
+	return "gemma3:1b"
+}
+
+func (p *OllamaProvider) IsAvailable() bool {
+	// For Ollama, assume available if we can reach the base URL
+	// Simple check: try to connect to the base URL
+	url := p.config.BaseURL + "/api/version"
+	req, err := http.NewRequestWithContext(p.ctx, "GET", url, nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
+	url := p.config.BaseURL + "/api/tags"
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var response struct {
+		Models []struct {
+			Name     string `json:"name"`
+			Size     int64  `json:"size"`
+			Modified string `json:"modified"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+	models := make([]Model, len(response.Models))
+	for i, m := range response.Models {
+		models[i] = Model{
+			ID:       m.Name,
+			Name:     m.Name,
+			Provider: "ollama",
+		}
+	}
+	return models, nil
+}
+
+// tryPostCandidatesNonStream POSTs to each candidate URL until one succeeds
+func tryPostCandidatesNonStream(ctx context.Context, candidates []string, headers map[string]string, body []byte) ([]byte, error) {
+	var lastErr error
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" || cand == "/" {
+			continue
+		}
+		respBody, err := llmMakeRequest(ctx, "POST", cand, headers, body)
+		if err == nil {
+			return respBody, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no valid endpoints")
+}
+
+// tryPostCandidatesStream POSTs to each candidate streaming endpoint until one succeeds
+func tryPostCandidatesStream(ctx context.Context, candidates []string, headers map[string]string, body []byte, parser func(io.Reader, func(), func(), func()) (string, error)) (string, error) {
+	var lastErr error
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" || cand == "/" {
+			continue
+		}
+		res, err := llmMakeStreamingRequestWithTiming(ctx, "POST", cand, headers, body, parser, nil, nil, nil)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("no valid streaming endpoints")
+}
+
 // image sending handled inside Provider.SendMessage
 func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
 
@@ -291,7 +412,7 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 	}
 	if stream {
 		parseFunc := func(reader io.Reader, stop, first, end func()) (string, error) {
-			return p.parseStreamWithTiming(reader, stop, first, end, noPrint)
+			return p.parseStreamWithTiming(reader, stop, first, end)
 		}
 		return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, parseFunc)
 	}

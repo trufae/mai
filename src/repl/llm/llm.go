@@ -345,6 +345,11 @@ func NewLLMClient(config *Config, ctx context.Context) (*LLMClient, error) {
 		return nil, err
 	}
 
+	// Check if the provider is available
+	if !provider.IsAvailable() {
+		return nil, fmt.Errorf("provider %s is not available", config.PROVIDER)
+	}
+
 	// Initialize package-level think hide state from config default.
 	// This is reset per request in SendMessage as appropriate.
 	if config != nil {
@@ -391,7 +396,11 @@ func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 
 // CreateProvider instantiates the appropriate provider based on config
 func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
-	provider := strings.ToLower(config.PROVIDER)
+	provider, ok := CanonicalProviderName(config.PROVIDER)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", config.PROVIDER)
+	}
+	config.PROVIDER = provider
 
 	switch provider {
 	case "ollama":
@@ -419,8 +428,7 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 	case "openapi":
 		return NewOpenAPIProvider(config, ctx), nil
 	default:
-		// Default to Claude if unknown provider
-		return NewClaudeProvider(config, ctx), nil
+		return nil, fmt.Errorf("unknown provider: %s", config.PROVIDER)
 	}
 }
 

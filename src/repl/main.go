@@ -121,7 +121,7 @@ func readInput(args []string) string {
 
 func showEnvHelp() {
 	fmt.Print(`
-MAI_PROVIDER=[ollama | gemini | deepseek | claude | openai | shimmy | mistral | bedrock]
+MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | openapi]
 MAI_BASEURL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
 MAI_USERAGENT=[custom user agent string for HTTP requests]
 
@@ -404,9 +404,16 @@ func main() {
 			}
 		case "-p":
 			if i+1 < len(args) {
-				config.PROVIDER = args[i+1]
+				providerInput := args[i+1]
+				provider, ok := llm.CanonicalProviderName(providerInput)
+				if !ok {
+					fmt.Fprintf(os.Stderr, "Invalid provider: %s\n", args[i+1])
+					fmt.Fprintf(os.Stderr, "Valid providers: %s\n", llm.GetValidProvidersDisplay())
+					os.Exit(1)
+				}
+				config.PROVIDER = provider
 				// Keep REPL options in sync so /get reflects this
-				configOptions.Set("ai.provider", args[i+1])
+				configOptions.Set("ai.provider", provider)
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {

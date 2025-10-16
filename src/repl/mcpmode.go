@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -863,22 +862,15 @@ func StartMCPServer(repl *REPL) {
 	})
 
 	server.RegisterTool("list_providers", func(args map[string]interface{}) (interface{}, error) {
-		validProviders := repl.getValidProviders()
+		providers := llm.GetValidProvidersList()
 
-		// Extract provider names and sort them
-		providers := make([]string, 0, len(validProviders))
-		for provider := range validProviders {
-			// Skip aliases (like "google" for "gemini" and "aws" for "bedrock")
-			if provider == "google" || provider == "aws" {
-				continue
-			}
-			// Only include available providers
+		available := make([]string, 0, len(providers))
+		for _, provider := range providers {
 			if repl.isProviderAvailable(provider) {
-				providers = append(providers, provider)
+				available = append(available, provider)
 			}
 		}
-		sort.Strings(providers)
-		return providers, nil
+		return available, nil
 	})
 
 	server.RegisterTool("set_provider", func(args map[string]interface{}) (interface{}, error) {
@@ -1498,22 +1490,14 @@ func getREPLTools(repl *REPL) []mcplib.Tool {
 				"properties": map[string]interface{}{},
 			},
 			Handler: func(args map[string]interface{}) (interface{}, error) {
-				validProviders := repl.getValidProviders()
-
-				// Extract provider names and sort them
-				providers := make([]string, 0, len(validProviders))
-				for provider := range validProviders {
-					// Skip aliases (like "google" for "gemini" and "aws" for "bedrock")
-					if provider == "google" || provider == "aws" {
-						continue
-					}
-					// Only include available providers
+				providers := llm.GetValidProvidersList()
+				available := make([]string, 0, len(providers))
+				for _, provider := range providers {
 					if repl.isProviderAvailable(provider) {
-						providers = append(providers, provider)
+						available = append(available, provider)
 					}
 				}
-				sort.Strings(providers)
-				return providers, nil
+				return available, nil
 			},
 		},
 		{

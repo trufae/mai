@@ -3213,24 +3213,6 @@ func (r *REPL) showCurrentProvider() {
 	r.showCurrentModel()
 }
 
-// getValidProviders returns a map of valid providers
-func (r *REPL) getValidProviders() map[string]bool {
-	return map[string]bool{
-		"ollama":   true,
-		"lmstudio": true,
-		"openai":   true,
-		"shimmy":   true,
-		"claude":   true,
-		"gemini":   true,
-		"google":   true,
-		"mistral":  true,
-		"deepseek": true,
-		"bedrock":  true,
-		"aws":      true,
-		"xai":      true,
-	}
-}
-
 // isProviderAvailable checks if a provider is available by creating a temporary config and provider instance
 func (r *REPL) isProviderAvailable(provider string) bool {
 	// Create a temporary config for this provider
@@ -3256,18 +3238,12 @@ func (r *REPL) isProviderAvailable(provider string) bool {
 
 // listProviders displays all available providers
 func (r *REPL) listProviders() (string, error) {
-	validProviders := r.getValidProviders()
-
-	// Extract provider names and sort them
-	providers := make([]string, 0, len(validProviders))
-	for provider := range validProviders {
-		// Skip aliases (like "google" for "gemini" and "aws" for "bedrock")
-		if provider == "google" || provider == "aws" {
-			continue
-		}
-		providers = append(providers, provider)
+	providers := llm.GetValidProvidersList()
+	currentInput := r.configOptions.Get("ai.provider")
+	currentProvider := strings.ToLower(currentInput)
+	if canonical, ok := llm.CanonicalProviderName(currentInput); ok {
+		currentProvider = canonical
 	}
-	sort.Strings(providers)
 
 	var output strings.Builder
 	output.WriteString("Available providers:\r\n")
@@ -3281,7 +3257,7 @@ func (r *REPL) listProviders() (string, error) {
 			emoji = "\033[91m❌\033[0m" // Red X
 		}
 
-		if provider == r.configOptions.Get("ai.provider") {
+		if provider == currentProvider {
 			output.WriteString(fmt.Sprintf("%s * %s (current)\r\n", emoji, provider))
 		} else {
 			output.WriteString(fmt.Sprintf("%s   %s\r\n", emoji, provider))
@@ -3294,20 +3270,15 @@ func (r *REPL) listProviders() (string, error) {
 
 // setProvider changes the current provider
 func (r *REPL) setProvider(provider string) error {
-	// Check if the provider is valid
-	validProviders := r.getValidProviders()
-
-	// Convert provider to lowercase for case-insensitive comparison
-	provider = strings.ToLower(provider)
-
-	if !validProviders[provider] {
+	canonical, ok := llm.CanonicalProviderName(provider)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Invalid provider: %s\n", provider)
-		fmt.Fprintln(os.Stderr, "Valid providers: ollama, lmstudio, openai, shimmy, claude, gemini/google, mistral, deepseek, bedrock/aws, xai")
+		fmt.Fprintf(os.Stderr, "Valid providers: %s\n", llm.GetValidProvidersDisplay())
 		return nil
 	}
 
 	// Update the provider in the configOptions
-	r.configOptions.Set("ai.provider", provider)
+	r.configOptions.Set("ai.provider", canonical)
 
 	// Prints removed to avoid interfering with MCP protocol
 
