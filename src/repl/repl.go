@@ -220,6 +220,14 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		if readlinePrompt := repl.configOptions.Get("repl.prompt2"); readlinePrompt != "" {
 			repl.readline.SetReadlinePrompt(readlinePrompt)
 		}
+
+		if bgcolor := repl.configOptions.Get("ui.bgcolor"); bgcolor != "" {
+			repl.readline.SetBgColor(bgcolor)
+		}
+
+		if fgcolor := repl.configOptions.Get("ui.fgcolor"); fgcolor != "" {
+			repl.readline.SetFgColor(fgcolor)
+		}
 	}
 
 	// Initialize baseurl/useragent options from environment defaults if not set
@@ -290,6 +298,18 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 	repl.configOptions.RegisterOptionListener("repl.prompt2", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetReadlinePrompt(value)
+		}
+	})
+
+	repl.configOptions.RegisterOptionListener("ui.bgcolor", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetBgColor(value)
+		}
+	})
+
+	repl.configOptions.RegisterOptionListener("ui.fgcolor", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetFgColor(value)
 		}
 	})
 

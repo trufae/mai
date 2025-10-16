@@ -108,6 +108,8 @@ func NewConfigOptions() *ConfigOptions {
 	// Screen rendering options
 	co.RegisterOption("ui.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 	co.RegisterOption("ui.stats", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
+	co.RegisterOption("ui.bgcolor", StringOption, "Background color for the input line (black, red, green, yellow, blue, dark-blue, magenta, cyan, white, grey, bright-red, bright-green, bright-yellow, bright-blue, bright-magenta, bright-cyan, bright-white)", "")
+	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (black, red, green, yellow, blue, magenta, cyan, white, grey, bright-red, bright-green, bright-yellow, bright-blue, bright-magenta, bright-cyan, bright-white)", "")
 
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
@@ -596,6 +598,23 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			markdownStatus = "disabled"
 		}
 		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
+	case "ui.bgcolor":
+		validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+		isValid := false
+		for _, c := range validColors {
+			if value == c {
+				isValid = true
+				break
+			}
+		}
+		if value != "" && !isValid {
+			return fmt.Sprintf("Error: invalid color '%s'. Valid colors: %s\r\n", value, strings.Join(validColors, ", ")), nil
+		}
+		if value == "" {
+			output.WriteString("Input line background color reset to default\r\n")
+		} else {
+			output.WriteString(fmt.Sprintf("Input line background color set to %s\r\n", value))
+		}
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return output.String(), nil
@@ -736,6 +755,8 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Logging reverted to default\r\n")
 	case "ui.markdown":
 		output.WriteString("Markdown rendering reverted to default\r\n")
+	case "ui.bgcolor":
+		output.WriteString("Input line background color reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
 		output.WriteString("System prompt removed\r\n")
 	case "ai.model":
