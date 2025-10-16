@@ -228,6 +228,10 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		if fgcolor := repl.configOptions.Get("ui.fgcolor"); fgcolor != "" {
 			repl.readline.SetFgColor(fgcolor)
 		}
+
+		if repl.configOptions.GetBool("ui.bold") {
+			repl.readline.SetBold(true)
+		}
 	}
 
 	// Initialize baseurl/useragent options from environment defaults if not set
@@ -310,6 +314,12 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 	repl.configOptions.RegisterOptionListener("ui.fgcolor", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetFgColor(value)
+		}
+	})
+
+	repl.configOptions.RegisterOptionListener("ui.bold", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetBold(strings.ToLower(value) == "true")
 		}
 	})
 

@@ -110,6 +110,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("ui.stats", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
 	co.RegisterOption("ui.bgcolor", StringOption, "Background color for the input line (black, red, green, yellow, blue, dark-blue, magenta, cyan, white, grey, bright-red, bright-green, bright-yellow, bright-blue, bright-magenta, bright-cyan, bright-white)", "")
 	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (black, red, green, yellow, blue, magenta, cyan, white, grey, bright-red, bright-green, bright-yellow, bright-blue, bright-magenta, bright-cyan, bright-white)", "")
+	co.RegisterOption("ui.bold", BooleanOption, "Use bold text for the input line", "false")
 
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
@@ -615,6 +616,29 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		} else {
 			output.WriteString(fmt.Sprintf("Input line background color set to %s\r\n", value))
 		}
+	case "ui.fgcolor":
+		validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+		isValid := false
+		for _, c := range validFgColors {
+			if value == c {
+				isValid = true
+				break
+			}
+		}
+		if value != "" && !isValid {
+			return fmt.Sprintf("Error: invalid color '%s'. Valid colors: %s\r\n", value, strings.Join(validFgColors, ", ")), nil
+		}
+		if value == "" {
+			output.WriteString("Input line foreground color reset to default\r\n")
+		} else {
+			output.WriteString(fmt.Sprintf("Input line foreground color set to %s\r\n", value))
+		}
+	case "ui.bold":
+		boldStatus := "enabled"
+		if !r.configOptions.GetBool("ui.bold") {
+			boldStatus = "disabled"
+		}
+		output.WriteString(fmt.Sprintf("Bold text for input line %s\r\n", boldStatus))
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return output.String(), nil
@@ -757,6 +781,10 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Markdown rendering reverted to default\r\n")
 	case "ui.bgcolor":
 		output.WriteString("Input line background color reverted to default\r\n")
+	case "ui.fgcolor":
+		output.WriteString("Input line foreground color reverted to default\r\n")
+	case "ui.bold":
+		output.WriteString("Bold text for input line reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
 		output.WriteString("System prompt removed\r\n")
 	case "ai.model":

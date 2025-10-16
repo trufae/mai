@@ -46,6 +46,7 @@ type ReadLine struct {
 	originalBuffer []rune // Buffer content before entering search mode
 	bgColor        string // Background color for the input line
 	fgColor        string // Foreground color for the input line text
+	bold           bool   // Whether to use bold text for the input line
 }
 
 // NewReadLine creates a new ReadLine instance
@@ -94,6 +95,7 @@ func NewReadLine() (*ReadLine, error) {
 		originalBuffer:     nil,
 		bgColor:            "",
 		fgColor:            "",
+		bold:               false,
 	}
 	r.Restore()
 	return r, nil
@@ -145,6 +147,9 @@ var fgMap = map[string]string{
 // getColorCodes returns the ANSI color codes for foreground and background based on fgColor and bgColor
 func (r *ReadLine) getColorCodes() string {
 	var codes []string
+	if r.bold {
+		codes = append(codes, "1")
+	}
 	if r.fgColor != "" {
 		if fg, ok := fgMap[r.fgColor]; ok {
 			codes = append(codes, fg)
@@ -703,6 +708,11 @@ func (r *ReadLine) SetBgColor(color string) {
 // SetFgColor sets the foreground color for the input line text
 func (r *ReadLine) SetFgColor(color string) {
 	r.fgColor = color
+}
+
+// SetBold sets whether to use bold text for the input line
+func (r *ReadLine) SetBold(b bool) {
+	r.bold = b
 }
 
 // handleTabCompletion handles tab completion (kept for reference)
