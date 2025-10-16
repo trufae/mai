@@ -282,8 +282,8 @@ func (s *MCPService) isToolAvailable(toolName string) bool {
 
 // promptToolNotFoundDecision prompts the user when a tool doesn't exist
 func (s *MCPService) promptToolNotFoundDecision(toolName string) YoloDecision {
-	if s.nonInteractive {
-		// In non-interactive mode, just return tool not found
+	if s.nonInteractive || s.yoloMode {
+		// In non-interactive mode or yolo mode, just return tool not found
 		return YoloToolNotFound
 	}
 
