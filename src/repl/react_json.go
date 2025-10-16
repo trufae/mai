@@ -301,7 +301,16 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 	if responseJson != "" {
 		err2 := json.Unmarshal([]byte(responseJson), &response)
 		if err2 != nil {
-			return PlanResponse{}, err2
+			// Try to extract JSON from the response
+			extracted, _ := extractJSONBlock(responseJson)
+			if extracted != "" {
+				err3 := json.Unmarshal([]byte(extracted), &response)
+				if err3 != nil {
+					return PlanResponse{}, fmt.Errorf("failed to parse JSON: %v (original: %v)", err3, err2)
+				}
+			} else {
+				return PlanResponse{}, err2
+			}
 		}
 	}
 	return response, nil
