@@ -1564,7 +1564,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	// If reasoning is disabled, append /no_think to the last message sent to the LLM
-	if !r.configOptions.GetBool("llm.think") && r.configOptions.GetBool("llm.rawmode") {
+	if !r.configOptions.GetBool("llm.think") && r.configOptions.GetBool("llm.rawmode") && !r.configOptions.GetBool("ui.think") {
 		// Create a copy of the messages for the API call with /no_think appended
 		messagesCopy := make([]llm.Message, len(messages))
 		copy(messagesCopy, messages)
@@ -1691,9 +1691,9 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		} else {
 			// Normal output
 			if !streamEnabled {
-				// Optionally strip <think> regions from printed output in demo mode
+				// Handle <think> regions based on ui.think option
 				out := response
-				if r.configOptions.GetBool("ui.demo") {
+				if !r.configOptions.GetBool("ui.think") {
 					out = llm.FilterOutThinkForOutput(out)
 					out = strings.TrimLeft(out, " \t\r\n")
 				}

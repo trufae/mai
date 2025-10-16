@@ -248,7 +248,7 @@ func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firs
 			// Filter out <think> regions from printed output in demo mode or when
 			// dropping a leading think block for this request.
 			toPrint := raw
-			if p.config.DemoMode || thinkDropLeading {
+			if thinkHideEnabled || thinkDropLeading {
 				toPrint = FilterOutThinkForOutput(toPrint)
 			}
 			// Trim leading whitespace/newlines on first visible output in demo mode

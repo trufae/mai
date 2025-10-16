@@ -229,8 +229,8 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	if opts.Get("ui.markdown") != "" {
 		config.Markdown = opts.GetBool("ui.markdown")
 	}
-	if opts.Get("scr.tps") != "" {
-		config.ShowTPS = opts.GetBool("scr.tps")
+	if opts.Get("ui.stats") != "" {
+		config.ShowTPS = opts.GetBool("ui.stats")
 	}
 	if opts.Get("ai.deterministic") != "" {
 		config.Deterministic = opts.GetBool("ai.deterministic")
@@ -240,8 +240,8 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	}
 
 	// Whether to hide internal <think> regions from user-visible output
-	if opts.Get("llm.thinkhide") != "" {
-		config.ThinkHide = opts.GetBool("llm.thinkhide")
+	if opts.Get("ui.think") != "" {
+		config.ThinkHide = !opts.GetBool("ui.think")
 	}
 
 	// Debug flag: when enabled, show raw messages sent to providers

@@ -401,7 +401,7 @@ func (p *OpenAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			// or if this is the start of a response where a leading
 			// <think> block should be dropped.
 			toPrint := raw
-			if p.config.DemoMode || thinkDropLeading {
+			if thinkHideEnabled || thinkDropLeading {
 				toPrint = FilterOutThinkForOutput(toPrint)
 			}
 			// Trim leading whitespace/newlines on first visible output in demo mode

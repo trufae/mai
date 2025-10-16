@@ -34,7 +34,7 @@ var (
 
 	// thinkHideEnabled toggles whether <think> regions are filtered out
 	// from output. It is initialized from the LLM client config per request
-	// and can be toggled via the llm.thinkhide option.
+	// and can be toggled via the ui.think option.
 	thinkHideEnabled bool = true
 
 	// thinkDropLeading indicates that the next incoming stream/response
@@ -253,13 +253,10 @@ func (sd *StreamDemo) OnToken(raw string) {
 	if sd == nil {
 		return
 	}
-	// Handle first non-empty token: stop demo unless it begins with <think>
+	// Handle first non-empty token
 	if !sd.firstHandled {
 		if strings.TrimSpace(raw) != "" {
 			sd.firstHandled = true
-			if !strings.HasPrefix(strings.TrimSpace(raw), "<think>") && sd.stop != nil {
-				sd.stop()
-			}
 			// Call first token callback for timing
 			if sd.firstTokenCallback != nil {
 				sd.firstTokenCallback()

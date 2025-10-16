@@ -72,7 +72,7 @@ type Config struct {
 	MCPDebug   bool
 	MCPBaseURL string
 
-	// ThinkHide controls whether content inside <think>...</think> tags
+	// ThinkHide controls whether content inside <think>...</think> tags is hidden
 	// should be hidden from internal messages and the user terminal.
 	// When true, think regions are removed from displayed output. When
 	// false, think regions are left intact (except leading think blocks

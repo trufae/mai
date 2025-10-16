@@ -95,7 +95,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("llm.systempromptfile", StringOption, "Path to system prompt file (default: ~/.config/mai/systemprompt.md)", "")
 	co.RegisterOption("llm.temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
 	co.RegisterOption("llm.think", BooleanOption, "Enable AI reasoning", "false")
-	co.RegisterOption("llm.thinkhide", BooleanOption, "Hide <think> internal reasoning from internal messages and terminal", "false")
+	co.RegisterOption("ui.think", BooleanOption, "Show <think> internal reasoning in output", "true")
 
 	// REPL behavior options
 	co.RegisterOption("repl.debug", BooleanOption, "Show internal processing logs", "false")
@@ -107,7 +107,7 @@ func NewConfigOptions() *ConfigOptions {
 
 	// Screen rendering options
 	co.RegisterOption("ui.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
-	co.RegisterOption("ui.tps", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
+	co.RegisterOption("ui.stats", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
 
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
