@@ -9,7 +9,9 @@ struct MessageBubble: View {
         // Replace * at start of line with • for better bullets
         let regex = try? NSRegularExpression(pattern: "^\\* ", options: [.anchorsMatchLines])
         let range = NSRange(location: 0, length: message.text.utf16.count)
-        return regex?.stringByReplacingMatches(in: message.text, options: [], range: range, withTemplate: "• ") ?? message.text
+        return regex?.stringByReplacingMatches(
+            in: message.text, options: [], range: range, withTemplate: "• "
+        ) ?? message.text
     }
 
     var body: some View {
@@ -25,9 +27,16 @@ struct MessageBubble: View {
                     .padding(.vertical, 12)
                     .background(Color.clear)
                     .clipShape(ChatBubbleShape(isUser: message.isUser))
-                    .overlay(message.isUser ? AnyView(RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)) : AnyView(Color.clear))
-                    .shadow(color: message.isUser ? Color.black.opacity(0.15) : Color.clear, radius: message.isUser ? 3 : 0, x: 0, y: message.isUser ? 2 : 0)
+                    .overlay(
+                        message.isUser
+                            ? AnyView(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)) : AnyView(Color.clear)
+                    )
+                    .shadow(
+                        color: message.isUser ? Color.black.opacity(0.15) : Color.clear,
+                        radius: message.isUser ? 3 : 0, x: 0, y: message.isUser ? 2 : 0
+                    )
 
                 Text(message.timestamp, style: .time)
                     .font(.caption2)
@@ -40,8 +49,11 @@ struct MessageBubble: View {
             }
         }
         .padding(.horizontal)
-        .transition(.asymmetric(insertion: .scale(scale: 0.8).combined(with: .opacity),
-                                removal: .scale(scale: 0.8).combined(with: .opacity)))
+        .transition(
+            .asymmetric(
+                insertion: .scale(scale: 0.8).combined(with: .opacity),
+                removal: .scale(scale: 0.8).combined(with: .opacity)
+            ))
     }
 
     private var bubbleColor: Color {
@@ -56,7 +68,7 @@ struct MessageBubble: View {
 
     private var textColor: Color {
         let color: Color
-            color = .primary
+        color = .primary
         return color
     }
 }

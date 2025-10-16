@@ -15,8 +15,9 @@ clean:
 test:
 	swift test
 
-format:
-	swift format --in-place --recursive .
+fmt format:
+	#swift format --in-place --recursive .
+	swiftformat Sources/MaiUI/*
 
 .PHONY: help
 help:

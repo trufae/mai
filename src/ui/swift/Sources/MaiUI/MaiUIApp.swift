@@ -6,8 +6,9 @@
 //
 
 import SwiftUI
+
 #if os(macOS)
-import AppKit
+    import AppKit
 #endif
 
 @main
@@ -17,15 +18,15 @@ struct MaiUIApp: App {
     init() {
         print("MaiUIApp init")
         #if os(macOS)
-        NSApplication.shared.setActivationPolicy(.regular)
-        DispatchQueue.main.async {
-            print("MaiUIApp activating application")
-            NSApplication.shared.activate(ignoringOtherApps: true)
-            NSApplication.shared.windows.forEach { window in
-                print("MaiUIApp ordering front existing window: \(window.title)")
-                window.makeKeyAndOrderFront(nil)
+            NSApplication.shared.setActivationPolicy(.regular)
+            DispatchQueue.main.async {
+                print("MaiUIApp activating application")
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                for window in NSApplication.shared.windows {
+                    print("MaiUIApp ordering front existing window: \(window.title)")
+                    window.makeKeyAndOrderFront(nil)
+                }
             }
-        }
         #endif
     }
 
@@ -36,15 +37,15 @@ struct MaiUIApp: App {
                 .onAppear {
                     print("ContentView appeared from MaiUIApp")
                     #if os(macOS)
-                    DispatchQueue.main.async {
-                        if let window = NSApplication.shared.windows.first {
-                            print("ContentView ensuring window is key and visible")
-                            window.makeKeyAndOrderFront(nil)
-                            NSApplication.shared.activate(ignoringOtherApps: true)
-                        } else {
-                            print("ContentView did not find window to activate")
+                        DispatchQueue.main.async {
+                            if let window = NSApplication.shared.windows.first {
+                                print("ContentView ensuring window is key and visible")
+                                window.makeKeyAndOrderFront(nil)
+                                NSApplication.shared.activate(ignoringOtherApps: true)
+                            } else {
+                                print("ContentView did not find window to activate")
+                            }
                         }
-                    }
                     #endif
                 }
                 .preferredColorScheme(colorScheme)

@@ -31,7 +31,9 @@ struct ContentView: View {
         } else {
             color = Color.white
         }
-        print("ContentView buttonColor computed with isWaiting: \(isWaitingForResponse), trimmedEmpty: \(trimmed.isEmpty), color: \(color)")
+        print(
+            "ContentView buttonColor computed with isWaiting: \(isWaitingForResponse), trimmedEmpty: \(trimmed.isEmpty), color: \(color)"
+        )
         return color
     }
 
@@ -44,7 +46,9 @@ struct ContentView: View {
     }
 
     var body: some View {
-        print("ContentView body recomputed. messages: \(messages.count), waiting: \(isWaitingForResponse), selectedTab: \(selectedTab)")
+        print(
+            "ContentView body recomputed. messages: \(messages.count), waiting: \(isWaitingForResponse), selectedTab: \(selectedTab)"
+        )
         return NavigationSplitView {
             // Sidebar
             List(selection: $selectedTab) {
@@ -67,9 +71,9 @@ struct ContentView: View {
             if selectedTab == "Chat" {
                 VStack(spacing: 0) {
                     // Header
-                     HStack {
-                         Spacer()
-                     }
+                    HStack {
+                        Spacer()
+                    }
 
                     // Messages
                     ScrollViewReader { scrollView in
@@ -97,7 +101,6 @@ struct ContentView: View {
 
                     // Input area
                     VStack(spacing: 0) {
-
                         HStack(spacing: 12) {
                             ZStack(alignment: .leading) {
                                 if inputText.isEmpty {
@@ -139,7 +142,9 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isWaitingForResponse)
+                            .disabled(
+                                inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    && !isWaitingForResponse)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 10)
@@ -199,7 +204,8 @@ struct ContentView: View {
                 await MainActor.run {
                     print("ContentView.setupMCP Task failed with error: \(error)")
                     mcpConnected = false
-                    errorMessage = "Failed to connect to MAI: \(error.localizedDescription)\n\nPlease make sure 'mai' is installed and available in your PATH."
+                    errorMessage =
+                        "Failed to connect to MAI: \(error.localizedDescription)\n\nPlease make sure 'mai' is installed and available in your PATH."
                     showErrorAlert = true
                 }
             }
@@ -264,7 +270,9 @@ struct ContentView: View {
                     return
                 }
                 print("ContentView.sendMessage calling tool on MCP")
-                let response = try await mcpClient.callTool("send_message", arguments: ["message": text, "stream": false])
+                let response = try await mcpClient.callTool(
+                    "send_message", arguments: ["message": text, "stream": false]
+                )
                 await MainActor.run {
                     print("ContentView.sendMessage received response: \(response)")
                     addMessage(response, isUser: false)

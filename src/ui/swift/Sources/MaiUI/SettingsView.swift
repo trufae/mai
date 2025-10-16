@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("aiModel") private var aiModel = "gpt-4"
     @AppStorage("theme") private var theme = "system"
     @AppStorage("aiBaseURL") private var aiBaseURL = ""
+    @State private var aiDeterministic = false
 
     @State private var models: [ModelInfo] = []
 
@@ -41,17 +42,23 @@ struct SettingsView: View {
                 }
 
                 HStack {
-                    Text("Base URL")
-                    TextField("(f.ex: https://127.0.0.1:11434/v1)", text: $aiBaseURL)
+                    Text("BaseURL")
+                    TextField("", text: $aiBaseURL)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit {
-                            print("SettingsView: Base URL submitted: \\(aiBaseURL)")
+                            print("SettingsView: Base URL submitted: \(aiBaseURL)")
                             Task { await setBaseURL(aiBaseURL) }
                         }
                 }
                 .onChange(of: aiBaseURL) { newURL in
-                    print("SettingsView: Base URL changed to \\(newURL)")
+                    print("SettingsView: Base URL changed to \(newURL)")
                 }
+
+                Toggle("Deterministic", isOn: $aiDeterministic)
+                    .onChange(of: aiDeterministic) { newValue in
+                        print("SettingsView: Deterministic changed to \(newValue)")
+                        Task { await setDeterministic(newValue) }
+                    }
             }
 
             Section("Appearance") {
@@ -155,7 +162,8 @@ struct SettingsView: View {
             print("SettingsView.setProviderAndLoadModels: list_config succeeded")
             if let data = resp.data(using: .utf8),
                let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let model = dict["ai.model"] as? String {
+               let model = dict["ai.model"] as? String
+            {
                 await MainActor.run {
                     print("SettingsView.setProviderAndLoadModels: setting aiModel to \(model)")
                     aiModel = model
@@ -201,6 +209,21 @@ struct SettingsView: View {
         }
     }
 
+    private func setDeterministic(_ value: Bool) async {
+        guard let client = mcpClient else {
+            print("SettingsView.setDeterministic: no MCP client")
+            return
+        }
+        do {
+            _ = try await client.callTool(
+                "set_config", arguments: ["key": "ai.deterministic", "value": value]
+            )
+            print("SettingsView.setDeterministic applied: \(value)")
+        } catch {
+            print("SettingsView.setDeterministic error: \(error)")
+        }
+    }
+
     private func loadProviders() async {
         guard let client = mcpClient else {
             print("SettingsView.loadProviders: no MCP client")
@@ -233,14 +256,17 @@ struct SettingsView: View {
             let resp = try await client.callTool("list_config", arguments: [:])
             print("SettingsView.list_config raw: \(resp.prefix(200))")
             if let data = resp.data(using: .utf8),
-               let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+               let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            {
                 let provider = (dict["ai.provider"] as? String) ?? aiProvider
                 let model = (dict["ai.model"] as? String) ?? aiModel
                 let baseurl = (dict["ai.baseurl"] as? String) ?? aiBaseURL
+                let deterministic = (dict["ai.deterministic"] as? Bool) ?? aiDeterministic
                 await MainActor.run {
                     aiProvider = provider
                     aiModel = model
                     aiBaseURL = baseurl
+                    aiDeterministic = deterministic
                 }
             }
             // Ensure models list reflects current provider

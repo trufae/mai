@@ -278,13 +278,13 @@ struct MarkdownText: View {
         // Unordered list (- or *)
         if trimmed.hasPrefix("- ") {
             return TextSegment(type: .listItem, content: String(trimmed.dropFirst(2)))
-        } else if trimmed.hasPrefix("* ") && !trimmed.hasPrefix("**") {
+        } else if trimmed.hasPrefix("* "), !trimmed.hasPrefix("**") {
             return TextSegment(type: .listItem, content: String(trimmed.dropFirst(2)))
         }
 
         // Numbered list
         if let range = trimmed.range(of: "^\\d+\\. ", options: .regularExpression) {
-            let numberString = String(trimmed[range.lowerBound..<range.upperBound].dropLast(2))
+            let numberString = String(trimmed[range.lowerBound ..< range.upperBound].dropLast(2))
             if let number = Int(numberString) {
                 currentListNumber = number
                 let content = String(trimmed[range.upperBound...])
@@ -313,7 +313,7 @@ struct MarkdownText: View {
         var codeLines: [String] = []
         var endIndex = index + 1
 
-        for i in (index + 1)..<lines.count {
+        for i in (index + 1) ..< lines.count {
             let currentLine = String(lines[i])
             if currentLine.trimmingCharacters(in: .whitespaces) == "```" {
                 endIndex = i + 1 // Include the closing line
@@ -325,7 +325,9 @@ struct MarkdownText: View {
         if endIndex > index + 1 {
             let codeContent = codeLines.joined(separator: "\n")
             let linesConsumed = endIndex - index
-            return (TextSegment(type: .codeBlock, content: codeContent, language: language), linesConsumed)
+            return (
+                TextSegment(type: .codeBlock, content: codeContent, language: language), linesConsumed
+            )
         }
 
         return nil
@@ -340,11 +342,14 @@ struct MarkdownText: View {
 
             // Check for links first: [text](url)
             if let linkStart = remaining.range(of: "[") {
-                let linkStartIndex = remaining.distance(from: remaining.startIndex, to: linkStart.lowerBound)
+                let linkStartIndex = remaining.distance(
+                    from: remaining.startIndex, to: linkStart.lowerBound
+                )
                 let afterBracket = String(remaining[linkStart.upperBound...])
 
                 if let bracketEnd = afterBracket.range(of: "]("),
-                   let parenEnd = afterBracket[bracketEnd.upperBound...].range(of: ")") {
+                   let parenEnd = afterBracket[bracketEnd.upperBound...].range(of: ")")
+                {
                     // Found a complete link
                     if linkStartIndex > 0 {
                         let beforeText = String(remaining.prefix(linkStartIndex))
@@ -353,7 +358,7 @@ struct MarkdownText: View {
 
                     let linkText = String(afterBracket[..<bracketEnd.lowerBound])
                     let urlStart = afterBracket.index(bracketEnd.lowerBound, offsetBy: 1)
-                    let url = String(afterBracket[urlStart..<parenEnd.lowerBound])
+                    let url = String(afterBracket[urlStart ..< parenEnd.lowerBound])
 
                     segments.append(TextSegment(type: .link, content: linkText, url: url))
                     remaining = String(afterBracket[parenEnd.upperBound...])
@@ -365,7 +370,9 @@ struct MarkdownText: View {
             // Check for bold italic: ***text*** or ___text___
             if let boldItalicStart = remaining.range(of: "***") ?? remaining.range(of: "___") {
                 let marker = String(remaining[boldItalicStart])
-                let startIndex = remaining.distance(from: remaining.startIndex, to: boldItalicStart.lowerBound)
+                let startIndex = remaining.distance(
+                    from: remaining.startIndex, to: boldItalicStart.lowerBound
+                )
                 let afterMarker = String(remaining[boldItalicStart.upperBound...])
 
                 if let endRange = afterMarker.range(of: marker) {
@@ -424,7 +431,9 @@ struct MarkdownText: View {
 
             // Check for inline code: `code` (last, so it doesn't interfere with other formatting)
             if let codeStart = remaining.range(of: "`") {
-                let codeStartIndex = remaining.distance(from: remaining.startIndex, to: codeStart.lowerBound)
+                let codeStartIndex = remaining.distance(
+                    from: remaining.startIndex, to: codeStart.lowerBound
+                )
                 let afterBacktick = String(remaining[codeStart.upperBound...])
 
                 if let codeEnd = afterBacktick.range(of: "`") {
@@ -461,7 +470,10 @@ struct TextSegment: Identifiable {
     let url: String?
     let number: Int?
 
-    init(type: SegmentType, content: String, language: String? = nil, url: String? = nil, number: Int? = nil) {
+    init(
+        type: SegmentType, content: String, language: String? = nil, url: String? = nil,
+        number: Int? = nil
+    ) {
         self.type = type
         self.content = content
         self.language = language

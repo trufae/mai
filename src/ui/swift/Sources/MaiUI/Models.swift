@@ -21,14 +21,14 @@ struct ProviderInfo: Codable, Identifiable {
         let container = try decoder.singleValueContainer()
         if let name = try? container.decode(String.self) {
             self.name = name
-            self.available = true
-            self.current = false
+            available = true
+            current = false
             return
         }
         let keyed = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try keyed.decode(String.self, forKey: .name)
-        self.available = (try? keyed.decode(Bool.self, forKey: .available)) ?? true
-        self.current = (try? keyed.decode(Bool.self, forKey: .current)) ?? false
+        name = try keyed.decode(String.self, forKey: .name)
+        available = (try? keyed.decode(Bool.self, forKey: .available)) ?? true
+        current = (try? keyed.decode(Bool.self, forKey: .current)) ?? false
     }
 }
 
@@ -59,13 +59,13 @@ struct ModelInfo: Codable, Identifiable {
         let container = try decoder.singleValueContainer()
         if let id = try? container.decode(String.self) {
             self.id = id
-            self.description = ""
-            self.current = false
+            description = ""
+            current = false
             return
         }
         let keyed = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try keyed.decode(String.self, forKey: .id)
-        self.description = (try? keyed.decode(String.self, forKey: .description)) ?? ""
-        self.current = (try? keyed.decode(Bool.self, forKey: .current)) ?? false
+        id = try keyed.decode(String.self, forKey: .id)
+        description = (try? keyed.decode(String.self, forKey: .description)) ?? ""
+        current = (try? keyed.decode(Bool.self, forKey: .current)) ?? false
     }
 }

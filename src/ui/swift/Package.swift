@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "MaiUI",
-    platforms: [
-        .macOS(.v13)
-    ],
-    dependencies: [],
-    targets: [
-        .executableTarget(
-            name: "MaiUI",
-            dependencies: []
-        )
-    ]
+  name: "MaiUI",
+  platforms: [
+    .macOS(.v13)
+  ],
+  dependencies: [],
+  targets: [
+    .executableTarget(
+      name: "MaiUI",
+      dependencies: []
+    )
+  ]
 )

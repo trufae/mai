@@ -9,7 +9,7 @@ struct TypingIndicator: View {
         HStack(alignment: .bottom, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
-                    ForEach(0..<3) { index in
+                    ForEach(0 ..< 3) { index in
                         Circle()
                             .fill(Color.gray.opacity(0.6))
                             .frame(width: 6, height: 6)

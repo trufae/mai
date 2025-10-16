@@ -18,7 +18,7 @@ struct JSONRPCRequest {
         var dict: [String: Any] = [
             "jsonrpc": jsonrpc,
             "id": id,
-            "method": method
+            "method": method,
         ]
         if let params = params {
             dict["params"] = params
@@ -39,7 +39,7 @@ struct JSONRPCNotification {
         print("JSONRPCNotification.toJSONData invoked for method: \(method)")
         var dict: [String: Any] = [
             "jsonrpc": jsonrpc,
-            "method": method
+            "method": method,
         ]
         if let params = params {
             dict["params"] = params
@@ -62,7 +62,6 @@ struct RPCError: Codable {
     let code: Int
     let message: String
 }
-
 
 struct ToolCallResult {
     let content: Any?
@@ -103,13 +102,16 @@ actor MCPClient {
 
             if process.terminationStatus == 0 {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !path.isEmpty {
+                if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(
+                    in: .whitespacesAndNewlines),
+                    !path.isEmpty
+                {
                     print("MCPClient.findMaiExecutable found path via which: \(path)")
                     return path
                 }
             } else {
-                print("MCPClient.findMaiExecutable which terminated with status: \(process.terminationStatus)")
+                print(
+                    "MCPClient.findMaiExecutable which terminated with status: \(process.terminationStatus)")
             }
         } catch {
             print("MCPClient.findMaiExecutable which lookup failed: \(error)")
@@ -119,7 +121,7 @@ actor MCPClient {
         let commonPaths = [
             "/usr/local/bin/mai",
             "/opt/homebrew/bin/mai",
-            "/usr/bin/mai"
+            "/usr/bin/mai",
         ]
 
         for path in commonPaths {
@@ -138,21 +140,26 @@ actor MCPClient {
         print("MCPClient.initialize invoked")
         try await spawnProcess()
 
-        let request = JSONRPCRequest(id: requestID, method: "initialize", params: [
-            "protocolVersion": "2024-11-05",
-            "capabilities": [:],
-            "clientInfo": [
-                "name": "MaiUI",
-                "version": "1.0.0"
+        let request = JSONRPCRequest(
+            id: requestID, method: "initialize",
+            params: [
+                "protocolVersion": "2024-11-05",
+                "capabilities": [:],
+                "clientInfo": [
+                    "name": "MaiUI",
+                    "version": "1.0.0",
+                ],
             ]
-        ])
+        )
         requestID += 1
         print("MCPClient.initialize sending initialize request with id: \(request.id)")
 
         let response = try await sendRequest(request)
         if let error = response.error {
             print("MCPClient.initialize received error response: \(error)")
-            throw NSError(domain: "MCP", code: error.code, userInfo: [NSLocalizedDescriptionKey: error.message])
+            throw NSError(
+                domain: "MCP", code: error.code, userInfo: [NSLocalizedDescriptionKey: error.message]
+            )
         }
         print("MCPClient.initialize received success response")
 
@@ -166,7 +173,7 @@ actor MCPClient {
         print("MCPClient.callTool invoked for tool: \(name) with arguments: \(arguments)")
         let params: [String: Any] = [
             "name": name,
-            "arguments": arguments
+            "arguments": arguments,
         ]
 
         let request = JSONRPCRequest(id: requestID, method: "tools/call", params: params)
@@ -176,22 +183,29 @@ actor MCPClient {
         let response = try await sendRequest(request)
         if let error = response.error {
             print("MCPClient.callTool received error: \(error)")
-            throw NSError(domain: "MCP", code: error.code, userInfo: [NSLocalizedDescriptionKey: error.message])
+            throw NSError(
+                domain: "MCP", code: error.code, userInfo: [NSLocalizedDescriptionKey: error.message]
+            )
         }
 
         guard let result = response.result else {
             print("MCPClient.callTool missing result in response")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No result in response"])
+            throw NSError(
+                domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No result in response"]
+            )
         }
 
         if let isError = result["isError"] as? Bool, isError {
             print("MCPClient.callTool result flagged as error")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Tool call failed"])
+            throw NSError(
+                domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Tool call failed"]
+            )
         }
 
         if let content = result["content"] as? [[String: Any]],
            let firstContent = content.first,
-           let text = firstContent["text"] as? String {
+           let text = firstContent["text"] as? String
+        {
             print("MCPClient.callTool returning text content")
             return text
         }
@@ -211,7 +225,13 @@ actor MCPClient {
         // Check if mai exists before trying to run it
         if !FileManager.default.fileExists(atPath: maiPath) {
             print("MCPClient.spawnProcess could not find MAI executable at path")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "MAI executable not found at \(maiPath). Please make sure MAI is installed and in your PATH."])
+            throw NSError(
+                domain: "MCP", code: -1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "MAI executable not found at \(maiPath). Please make sure MAI is installed and in your PATH.",
+                ]
+            )
         }
 
         process?.executableURL = URL(fileURLWithPath: maiPath)
@@ -236,7 +256,12 @@ actor MCPClient {
         if let process = process, process.isRunning == false {
             let terminationStatus = process.terminationStatus
             print("MCPClient.spawnProcess detected early termination with status: \(terminationStatus)")
-            throw NSError(domain: "MCP", code: Int(terminationStatus), userInfo: [NSLocalizedDescriptionKey: "MAI process exited early with status \(terminationStatus)"])
+            throw NSError(
+                domain: "MCP", code: Int(terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: "MAI process exited early with status \(terminationStatus)",
+                ]
+            )
         }
         print("MCPClient.spawnProcess confirmed process is running")
     }
@@ -260,14 +285,16 @@ actor MCPClient {
 
         guard let messageData = message.data(using: .utf8) else {
             print("MCPClient.sendRequest failed to encode message as data")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode message"])
+            throw NSError(
+                domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode message"]
+            )
         }
 
         try stdin.fileHandleForWriting.write(contentsOf: messageData)
         print("MCPClient.sendRequest wrote message bytes: \(messageData.count)")
 
         print("MCPClient.sendRequest awaiting response")
-        return try await self.readResponse()
+        return try await readResponse()
     }
 
     private func sendNotification(_ notification: JSONRPCNotification) throws {
@@ -289,26 +316,31 @@ actor MCPClient {
 
         guard let messageData = message.data(using: .utf8) else {
             print("MCPClient.sendNotification failed to encode message as data")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode notification"])
+            throw NSError(
+                domain: "MCP", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to encode notification"]
+            )
         }
 
         try stdin.fileHandleForWriting.write(contentsOf: messageData)
         print("MCPClient.sendNotification wrote message bytes: \(messageData.count)")
     }
 
-
-
     private func readResponse() async throws -> JSONRPCResponse {
         print("MCPClient.readResponse invoked")
         guard let stdout = stdout else {
             print("MCPClient.readResponse missing stdout pipe")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No stdout pipe"])
+            throw NSError(
+                domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No stdout pipe"]
+            )
         }
 
         // Check if process is still running
         if let process = process, !process.isRunning {
             print("MCPClient.readResponse detected process exit")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "MAI process has exited"])
+            throw NSError(
+                domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "MAI process has exited"]
+            )
         }
 
         let fileHandle = stdout.fileHandleForReading
@@ -325,7 +357,9 @@ actor MCPClient {
             print("MCPClient.readResponse encountered empty line number: \(emptyLineCount)")
             guard emptyLineCount <= 3 else {
                 print("MCPClient.readResponse exceeded empty line threshold")
-                throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No response from MAI"])
+                throw NSError(
+                    domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No response from MAI"]
+                )
             }
             firstLine = try fileHandle.readLine()
         }
@@ -344,7 +378,8 @@ actor MCPClient {
                     let parts = headerLine.split(separator: ":", maxSplits: 1)
                     if parts.count == 2 {
                         contentLength = Int(parts[1].trimmingCharacters(in: .whitespaces))
-                        print("MCPClient.readResponse parsed Content-Length: \(String(describing: contentLength))")
+                        print(
+                            "MCPClient.readResponse parsed Content-Length: \(String(describing: contentLength))")
                     }
                 }
 
@@ -358,25 +393,31 @@ actor MCPClient {
             }
 
             if let length = contentLength {
-                self.useHeaders = true
+                useHeaders = true
                 print("MCPClient.readResponse reading body with length: \(length)")
                 var body = Data()
                 var remaining = length
                 while remaining > 0 {
                     guard let chunk = try fileHandle.read(upToCount: remaining), !chunk.isEmpty else {
                         print("MCPClient.readResponse received incomplete chunk")
-                        throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Incomplete response from MAI"])
+                        throw NSError(
+                            domain: "MCP", code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Incomplete response from MAI"]
+                        )
                     }
                     body.append(chunk)
                     remaining -= chunk.count
-                    print("MCPClient.readResponse read chunk of size: \(chunk.count), remaining: \(remaining)")
+                    print(
+                        "MCPClient.readResponse read chunk of size: \(chunk.count), remaining: \(remaining)")
                 }
                 data = body
             } else {
                 print("MCPClient.readResponse reading fallback body data")
                 guard let bodyData = try fileHandle.read(upToCount: 1024), !bodyData.isEmpty else {
                     print("MCPClient.readResponse fallback body empty")
-                    throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No response from MAI"])
+                    throw NSError(
+                        domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "No response from MAI"]
+                    )
                 }
                 data = bodyData
             }
@@ -385,7 +426,9 @@ actor MCPClient {
         // Parse with JSONSerialization
         guard let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             print("MCPClient.readResponse failed to decode JSON")
-            throw NSError(domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"])
+            throw NSError(
+                domain: "MCP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON response"]
+            )
         }
 
         let id = jsonObject["id"] as? Int
@@ -422,7 +465,8 @@ extension FileHandle {
             }
             data.append(chunk)
         }
-        let line = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let line =
+            String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         print("FileHandle.readLine returning line: \(line)")
         return line
     }
