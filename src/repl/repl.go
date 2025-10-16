@@ -690,6 +690,11 @@ func (r *REPL) readLine() (string, error) {
 			if completedContent != currentContent {
 				r.readline.SetContent(completedContent)
 			}
+
+			// If ui.bgline is set, move cursor up 1 line to avoid double printing
+			if r.configOptions.Get("ui.bgline") != "" {
+				fmt.Print("\x1b[1A")
+			}
 			continue
 		}
 		// Return the input
