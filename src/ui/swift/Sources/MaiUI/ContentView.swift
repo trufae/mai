@@ -193,10 +193,9 @@ struct ContentView: View {
                 ConsoleView()
             } else if selectedTab == "Settings" {
                 SettingsView(mcpClient: mcpClient, providers: $providers)
-            } else if selectedTab == "Tools" {
-                Text("Tools")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if selectedTab == "Prompts" {
+             } else if selectedTab == "Tools" {
+                 ToolsView()
+             } else if selectedTab == "Prompts" {
                 Text("Prompts")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if selectedTab == "Sessions" {
