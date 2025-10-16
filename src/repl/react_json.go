@@ -78,7 +78,7 @@ This a multi-step planning and execution agent designed to **efficiently** solve
 `
 
 const toolsPromptSuffix = `
-### Output Rules
+### Output Format
 
 Based on these instructions, determine the "action" for the current step inside the plan.
 
@@ -360,8 +360,15 @@ func FillLineWithTriangles() string {
 	return result
 }
 
-func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
+func (r *REPL)getReasoningLevel() string {
+	reasonLevel := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.reason")))
+	if reasonLevel != "low" && reasonLevel != "medium" && reasonLevel != "high" {
+		return  "low"
+	}
+	return reasonLevel
+}
 
+func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	var planTemplate = ""
 	display := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.display")))
 	if display == "" {
@@ -410,17 +417,15 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		fmt.Println("No tools available, doing nothing")
 		return input, nil
 	}
+	// Build the dynamic tools prompt with optional plan template
+	// AITODO: move this logic into a separate local function
+	reasonLevel := r.getReasoningLevel()
 	var context = ""
 	var progress = ""
 	var stepCount = 0
 	var currentPlan []string
 	for {
 		stepCount++
-		// Build the dynamic tools prompt with optional plan template
-		reasonLevel := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.reason")))
-		if reasonLevel != "low" && reasonLevel != "medium" && reasonLevel != "high" {
-			reasonLevel = "low"
-		}
 		customPrompt := strings.TrimSpace(r.configOptions.Get("mcp.prompt"))
 		dynamicToolsPrompt := r.toolsPromptPrefix() + planTemplate
 		if len(currentPlan) > 0 {
