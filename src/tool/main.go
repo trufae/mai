@@ -287,15 +287,15 @@ func printUsage() {
 	fmt.Println("  prompts [list]                 List all available prompts")
 	fmt.Println("  prompts get <server>/<name>    Render a prompt (accepts params)")
 	/*
-	fmt.Println("\nExamples:")
-	fmt.Println("  mai-tool list")
-	fmt.Println("  mai-tool -j list")
-	fmt.Println("  mai-tool call server1 mytool param1=value1 param2=value2")
-	fmt.Println("  mai-tool call server1/mytool param1=value1 param2=value2")
-	fmt.Println("  mai-tool call server1 mytool \"text=value with spaces\"")
-	fmt.Println("  mai-tool prompts list")
-	fmt.Println("  mai-tool prompts get server1/welcome topic=onboarding")
-	fmt.Println("  MAI_TOOL_BASEURL=http://remote:9000 mai-tool list")
+		fmt.Println("\nExamples:")
+		fmt.Println("  mai-tool list")
+		fmt.Println("  mai-tool -j list")
+		fmt.Println("  mai-tool call server1 mytool param1=value1 param2=value2")
+		fmt.Println("  mai-tool call server1/mytool param1=value1 param2=value2")
+		fmt.Println("  mai-tool call server1 mytool \"text=value with spaces\"")
+		fmt.Println("  mai-tool prompts list")
+		fmt.Println("  mai-tool prompts get server1/welcome topic=onboarding")
+		fmt.Println("  MAI_TOOL_BASEURL=http://remote:9000 mai-tool list")
 	*/
 }
 
@@ -393,6 +393,10 @@ func listPrompts(config Config) {
 		} else {
 			fmt.Println(string(body))
 		}
+	} else if config.XmlOutput {
+		// Convert JSON to XML
+		output := jsonToXML(string(body))
+		fmt.Println(output)
 	} else {
 		output := string(body)
 		if config.MarkdownCode {
@@ -462,6 +466,11 @@ func getPrompt(config Config, serverName, promptName string, params map[string]i
 			out, _ := json.MarshalIndent(map[string]string{"text": string(body)}, "", "  ")
 			fmt.Println(string(out))
 		}
+		return
+	} else if config.XmlOutput {
+		// Convert JSON to XML
+		output := jsonToXML(string(body))
+		fmt.Println(output)
 		return
 	}
 
@@ -602,6 +611,28 @@ func listServers(config Config) {
 
 		jsonOutput, _ := json.MarshalIndent(servers, "", "  ")
 		fmt.Println(string(jsonOutput))
+	} else if config.XmlOutput {
+		lines := strings.Split(string(body), "\n")
+		servers := make(map[string]map[string]string)
+		var currentServer string
+
+		for _, line := range lines {
+			if strings.HasPrefix(line, "## Server: ") {
+				currentServer = strings.TrimPrefix(line, "## Server: ")
+				servers[currentServer] = make(map[string]string)
+			} else if currentServer != "" && strings.Contains(line, ": ") {
+				parts := strings.SplitN(line, ": ", 2)
+				if len(parts) == 2 {
+					key := strings.ToLower(parts[0])
+					value := strings.Trim(parts[1], "`")
+					servers[currentServer][key] = value
+				}
+			}
+		}
+
+		jsonStr, _ := json.Marshal(servers)
+		output := jsonToXML(string(jsonStr))
+		fmt.Println(output)
 	} else {
 		// Return as markdown
 		output := string(body)
@@ -809,6 +840,10 @@ func callTool(config Config, serverName, toolName string, params map[string]inte
 				fmt.Println(string(jsonOutput))
 			}
 		*/
+	} else if config.XmlOutput {
+		// Convert JSON to XML
+		output := jsonToXML(string(body))
+		fmt.Println(output)
 	} else {
 		// Output as plain text or markdown
 		output := string(body)

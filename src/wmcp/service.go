@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-
 func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool, nonInteractive bool) *MCPService {
 	return &MCPService{
 		servers:              make(map[string]*MCPServer),
