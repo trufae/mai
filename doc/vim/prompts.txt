@@ -1,6 +1,6 @@
-translate to catalan
-resstructure this text into a TODO list with markdown checkboxes
+translate to catalan, output ONLY the translated text
+re-structure this text into a TODO list with markdown checkboxes
 sumarize in a sentence
 improve wording
-fix typos
+fix typos, output only the corrected text
 add an emoji at the begining of each sentence
