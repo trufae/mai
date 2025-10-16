@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -594,12 +595,33 @@ func StartMCPServer(repl *REPL) {
 			}
 		}
 
-		// Execute the command
-		err := repl.handleCommand("/"+command, "", "")
+		// Capture command output by redirecting stdout
+		oldStdout := os.Stdout
+		r, w, err := os.Pipe()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create pipe: %v", err)
 		}
-		return "Command executed successfully", nil
+		os.Stdout = w
+
+		// Execute the command
+		cmdErr := repl.handleCommand("/"+command, "", "")
+
+		// Restore stdout
+		w.Close()
+		os.Stdout = oldStdout
+
+		// Read the captured output
+		output, readErr := io.ReadAll(r)
+		r.Close()
+
+		if cmdErr != nil {
+			return nil, cmdErr
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read command output: %v", readErr)
+		}
+
+		return string(output), nil
 	})
 
 	server.RegisterTool("load_prompt", func(args map[string]interface{}) (interface{}, error) {

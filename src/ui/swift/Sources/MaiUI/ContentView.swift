@@ -54,6 +54,8 @@ struct ContentView: View {
             List(selection: $selectedTab) {
                 Label("Chat", systemImage: "message")
                     .tag("Chat")
+                Label("Console", systemImage: "terminal")
+                    .tag("Console")
                 Label("Settings", systemImage: "gear")
                     .tag("Settings")
                 Label("Tools", systemImage: "wrench")
@@ -166,6 +168,8 @@ struct ContentView: View {
                 } message: {
                     Text(errorMessage)
                 }
+            } else if selectedTab == "Console" {
+                ConsoleView()
             } else if selectedTab == "Settings" {
                 SettingsView(mcpClient: mcpClient, providers: $providers)
             } else if selectedTab == "Tools" {
