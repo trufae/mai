@@ -333,11 +333,11 @@ func parseToolRequirements(toolList string) map[string][]string {
 // parseMarkdownResponse parses the response into PlanResponse
 func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 	response := PlanResponse{
-		Plan:      []string{},
-		PlanIndex: 0,
-		ToolArgs:  map[string]interface{}{},
+		Plan:             []string{},
+		CurrentPlanIndex: 0,
+		ToolParams:       map[string]interface{}{},
 	}
-	toolArgs := response.ToolArgs.(map[string]interface{})
+	toolArgs := response.ToolParams.(map[string]interface{})
 
 	lines := strings.Split(text, "\n")
 	var answerBuilder strings.Builder
@@ -399,7 +399,7 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 			if len(fields) > 0 {
 				if strings.EqualFold(fields[0], "TOOL") {
 					if len(fields) > 1 {
-						response.SelectedTool = fields[1]
+						response.Tool = fields[1]
 					}
 					if len(fields) > 2 {
 						for _, arg := range fields[2:] {
@@ -416,7 +416,7 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 					continue
 				}
 				// Allow syntax like ACTION: mai-mcp/tool arg=value
-				response.SelectedTool = fields[0]
+				response.Tool = fields[0]
 				for _, arg := range fields[1:] {
 					if strings.Contains(arg, "=") {
 						kv := strings.SplitN(arg, "=", 2)
@@ -438,7 +438,7 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 			}
 			fields := strings.Fields(toolLine)
 			if len(fields) > 0 {
-				response.SelectedTool = fields[0]
+				response.Tool = fields[0]
 				for _, arg := range fields[1:] {
 					if strings.Contains(arg, "=") {
 						kv := strings.SplitN(arg, "=", 2)
@@ -471,7 +471,7 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 	}
 
 	// Mark tool requirement if a tool was selected
-	if response.SelectedTool != "" {
+	if response.Tool != "" {
 		response.ToolRequired = true
 	}
 
@@ -509,8 +509,8 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		return PlanResponse{}, "", err
 	}
 	if r.configOptions.GetBool("repl.debug") {
-		debugInfo := fmt.Sprintf("Action: %s\nSelectedTool: %s\nToolArgs: %v\nPlan: %v\nPlanIndex: %d\nProgress: %s\nReasoning: %s\nNextStep: %s\nToolRequired: %t",
-			response.Action, response.SelectedTool, response.ToolArgs, response.Plan, response.PlanIndex, response.Progress, response.Reasoning, response.NextStep, response.ToolRequired)
+		debugInfo := fmt.Sprintf("Action: %s\nTool: %s\nToolParams: %v\nPlan: %v\nCurrentPlanIndex: %d\nProgress: %s\nReasoning: %s\nNextStep: %s\nToolRequired: %t",
+			response.Action, response.Tool, response.ToolParams, response.Plan, response.CurrentPlanIndex, response.Progress, response.Reasoning, response.NextStep, response.ToolRequired)
 		art.DebugBanner("Parsed Response", debugInfo)
 	}
 	return response, explainText, nil
@@ -624,7 +624,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			planString := "## Plan\n\n\r"
 			i := 0
 			for _, s := range step.Plan {
-				if i == step.PlanIndex {
+				if i == step.CurrentPlanIndex {
 					fmt.Print("\033[36m >> ")
 				} else {
 					fmt.Print("\033[32m -- ")
@@ -640,7 +640,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		}
 		fmt.Printf("\033[0m")
 		action := strings.TrimSpace(step.Action)
-		if action == "" && step.SelectedTool == "" && expl != "" {
+		if action == "" && step.Tool == "" && expl != "" {
 			action = "Done"
 		}
 		finished := strings.EqualFold(action, "done") || strings.EqualFold(action, "solve")
@@ -668,17 +668,17 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 				break
 			}
 		*/
-		if step.SelectedTool == "" {
+		if step.Tool == "" {
 			if r.configOptions.GetBool("repl.debug") {
 				art.DebugBanner("No Tool Selected", "Model must reply with ACTION: TOOL or ACTION: DONE")
 			}
 			input += "\nThe response must include `ACTION: TOOL <tool-name>` with arguments or `ACTION: DONE` when answering.\n"
 			continue
 		}
-		toolName := strings.ReplaceAll(step.SelectedTool, ".", "/")
+		toolName := strings.ReplaceAll(step.Tool, ".", "/")
 		tool := &Tool{
 			Name: toolName,
-			Args: mapToArray(step.ToolArgs.(map[string]interface{})),
+			Args: mapToArray(step.ToolParams.(map[string]interface{})),
 		}
 		// Check for missing required parameters
 		if required, exists := requiredParams[toolName]; exists && len(required) > 0 {

@@ -320,7 +320,7 @@ func showPlan(step *PlanResponse) {
 	planString := "## Plan\n\n\r"
 	i := 0
 	for _, s := range step.Plan {
-		if i == step.PlanIndex {
+		if i == step.CurrentPlanIndex {
 			fmt.Print("\033[36m >> ")
 		} else {
 			fmt.Print("\033[32m -- ")
@@ -454,7 +454,6 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		return input, nil
 	}
 	// Build the dynamic tools prompt with optional plan template
-	// AITODO: move this logic into a separate local function
 	reasonLevel := r.getReasoningLevel()
 	var context = ""
 	var progress = ""
@@ -493,8 +492,8 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		}
 		progress = step.Progress
 		tool := &Tool{
-			Name: step.SelectedTool,
-			Args: map2array(step.ToolArgs),
+			Name: step.Tool,
+			Args: map2array(step.ToolParams),
 		}
 		if display != "quiet" {
 			fmt.Println("\x1b[0m 🚀| " + step.Action + " | 🛠️ " + tool.ToString())

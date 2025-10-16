@@ -166,18 +166,17 @@ func (r *REPL) ExecuteTool(toolName string, args ...string) (string, error) {
 	return callTool(tool, false, toolFormat, 60)
 }
 
-// TODO: some field names dont match the json schema which is confusing
 type PlanResponse struct {
-	Plan         []string `json:"plan"`
-	PlanIndex    int      `json:"current_plan_index"`
-	Progress     string   `json:"progress"`
-	NextStep     string   `json:"next_step"`
-	Action       string   `json:"action"`
-	ToolRequired bool     `json:"tool_required"`
-	Reasoning    string   `json:"reasoning"`
-	SelectedTool string   `json:"tool,omitempty"`
-	// ToolArgs     map[string]interface{} `json:"tool_params,omitempty"`
-	ToolArgs interface{} `json:"tool_params,omitempty"`
+	Plan             []string `json:"plan"`
+	CurrentPlanIndex int      `json:"current_plan_index"`
+	Progress         string   `json:"progress"`
+	NextStep         string   `json:"next_step"`
+	Action           string   `json:"action"`
+	ToolRequired     bool     `json:"tool_required"`
+	Reasoning        string   `json:"reasoning"`
+	Tool             string   `json:"tool,omitempty"`
+	// ToolParams     map[string]interface{} `json:"tool_params,omitempty"`
+	ToolParams interface{} `json:"tool_params,omitempty"`
 }
 
 // extractJSONBlock locates the first balanced JSON object in text (or fenced JSON)
