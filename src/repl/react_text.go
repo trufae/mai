@@ -50,8 +50,8 @@ You are an assistant that must resolve user prompt using the provided tools.
 RULES:
 - Do not output anything else outside these fields.
 - Use the tool descriptions to decide which one is appropriate.
-- Design a simple plan if needed and adjust steps.
-- Analyze context and choose the tool to progress.
+- Design a plan to resolve the problem and adjust steps as needed.
+- Analyze context and choose the tool to progress toward the solution.
 - Once you have all the information use ACTION DONE
 
 OUTPUT RESPONSE:
@@ -79,13 +79,14 @@ AVAILABLE TOOLS:
 `
 
 const toolsPromptLow = `
-# Direct Tool Usage
+# Tool-Based Assistant
 
-Use tools directly and efficiently to solve the user's request. Minimize planning overhead.
+Use tools to solve the user's request by taking direct, efficient steps.
 
 RULES:
 - Do not output anything else outside these fields.
 - Use the tool descriptions to decide which one is appropriate.
+- Take one step at a time using tools until you have enough information.
 - Once you have all the information to resolve the user request use ACTION DONE
 
 OUTPUT RESPONSE:

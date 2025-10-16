@@ -124,8 +124,8 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 		for _, tool := range server.Tools {
 			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
 			// output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
-			output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
-			output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
+			output.WriteString(fmt.Sprintf("- ToolName: %s\n", tool.Name))
+			output.WriteString(fmt.Sprintf("  Description: %s\n", tool.Description))
 			if tool.InputSchema != nil {
 				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
@@ -133,14 +133,14 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 				// Print CLI-style arguments list
 				// Use the prepared Parameters array if available
 				if len(tool.Parameters) > 0 {
-					output.WriteString("Parameters:\n")
+					output.WriteString("  Parameters:\n")
 					for _, param := range tool.Parameters {
 						// Format: name=<value> : description (type) [required]
 						reqText := ""
 						if param.Required {
-							reqText = " [required]"
+							reqText = " (required)"
 						}
-						output.WriteString(fmt.Sprintf("- %s=<value> : %s (%s)%s\n",
+						output.WriteString(fmt.Sprintf("  - %s=<value> : %s (%s)%s\n",
 							param.Name, param.Description, param.Type, reqText))
 					}
 				}
@@ -541,22 +541,20 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 		for _, entry := range entries {
 			// section.WriteString(fmt.Sprintf("ToolName: %s/%s\n", entry.Server, entry.Name))
-			section.WriteString(fmt.Sprintf("ToolName: %s\n", entry.Name))
+			section.WriteString(fmt.Sprintf("- ToolName: %s\n", entry.Name))
 			if entry.Purpose != "" {
-				section.WriteString(fmt.Sprintf("Description: %s", entry.Purpose))
+				section.WriteString(fmt.Sprintf("  Description: %s", entry.Purpose))
 				if entry.WhenToUse != "" {
-					section.WriteString(fmt.Sprintf("(%s)", entry.WhenToUse))
+					section.WriteString(fmt.Sprintf(" (%s)", entry.WhenToUse))
 				} else {
-					section.WriteString("WhenToUse: Use when this capability fits the request\n")
+					section.WriteString("  WhenToUse: Use when this capability fits the request\n")
 				}
 				section.WriteString("\n")
 			} else {
-				section.WriteString("Purpose: (no description provided)\n")
+				section.WriteString("  Purpose: (no description provided)\n")
 			}
-			if len(entry.Args) == 0 {
-				section.WriteString("Parameters: (none)\n")
-			} else {
-				section.WriteString("Parameters:\n")
+			if len(entry.Args) != 0 {
+				section.WriteString("  Parameters:\n")
 				for _, arg := range entry.Args {
 					section.WriteString(formatQuietArgument(arg))
 					section.WriteByte('\n')

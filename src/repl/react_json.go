@@ -14,10 +14,13 @@ func (r *REPL) toolsPromptPrefix() string {
 	reason := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.reason")))
 	switch reason {
 	case "low":
+		// Rewritten based on high
 		return toolsPromptPrefixLow
 	case "medium":
+		// Rewritten based on high
 		return toolsPromptPrefixMedium
 	case "high":
+		// OK
 		return toolsPromptPrefixHigh
 	default:
 		return toolsPromptPrefixLow
@@ -27,31 +30,55 @@ func (r *REPL) toolsPromptPrefix() string {
 // 3. Update your plan only if **new, unforeseen information** is discovered.
 // 1. Track progress, each step should move the plan forward.
 const toolsPromptPrefixLow = `
-# Plan Executor Prompt
+# System Prompt
 
-Create a simple plan to resolve <user-request>. Break down the tools from <tools-catalog> that we have to call to learn from '<context>' and respond the user with the actual response.
+This is a simple planning and execution agent designed to solve user requests using the provided tools.
 
 ## Instructions
 
-- Decide if any tool from '<tools-catalog>' must be called
-- Use '<context>' information to do better decisions
-- Choose efficient plan, avoid redundant steps.
-- Execute one action at a time.
+- Create a basic plan to solve the user **request**.
+  1. Understand what the user wants.
+  2. Break down into steps that may require tools.
+  3. Choose simple, direct steps using available tools.
+  4. Perform actions once, do not reopen files.
+- Follow the plan **step-by-step**, run only one action at a time.
+  1. Update the plan outline on every iteration with tool results.
+  2. Advance the plan index after each successful tool execution.
+  3. Continue until the complete goal is achieved.
+- Use tools to gather information instead of guessing.
+  1. Call tools from the catalog when you need external data.
+  2. Use context information when available.
+- Before reaching the "Solve" state
+  1. Use tools instead of asking the user for information.
+  2. Use tools for any file operations or external data access.
+  3. Analyze tool results to determine what to do next.
+  4. Do not leave gaps in the plan, use tools to fill them.
 `
 
 const toolsPromptPrefixMedium = `
-# Problem Resolution Plan
+# System Prompt
 
-This prompt defines the reasoning that must be used to create a plan
+This is a planning and execution agent designed to solve user requests using the provided tools with moderate reasoning.
 
 ## Instructions
 
-- Analyze the query to understand the goal.
-- Break down into key steps if complex.
-- Choose efficient paths, avoid redundancy.
-- Execute one action at a time.
-- Track progress and adjust as needed.
-- Use tools instead of manual instructions.
+- Create a plan to solve the user **request**.
+  1. Analyze the query to understand the goal.
+  2. Break down into key steps if needed.
+  3. Choose efficient paths, avoid redundancy.
+  4. Use available context information.
+  5. Perform actions once, do not reopen files.
+- Follow the plan **step-by-step**, run only one action at a time.
+  1. Update the plan outline on every iteration with tool results.
+  2. Track progress accurately and advance the plan index after successful tool execution.
+  3. Continue until the complete goal is achieved.
+- Use tools appropriately.
+  1. Prefer tools over manual instructions.
+  2. Analyze results to determine next steps.
+- Before reaching the "Solve" state
+  1. Use tools instead of educating the user with manual actions.
+  2. Analyze tool results to determine extra steps to perform.
+  3. Do not leave information gaps in the plan, add the plan steps necessary.
 `
 const toolsPromptPrefixHigh = `
 # System Prompt
@@ -360,10 +387,10 @@ func FillLineWithTriangles() string {
 	return result
 }
 
-func (r *REPL)getReasoningLevel() string {
+func (r *REPL) getReasoningLevel() string {
 	reasonLevel := strings.ToLower(strings.TrimSpace(r.configOptions.Get("mcp.reason")))
 	if reasonLevel != "low" && reasonLevel != "medium" && reasonLevel != "high" {
-		return  "low"
+		return "low"
 	}
 	return reasonLevel
 }
