@@ -110,6 +110,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("ui.stats", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
 	co.RegisterOption("ui.bgcolor", StringOption, "Background color for the input line (named colors or rgb:RGB)", "")
 	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (named colors or rgb:RGB)", "")
+	co.RegisterOption("ui.bgline", StringOption, "Background color for the line before the prompt (named colors or rgb:RGB)", "")
 	co.RegisterOption("ui.bold", BooleanOption, "Use bold text for the input line", "false")
 
 	// Tooling options
@@ -628,12 +629,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	case "chat.log":
 		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
-	case "ui.markdown":
-		markdownStatus := "enabled"
-		if !r.configOptions.GetBool("ui.markdown") {
-			markdownStatus = "disabled"
-		}
-		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
 	case "ui.bgcolor":
 		if value != "" && !strings.HasPrefix(value, "rgb:") {
 			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
@@ -651,11 +646,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			if _, ok := parseRGBColor(value); !ok {
 				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
 			}
-		}
-		if value == "" {
-			output.WriteString("Input line background color reset to default\r\n")
-		} else {
-			output.WriteString(fmt.Sprintf("Input line background color set to %s\r\n", value))
 		}
 	case "ui.fgcolor":
 		if value != "" && !strings.HasPrefix(value, "rgb:") {
@@ -675,17 +665,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
 			}
 		}
-		if value == "" {
-			output.WriteString("Input line foreground color reset to default\r\n")
-		} else {
-			output.WriteString(fmt.Sprintf("Input line foreground color set to %s\r\n", value))
-		}
-	case "ui.bold":
-		boldStatus := "enabled"
-		if !r.configOptions.GetBool("ui.bold") {
-			boldStatus = "disabled"
-		}
-		output.WriteString(fmt.Sprintf("Bold text for input line %s\r\n", boldStatus))
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return output.String(), nil
@@ -695,8 +674,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 	case "ai.provider":
 		// Already handled above
 		return output.String(), nil
-	default:
-		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	}
 
 	return output.String(), nil

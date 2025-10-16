@@ -47,6 +47,7 @@ type ReadLine struct {
 	bgColor        string // Background color for the input line
 	fgColor        string // Foreground color for the input line text
 	bold           bool   // Whether to use bold text for the input line
+	bgLineColor    string // Background color for the line before the prompt
 }
 
 // NewReadLine creates a new ReadLine instance
@@ -96,6 +97,7 @@ func NewReadLine() (*ReadLine, error) {
 		bgColor:            "",
 		fgColor:            "",
 		bold:               false,
+		bgLineColor:        "",
 	}
 	r.Restore()
 	return r, nil
@@ -304,6 +306,28 @@ func (r *ReadLine) Read() (string, error) {
 	if len(r.buffer) == 0 {
 		r.cursorPos = 0
 		r.scrollPos = 0
+	}
+
+	// Print background line before the prompt if set
+	if r.bgLineColor != "" {
+		width, _, err := term.GetSize(int(os.Stdin.Fd()))
+		if err == nil {
+			var bgCode string
+			if strings.HasPrefix(r.bgLineColor, "rgb:") {
+				if code, ok := parseRGB(r.bgLineColor); ok {
+					bgCode = "48;2;" + code
+				}
+			} else if info, ok := colorMap[r.bgLineColor]; ok {
+				bgCode = info.bg
+			}
+			if bgCode != "" {
+				fmt.Printf("\r\x1b[%sm", bgCode)
+				for i := 0; i < width; i++ {
+					fmt.Print(" ")
+				}
+				fmt.Print("\x1b[0m\n")
+			}
+		}
 	}
 
 	// Show the prompt immediately when starting to read
@@ -612,8 +636,12 @@ func (r *ReadLine) refreshLine() {
 	visibleText := string(r.buffer[r.scrollPos:visibleEnd])
 	textLen := len(visibleText)
 	fmt.Printf("%s%s", color, visibleText)
-	// Pad with spaces to fill the terminal width minus one to avoid colorizing the next line
-	padding := r.width - textLen - 1
+	// Pad with spaces to fill the full terminal width minus one to avoid colorizing the next line
+	fullWidth, _, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		fullWidth = 80 // fallback
+	}
+	padding := fullWidth - len(r.prompt) - 1 - textLen
 	if padding < 0 {
 		padding = 0
 	}
@@ -781,6 +809,11 @@ func (r *ReadLine) SetFgColor(color string) {
 // SetBold sets whether to use bold text for the input line
 func (r *ReadLine) SetBold(b bool) {
 	r.bold = b
+}
+
+// SetBgLineColor sets the background color for the line before the prompt
+func (r *ReadLine) SetBgLineColor(color string) {
+	r.bgLineColor = color
 }
 
 // handleTabCompletion handles tab completion (kept for reference)

@@ -319,6 +319,12 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		}
 	})
 
+	repl.configOptions.RegisterOptionListener("ui.bgline", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetBgLineColor(value)
+		}
+	})
+
 	// When repl.debug is toggled, display a colorful debug banner so it's
 	// obvious to the user that REPL internal debug logging is enabled.
 	repl.configOptions.RegisterOptionListener("repl.debug", func(value string) {
