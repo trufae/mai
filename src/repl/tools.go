@@ -123,9 +123,11 @@ func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string
 	}
 
 	// Add debug flag if enabled
+	/*
 	if debug {
 		cmdArgs = append([]string{"-d"}, cmdArgs...)
 	}
+	*/
 
 	// Set a timeout for the command execution
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)

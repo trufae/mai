@@ -49,7 +49,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 1. list_directory
 		{
 			Name:        "list_directory",
-			Description: "Lists files and directories in a directory.",
+			Description: "Lists files and directories in a directory",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -85,13 +85,13 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 2. read_file
 		{
 			Name:        "read_file",
-			Description: "Reads a file's content.",
+			Description: "Reads contents of a file",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"file_path": map[string]any{
 						"type":        "string",
-						"description": "File path",
+						"description": "Relative or absolute path to file",
 					},
 					"limit": map[string]any{
 						"type":        "number",
@@ -109,7 +109,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 3. grep_files
 		{
 			Name:        "grep_files",
-			Description: "Searches for a pattern in files.",
+			Description: "Searches for a pattern in files",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -133,7 +133,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 4. glob
 		{
 			Name:        "glob",
-			Description: "Finds files matching a glob pattern.",
+			Description: "Finds files matching a glob pattern",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -161,7 +161,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 5. replace
 		{
 			Name:        "replace",
-			Description: "Replaces text in a file.",
+			Description: "Replaces text in a file",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -189,7 +189,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 		// 6. write_file
 		{
 			Name:        "write_file",
-			Description: "Writes content to a file.",
+			Description: "Writes content to a file",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -206,34 +206,10 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 			},
 			Handler: s.handleWriteFile,
 		},
-		// 7. patch_file
-		{
-			Name:        "patch_file",
-			Description: "Inserts text after a pattern in a file.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file_path": map[string]any{
-						"type":        "string",
-						"description": "File path",
-					},
-					"pattern": map[string]any{
-						"type":        "string",
-						"description": "Regex pattern",
-					},
-					"content": map[string]any{
-						"type":        "string",
-						"description": "Content to insert",
-					},
-				},
-				"required": []string{"file_path", "pattern", "content"},
-			},
-			Handler: s.handlePatchFile,
-		},
 		// 8. run_shell_command
 		{
 			Name:        "run_shell_command",
-			Description: "Runs a shell command.",
+			Description: "Runs a shell command",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -259,10 +235,33 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 	if !s.minimalMode {
 		// Add additional tools when not in minimal mode
 		tools = append(tools,
+		mcplib.Tool{
+			Name:        "patch_file",
+			Description: "Inserts text after a pattern in a file",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"file_path": map[string]any{
+						"type":        "string",
+						"description": "File path",
+					},
+					"pattern": map[string]any{
+						"type":        "string",
+						"description": "Regex pattern",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "Content to insert",
+					},
+				},
+				"required": []string{"file_path", "pattern", "content"},
+			},
+			Handler: s.handlePatchFile,
+		},
 			// hexdump tool
 			mcplib.Tool{
 				Name:        "hexdump",
-				Description: "Dumps hex and ASCII for a file.",
+				Description: "Dumps hex and ASCII for a file",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -294,7 +293,7 @@ func (s *PanCodeService) GetTools() []mcplib.Tool {
 			// web_fetch
 			mcplib.Tool{
 				Name:        "web_fetch",
-				Description: "Fetches content from a URL.",
+				Description: "Fetches content from a URL",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -372,9 +371,15 @@ func (s *PanCodeService) handleReadFile(args map[string]any) (any, error) {
 	if !ok || path == "" {
 		path2, ok2 := args["path"].(string)
 		if !ok2 || path2 == "" {
-			return nil, fmt.Errorf("path or file_path is required")
+			path3, ok3 := args["name"].(string)
+			if !ok3 || path3 == "" {
+				return nil, fmt.Errorf("path or file_path is required")
+			} else {
+				path = path3
+			}
+		} else {
+			path = path2
 		}
-		path = path2
 	}
 
 	limit := -1

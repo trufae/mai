@@ -538,6 +538,9 @@ func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, st
 			return string(jsonBytes), nil
 		}
 		if response.Response == "" {
+			if response.Message.Thinking != "" {
+				art.DebugBanner("Thinking", response.Message.Thinking)
+			}
 			fmt.Printf("DEBUG: Ollama provider returned empty response with schema. Response body: %s\n", string(respBody))
 			return "", fmt.Errorf("LLM returned empty response in schema mode - this may indicate the model cannot generate valid structured output")
 		}

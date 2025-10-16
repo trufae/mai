@@ -539,19 +539,21 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 		var section strings.Builder
-		section.WriteString(fmt.Sprintf("## %s\n\n", category))
+	//	section.WriteString(fmt.Sprintf("## %s\n\n", category))
 
 		for _, entry := range entries {
-			section.WriteString(fmt.Sprintf("ToolName: %s/%s\n", entry.Server, entry.Name))
+			// section.WriteString(fmt.Sprintf("ToolName: %s/%s\n", entry.Server, entry.Name))
+			section.WriteString(fmt.Sprintf("ToolName: %s\n", entry.Name))
 			if entry.Purpose != "" {
-				section.WriteString(fmt.Sprintf("Purpose: %s\n", entry.Purpose))
+				section.WriteString(fmt.Sprintf("Description: %s", entry.Purpose))
+				if entry.WhenToUse != "" {
+					section.WriteString(fmt.Sprintf("(%s)", entry.WhenToUse))
+				} else {
+					section.WriteString("WhenToUse: Use when this capability fits the request\n")
+				}
+				section.WriteString("\n")
 			} else {
 				section.WriteString("Purpose: (no description provided)\n")
-			}
-			if entry.WhenToUse != "" {
-				section.WriteString(fmt.Sprintf("WhenToUse: %s\n", entry.WhenToUse))
-			} else {
-				section.WriteString("WhenToUse: Use when this capability fits the request\n")
 			}
 			if len(entry.Args) == 0 {
 				section.WriteString("Arguments: (none)\n")

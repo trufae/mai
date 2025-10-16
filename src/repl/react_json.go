@@ -27,9 +27,17 @@ func (r *REPL) toolsPromptPrefix() string {
 // 3. Update your plan only if **new, unforeseen information** is discovered.
 // 1. Track progress, each step should move the plan forward.
 const toolsPromptPrefixLow = `
-# Tool Selection Required
+# Plan Executor Prompt
 
-Decide if any of the tools from the '<tools-catalog>' must be used to resolve the '<user-request>' as defined by the plan.`
+Create a simple plan to resolve <user-request>. Break down the tools from <tools-catalog> that we have to call to learn from '<context>' and respond the user with the actual response.
+
+## Instructions
+
+- Decide if any tool from '<tools-catalog>' must be called
+- Use '<context>' information to do better decisions
+- Choose efficient plan, avoid redundant steps.
+- Execute one action at a time.
+`
 
 const toolsPromptPrefixMedium = `
 # Problem Resolution Plan
@@ -70,14 +78,13 @@ This a multi-step planning and execution agent designed to **efficiently** solve
 `
 
 const toolsPromptSuffix = `
-
 ### Output Rules
 
-Based on these instructions, determine the action for the current step inside the plan.
+Based on these instructions, determine the "action" for the current step inside the plan.
 
-- Use "action": "Done" all the steps are done, we can quit the loop
-- Use "action": "Iterate" to continue executing tools to progress toward the solution
-- Use "action": "Error" when the tool required to solve the step fails
+- "Iterate" selected tool needs to be called and redefine the plan if necessary to progress towards the solution.
+- "Error" something wrong happened and we cannot resolve the user request.
+- "Done" do not call any tool, we have all the context information to resolve user-request.
 
 Provide an array of plans, specify the current plan index, the reasoning behind the current step, the action associated, what must be followup in the next step and if needed, the tool name and its parameters. Do not decorate the resulting JSON, not even using markdown code blocks, use plain json.
 
@@ -86,12 +93,11 @@ Provide an array of plans, specify the current plan index, the reasoning behind 
     "..."
   ],
   "current_plan_index": 0,
-  "progress": "Summary of what has been done so far or is in progress.",
-  "reasoning": "Why are we performing this step, which other actions must be taken later.",
-  "next_step": "Follow up of what should happen next.",
+  "progress": "Summary of the progress towards the plan",
+  "reasoning": "Explain why we need to use a tool",
+  "next_step": "Expected follow up action after calling the tool",
   "action": "Done | Iterate | Error",
-  "tool_required": true,
-  "tool": "ToolName",
+  "tool": "RequiredToolNameToCall",
   "tool_params": {
     "parameterName": "parameterValue"
   }
@@ -108,44 +114,40 @@ const toolsSchema = `
       "items": {
         "type": "string"
       },
-      "description": "A list of context-aware steps in sequential, human-readable format."
+      "description": "A list of context-aware steps in sequential, human-readable format"
     },
     "current_plan_index": {
       "type": "integer",
       "minimum": 0,
-      "description": "The index of the current step in the plan."
+      "description": "The index of the current step in the plan"
     },
     "progress": {
       "type": "string",
-      "description": "A summary of what has been done so far or is in progress."
+      "description": "A summary of what has been done so far or is in progress"
     },
     "reasoning": {
       "type": "string",
-      "description": "Explanation of why a specific tool was chosen for the current step."
+      "description": "Explanation of why a specific tool was chosen for the current step"
     },
     "next_step": {
       "type": "string",
-      "description": "Description of what should happen next."
+      "description": "Description of what should happen next"
     },
     "action": {
       "type": "string",
       "enum": ["Done", "Iterate", "Error"],
-      "description": "The current action status."
-    },
-    "tool_required": {
-      "type": "boolean",
-      "description": "Indicates if a tool is required for the current step."
+      "description": "The current action status"
     },
     "tool": {
       "type": "string",
-      "description": "The name of the tool required."
+      "description": "The name of the tool required"
     },
     "tool_params": {
       "type": "object",
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Parameters required by the tool."
+      "description": "Parameters required by the tool"
     }
   },
   "required": [
@@ -155,7 +157,6 @@ const toolsSchema = `
     "reasoning",
     "next_step",
     "action",
-    "tool_required",
     "tool",
     "tool_params"
   ],
@@ -170,20 +171,20 @@ const geminiToolsSchema = `
     "plan": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "A list of context-aware steps in sequential, human-readable format."
+      "description": "A list of context-aware steps in sequential, human-readable format"
     },
     "current_plan_index": {
       "type": "integer",
       "minimum": 0,
-      "description": "The index of the current step in the plan."
+      "description": "The index of the current step in the plan"
     },
     "progress": {
       "type": "string",
-      "description": "A summary of what has been done so far or is in progress."
+      "description": "A summary of what has been done so far or is in progress"
     },
     "reasoning": {
       "type": "string",
-      "description": "Explanation of why a specific tool was chosen for the current step."
+      "description": "Explanation of why a specific tool was chosen for the current step"
     },
     "next_step": {
       "type": "string",
@@ -194,17 +195,13 @@ const geminiToolsSchema = `
       "enum": ["Done", "Iterate", "Error"],
       "description": "The current action status."
     },
-    "tool_required": {
-      "type": "boolean",
-      "description": "Indicates if a tool is required for the current step."
-    },
     "tool": {
       "type": "string",
-      "description": "The name of the tool required."
+      "description": "The name of the tool required (optional)"
     },
     "tool_params": {
       "type": "array",
-      "description": "Parameters required by the tool as key/value pairs.",
+      "description": "Parameters required by the tool as key/value pairs",
       "items": {
         "type": "object",
         "properties": {
@@ -222,7 +219,6 @@ const geminiToolsSchema = `
     "reasoning",
     "next_step",
     "action",
-    "tool_required",
     "tool",
     "tool_params"
   ]
@@ -230,8 +226,14 @@ const geminiToolsSchema = `
 `
 
 func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string, chatHistory string) string {
+	tools := fmt.Sprintf("%s\n<tools-catalog>%s</tools-catalog>\n", toolPrompt, toolList)
+	query := fmt.Sprintf("<user-request>%s</user-request>\n<context>%s</context>\n</context>", chatHistory, ctx)
+	return query + tools // tools + query
+		/*
+	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<context>%s<conversation-log>%s</conversation></context>\n</input>\n<tools>%s<catalog>%s</catalog></tools>", userInput, ctx, chatHistory, toolPrompt, toolList)
 	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<tool-selection-prompt>%s</tool-selection-prompt><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><conversation-log>%s</conversation-log>",
 		userInput, toolPrompt, ctx, toolList, chatHistory)
+		*/
 }
 
 func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string, chatHistory string) (PlanResponse, error) {
@@ -240,14 +242,14 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 
 	// Debug output: show the reasoning prompt sent to LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		art.DebugBanner("MCP Tool Selection", query)
+		art.DebugBanner("newToolStep Query", query)
 	}
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)
 	}
 	if r.configOptions.GetBool("mcp.debug") {
-		art.DebugBanner("MCP Tool Selection", responseJson)
+		art.DebugBanner("newToolStep Response", responseJson)
 	}
 
 	// Debug output: show the raw response from LLM
@@ -334,6 +336,10 @@ func buildChatHistory(input string, messages []llm.Message) string {
 			}
 			b.WriteString(content)
 		}
+	}
+	bs := b.String()
+	if bs == "" {
+		return "<user>" + input + "</user>"
 	}
 	return "<user>" + input + "</user>\n<assistant>" + b.String() + "</assistant>"
 }
@@ -458,10 +464,12 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 				fmt.Println("\x1b[0m 🤔| " + step.Reasoning)
 			}
 		}
-		if (step.Action == "Done" || step.Action == "") || !step.ToolRequired {
-			//	context += "Progres: " + step.Progress
-			context += "Reasoning: " + step.Reasoning
-			break
+		if tool.Name == "" {
+			if (step.Action == "Done" || step.Action == "") || !step.ToolRequired {
+				//	context += "Progres: " + step.Progress
+				context += "Reasoning: " + step.Reasoning
+				break
+			}
 		}
 		timeout, err := r.configOptions.GetNumber("mcp.timeout")
 		if err != nil || timeout <= 0 {
@@ -477,41 +485,36 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 			// Add error to context so the model can learn from it
 			context += fmt.Sprintf("\n\n## Tool Error\n\nTool %s execution failed: %s\n\nPlease try a different approach or tool.\n", tool.ToString(), err.Error())
 			continue
-		} else {
-			msg := fmt.Sprintf("\n\n## Step %d Tool '%s'\n\n%s\n<output>\n%s\n</output>\n", stepCount, tool.ToString(), step.Reasoning, result)
-			/*
-				fmt.Println("-----------")
-				fmt.Println(msg)
-				fmt.Println("-----------")
-			*/
-			context += msg
-			// If the tool response contains pagination hints, add an explicit tag so the model can request more
-			if idx := strings.Index(result, "Pages left:"); idx != -1 {
-				// Extract the rest of the line
-				rest := result[idx:]
-				parts := strings.Fields(rest)
-				pagesLeft := ""
-				if len(parts) >= 3 {
-					pagesLeft = parts[2]
-				}
-				// Look for next_page_token inside parentheses
-				nextTok := ""
-				if tokIdx := strings.Index(rest, "next_page_token:"); tokIdx != -1 {
-					// token follows
+		}
+		// msg := fmt.Sprintf("\n\n## Step %d Tool '%s'\n\n%s\n<output>\n%s\n</output>\n", stepCount, tool.ToString(), step.Reasoning, result)
+		msg := fmt.Sprintf("\n\n<tool-call>Step %d<tool-name>%s</tool-name>\n%s\n<output>\n%s\n</output></tool-call>\n", stepCount, tool.ToString(), step.Reasoning, result)
+		context += msg
+		// If the tool response contains pagination hints, add an explicit tag so the model can request more
+		if idx := strings.Index(result, "Pages left:"); idx != -1 {
+			// Extract the rest of the line
+			rest := result[idx:]
+			parts := strings.Fields(rest)
+			pagesLeft := ""
+			if len(parts) >= 3 {
+				pagesLeft = parts[2]
+			}
+			// Look for next_page_token inside parentheses
+			nextTok := ""
+			if tokIdx := strings.Index(rest, "next_page_token:"); tokIdx != -1 {
+				// token follows
 					tokStart := tokIdx + len("next_page_token:")
-					tokStr := strings.TrimSpace(rest[tokStart:])
+			tokStr := strings.TrimSpace(rest[tokStart:])
 					// trim trailing ')' or '\n'
-					tokStr = strings.Trim(tokStr, " )\n\r")
-					nextTok = tokStr
-				}
-				context += fmt.Sprintf("\n<pagination pages_left=%s next_page_token=\"%s\" />\n", pagesLeft, nextTok)
+				tokStr = strings.Trim(tokStr, " )\n\r")
+				nextTok = tokStr
 			}
-			// Update chat history with tool call and result to maintain context across iterations
-			chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_result>%s</tool_result>", tool.ToString(), result)
-			// context += "## Action Done\n" + step.NextStep
-			if display == "verbose" {
-				art.DebugBanner("TOOL RESPONSE", result)
-			}
+			context += fmt.Sprintf("\n<pagination pages_left=%s next_page_token=\"%s\" />\n", pagesLeft, nextTok)
+		}
+		// Update chat history with tool call and result to maintain context across iterations
+		chatHistory += fmt.Sprintf("\n<tool_call>%s</tool_call>\n<tool_result>%s</tool_result>", tool.ToString(), result)
+		// context += "## Action Done\n" + step.NextStep
+		if display == "verbose" {
+			art.DebugBanner("TOOL RESPONSE", result)
 		}
 	}
 	if display != "quiet" {
