@@ -114,9 +114,6 @@ func formatJSON(data interface{}, indent int) string {
 
 		// Process each item in the array
 		for _, item := range v {
-			// sb.WriteString(indentStr)
-			// sb.WriteString("- ")
-
 			// Format the item based on its type
 			switch val := item.(type) {
 			case map[string]interface{}, []interface{}:
@@ -289,6 +286,7 @@ func printUsage() {
 	fmt.Println("  call <server> <tool> [params]  Call a specific tool")
 	fmt.Println("  prompts [list]                 List all available prompts")
 	fmt.Println("  prompts get <server>/<name>    Render a prompt (accepts params)")
+	/*
 	fmt.Println("\nExamples:")
 	fmt.Println("  mai-tool list")
 	fmt.Println("  mai-tool -j list")
@@ -298,6 +296,7 @@ func printUsage() {
 	fmt.Println("  mai-tool prompts list")
 	fmt.Println("  mai-tool prompts get server1/welcome topic=onboarding")
 	fmt.Println("  MAI_TOOL_BASEURL=http://remote:9000 mai-tool list")
+	*/
 }
 
 func parseParams(args []string) map[string]interface{} {
@@ -664,13 +663,16 @@ func listTools(config Config) {
 	}
 
 	if config.JsonOutput {
-		// Output is already in JSON format
-		var prettyJSON bytes.Buffer
-		if err := json.Indent(&prettyJSON, body, "", "  "); err != nil {
-			fmt.Println(string(body))
-		} else {
-			fmt.Println(prettyJSON.String())
-		}
+		fmt.Println(string(body))
+		/*
+			// Output is already in JSON format
+			var prettyJSON bytes.Buffer
+			if err := json.Indent(&prettyJSON, body, "", "  "); err != nil {
+				fmt.Println(string(body))
+			} else {
+				fmt.Println(prettyJSON.String())
+			}
+		*/
 	} else if config.XmlOutput {
 		// Convert JSON to XML
 		output := jsonToXML(string(body))
@@ -793,17 +795,20 @@ func callTool(config Config, serverName, toolName string, params map[string]inte
 
 	// If json output is requested, try to convert the output to JSON
 	if config.JsonOutput {
-		// Try to parse as JSON first
-		var jsonData interface{}
-		if err := json.Unmarshal(body, &jsonData); err == nil {
-			// It was already valid JSON
-			jsonOutput, _ := json.MarshalIndent(jsonData, "", "  ")
-			fmt.Println(string(jsonOutput))
-		} else {
-			// It wasn't JSON, create a JSON object with a text field
-			jsonOutput, _ := json.MarshalIndent(map[string]string{"text": string(body)}, "", "  ")
-			fmt.Println(string(jsonOutput))
-		}
+		fmt.Println(string(body))
+		/*
+			// Try to parse as JSON first
+			var jsonData interface{}
+			if err := json.Unmarshal(body, &jsonData); err == nil {
+				// It was already valid JSON
+				jsonOutput, _ := json.MarshalIndent(jsonData, "", "  ")
+				fmt.Println(string(jsonOutput))
+			} else {
+				// It wasn't JSON, create a JSON object with a text field
+				jsonOutput, _ := json.MarshalIndent(map[string]string{"text": string(body)}, "", "  ")
+				fmt.Println(string(jsonOutput))
+			}
+		*/
 	} else {
 		// Output as plain text or markdown
 		output := string(body)
