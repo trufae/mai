@@ -7,7 +7,13 @@
 
 import SwiftUI
 
+#if os(macOS)
+    import AppKit
+#endif
+
 struct ContentView: View {
+    @AppStorage("aiProvider") private var aiProvider = "openai"
+    @AppStorage("aiModel") private var aiModel = "gpt-4"
     @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isWaitingForResponse = false
@@ -72,6 +78,13 @@ struct ContentView: View {
         } detail: {
             if selectedTab == "Chat" {
                 VStack(spacing: 0) {
+                    Button(action: clearChat) {
+                        Text("")
+                    }
+                    .keyboardShortcut("l", modifiers: .command)
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+
                     // Header
                     HStack {
                         Spacer()
@@ -162,6 +175,14 @@ struct ContentView: View {
                     print("ContentView onAppear triggered")
                     isInputFocused = true
                     setupMCP()
+                    #if os(macOS)
+                        DispatchQueue.main.async {
+                            NSApplication.shared.activate(ignoringOtherApps: true)
+                            if let window = NSApplication.shared.keyWindow {
+                                window.makeKeyAndOrderFront(nil)
+                            }
+                        }
+                    #endif
                 }
                 .alert("MCP Connection Error", isPresented: $showErrorAlert) {
                     Button("OK", role: .cancel) {}
@@ -204,6 +225,8 @@ struct ContentView: View {
                 }
                 // Load providers after initialization
                 await loadProviders()
+                // Sync current provider and model
+                await syncModelSettings()
             } catch {
                 await MainActor.run {
                     print("ContentView.setupMCP Task failed with error: \(error)")
@@ -242,6 +265,32 @@ struct ContentView: View {
             print("ContentView.loadProviders set providers: \(loaded.count)")
         } catch {
             print("ContentView.loadProviders error: \(error)")
+        }
+    }
+
+    private func syncModelSettings() async {
+        print("ContentView.syncModelSettings called")
+        guard let client = mcpClient else {
+            print("ContentView.syncModelSettings: no MCP client")
+            return
+        }
+
+        do {
+            // Get current settings from AppStorage
+            let currentProvider = await MainActor.run { aiProvider }
+            let currentModel = await MainActor.run { aiModel }
+
+            print("ContentView.syncModelSettings syncing provider: \(currentProvider), model: \(currentModel)")
+
+            // Set provider
+            _ = try await client.callTool("set_provider", arguments: ["provider": currentProvider])
+            print("ContentView.syncModelSettings set provider successfully")
+
+            // Set model
+            _ = try await client.callTool("set_model", arguments: ["model": currentModel])
+            print("ContentView.syncModelSettings set model successfully")
+        } catch {
+            print("ContentView.syncModelSettings error: \(error)")
         }
     }
 
@@ -333,5 +382,9 @@ struct ContentView: View {
         let message = ChatMessage(text: text, isUser: isUser, timestamp: Date())
         messages.append(message)
         print("ContentView.addMessage appended message. Total messages: \(messages.count)")
+    }
+
+    private func clearChat() {
+        messages = []
     }
 }

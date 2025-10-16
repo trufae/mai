@@ -1,3 +1,6 @@
+DESTDIR?=
+PREFIX?=/usr/local
+
 .PHONY: build run clean install uninstall
 
 build:
@@ -19,12 +22,14 @@ fmt format:
 	#swift format --in-place --recursive .
 	swiftformat Sources/MaiUI/*
 
-install: build
-	install -d $(PREFIX)/bin
-	install .build/release/MaiUI $(PREFIX)/bin/mai-ui
+install:
+	install -d $(DESTDIR)$(PREFIX)/bin
+	rm -f $(DESTDIR)$(PREFIX)/bin/mai-ui
+	ln -fs $(shell pwd)/.build/release/MaiUI $(DESTDIR)$(PREFIX)/bin/mai-ui
+# install .build/release/MaiUI $(DESTDIR)$(PREFIX)/bin/mai-ui
 
 uninstall:
-	rm -f $(PREFIX)/bin/mai-ui
+	rm -f $(DESTDIR)$(PREFIX)/bin/mai-ui
 
 .PHONY: help
 help:

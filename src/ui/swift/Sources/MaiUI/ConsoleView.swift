@@ -7,6 +7,10 @@
 
 import SwiftUI
 
+#if os(macOS)
+    import AppKit
+#endif
+
 struct ConsoleMessage: Identifiable, Codable {
     var id = UUID()
     let text: String
@@ -15,6 +19,8 @@ struct ConsoleMessage: Identifiable, Codable {
 }
 
 struct ConsoleView: View {
+    @AppStorage("aiProvider") private var aiProvider = "openai"
+    @AppStorage("aiModel") private var aiModel = "gpt-4"
     @State private var messages: [ConsoleMessage] = []
     @State private var inputText = ""
     @State private var isWaitingForResponse = false
@@ -25,26 +31,6 @@ struct ConsoleView: View {
     @FocusState private var isInputFocused: Bool
 
     @Environment(\.colorScheme) var colorScheme
-
-    private let messagesKey = "consoleMessages"
-
-    private func saveMessages() {
-        do {
-            let data = try JSONEncoder().encode(messages)
-            UserDefaults.standard.set(data, forKey: messagesKey)
-        } catch {
-            print("Failed to save console messages: \(error)")
-        }
-    }
-
-    private func loadMessages() {
-        guard let data = UserDefaults.standard.data(forKey: messagesKey) else { return }
-        do {
-            messages = try JSONDecoder().decode([ConsoleMessage].self, from: data)
-        } catch {
-            print("Failed to load console messages: \(error)")
-        }
-    }
 
     private var buttonColor: Color {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,8 +162,15 @@ struct ConsoleView: View {
         }
         .onAppear {
             isInputFocused = true
-            loadMessages()
             setupMCP()
+            #if os(macOS)
+                DispatchQueue.main.async {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    if let window = NSApplication.shared.keyWindow {
+                        window.makeKeyAndOrderFront(nil)
+                    }
+                }
+            #endif
         }
         .alert("MCP Connection Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -194,6 +187,8 @@ struct ConsoleView: View {
                 await MainActor.run {
                     mcpConnected = true
                 }
+                // Sync current provider and model
+                await syncModelSettings()
             } catch {
                 await MainActor.run {
                     mcpConnected = false
@@ -272,6 +267,25 @@ struct ConsoleView: View {
     private func addMessage(_ text: String, isUser: Bool) {
         let message = ConsoleMessage(text: text, isUser: isUser, timestamp: Date())
         messages.append(message)
-        saveMessages()
+    }
+
+    private func syncModelSettings() async {
+        guard let client = mcpClient else {
+            return
+        }
+
+        do {
+            // Get current settings from AppStorage
+            let currentProvider = await MainActor.run { aiProvider }
+            let currentModel = await MainActor.run { aiModel }
+
+            // Set provider
+            _ = try await client.callTool("set_provider", arguments: ["provider": currentProvider])
+
+            // Set model
+            _ = try await client.callTool("set_model", arguments: ["model": currentModel])
+        } catch {
+            // Ignore errors for console
+        }
     }
 }
