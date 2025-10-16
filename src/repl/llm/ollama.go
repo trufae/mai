@@ -18,6 +18,7 @@ import (
 // OllamaProvider implements the LLM provider interface for Ollama
 type OllamaProvider struct {
 	config *Config
+	ctx    context.Context
 }
 
 // OllamaModelsResponse is the response structure for Ollama model list endpoint
@@ -218,6 +219,7 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *OllamaProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	p.ctx = ctx
 	// If images are attached, construct request injecting images into the last user message
 	if len(images) > 0 {
 		// Build request JSON, injecting only raw base64 images into the first/last user message
@@ -598,7 +600,15 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		ResetStreamRenderer()
 	}
 	printed := false
-	for scanner.Scan() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return "", p.ctx.Err()
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
 		line := scanner.Text()
 		if line == "" {
 			continue

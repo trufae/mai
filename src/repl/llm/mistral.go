@@ -14,6 +14,7 @@ import (
 type MistralProvider struct {
 	config *Config
 	apiKey string
+	ctx    context.Context
 }
 
 func NewMistralProvider(config *Config) *MistralProvider {
@@ -112,6 +113,7 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *MistralProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	p.ctx = ctx
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Mistral")
 	}
@@ -227,7 +229,15 @@ func (p *MistralProvider) parseStreamWithTiming(reader io.Reader, stopCallback, 
 	}
 
 	printed := false
-	for scanner.Scan() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return "", p.ctx.Err()
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue

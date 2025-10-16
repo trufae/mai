@@ -567,12 +567,24 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	stepCount := 0
 	reasoning := ""
 	clearScreen := true
+	var expl = ""
 	for {
 		stepCount++
 		if r.configOptions.GetBool("repl.debug") {
 			art.DebugBanner("React Loop Step", fmt.Sprintf("Step %d", stepCount))
 		}
-		step, expl, err := r.toolStep(toolPrompt, input, context, toolList)
+		r.mu.Lock()
+		if r.isInterrupted {
+			r.mu.Unlock()
+			// Force completion
+			var step PlanResponse
+			step.Action = "Done"
+			expl = "Interrupted by user. Providing answer based on available information."
+			break
+		}
+		r.mu.Unlock()
+		step, explTemp, err := r.toolStep(toolPrompt, input, context, toolList)
+		expl = explTemp
 		if err != nil {
 			if r.configOptions.GetBool("repl.debug") {
 				art.DebugBanner("ToolStep Error", err.Error())
@@ -591,9 +603,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		if interrupted {
 			// Force completion with current context
 			step.Action = "Done"
-			if expl == "" {
-				expl = "Interrupted by user. Providing answer based on available information."
-			}
+			expl = "Interrupted by user. Providing answer based on available information."
 		}
 		if clearScreen && display != "quiet" {
 			prompt := r.configOptions.Get("repl.prompt")

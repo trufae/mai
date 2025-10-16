@@ -14,6 +14,7 @@ import (
 type ClaudeProvider struct {
 	config *Config
 	apiKey string
+	ctx    context.Context
 }
 
 // ClaudeModelsResponse is the response structure for Claude model list endpoint
@@ -96,6 +97,7 @@ func (p *ClaudeProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *ClaudeProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	p.ctx = ctx
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Claude")
 	}
@@ -224,7 +226,15 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		ResetStreamRenderer()
 	}
 	printed := false
-	for scanner.Scan() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return "", p.ctx.Err()
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue

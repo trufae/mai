@@ -14,6 +14,7 @@ import (
 type GeminiProvider struct {
 	config *Config
 	apiKey string
+	ctx    context.Context
 }
 
 func NewGeminiProvider(config *Config) *GeminiProvider {
@@ -106,6 +107,7 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *GeminiProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	p.ctx = ctx
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Gemini")
 	}
@@ -249,7 +251,15 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 	}
 
 	printed := false
-	for scanner.Scan() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return "", p.ctx.Err()
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
 		line := scanner.Text()
 		if line == "" {
 			continue

@@ -15,6 +15,7 @@ import (
 type XAIProvider struct {
 	config *Config
 	apiKey string
+	ctx    context.Context
 }
 
 // XAIModelsResponse is the response structure for xAI model list endpoint
@@ -90,6 +91,7 @@ func (p *XAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *XAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	p.ctx = ctx
 	// If images are provided, prepend a user message with xAI vision content blocks
 	if len(images) > 0 {
 		fmt.Println("sending images")
@@ -208,7 +210,15 @@ func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firs
 		ResetStreamRenderer()
 	}
 	printed := false
-	for scanner.Scan() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return "", p.ctx.Err()
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue

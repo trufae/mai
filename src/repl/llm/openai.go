@@ -17,6 +17,7 @@ import (
 type OpenAIProvider struct {
 	config *Config
 	apiKey string
+	ctx    context.Context
 }
 
 // OpenAIModelsResponse is the response structure for OpenAI model list endpoint
@@ -217,6 +218,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *OpenAIProvider) SendMessage(ctx context.Context, messages []Message, stream bool, images []string) (string, error) {
+	p.ctx = ctx
 	// If images are provided, prepend a user message with OpenAI vision content blocks
 	if len(images) > 0 {
 		fmt.Println("sending images")
@@ -360,7 +362,15 @@ func (p *OpenAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		ResetStreamRenderer()
 	}
 	printed := false
-	for scanner.Scan() {
+	for {
+		select {
+		case <-p.ctx.Done():
+			return "", p.ctx.Err()
+		default:
+		}
+		if !scanner.Scan() {
+			break
+		}
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue
