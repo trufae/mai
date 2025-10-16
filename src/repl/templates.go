@@ -8,29 +8,18 @@ import (
 	"strings"
 )
 
-// autoDetectDirectory attempts to find a directory relative to the executable path
-// and sets the specified config option if found
-func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
-	// Skip if the config option is already set
-	if r.configOptions.Get(configKey) != "" {
-		return
-	}
-
+// findDirectory attempts to find a directory relative to the executable path
+// and returns the path if found, or empty string if not found
+func (r *REPL) findDirectory(dirName string) string {
 	// Get the executable path
 	execPath, err := os.Executable()
 	if err != nil {
-		if verbose {
-			fmt.Printf("Warning: Could not determine executable path: %v\r\n", err)
-		}
-		return
+		return ""
 	}
 
 	// Follow symlink if the executable is a symlink
 	realPath, err := filepath.EvalSymlinks(execPath)
 	if err != nil {
-		if verbose {
-			fmt.Printf("Warning: Could not evaluate symlinks: %v\r\n", err)
-		}
 		realPath = execPath // Fall back to the original path
 	}
 
@@ -44,8 +33,7 @@ func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
 		targetDir := filepath.Join(currentDir, dirName)
 		if _, err := os.Stat(targetDir); err == nil {
 			// Found the target directory
-			r.configOptions.Set(configKey, targetDir)
-			return
+			return targetDir
 		}
 
 		// Move up one directory
@@ -58,6 +46,24 @@ func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
 
 		// Continue with the parent directory
 		currentDir = parentDir
+	}
+
+	return ""
+}
+
+// autoDetectDirectory attempts to find a directory relative to the executable path
+// and sets the specified config option if found
+func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
+	// Skip if the config option is already set
+	if r.configOptions.Get(configKey) != "" {
+		return
+	}
+
+	// Use findDirectory to locate the directory
+	if foundDir := r.findDirectory(dirName); foundDir != "" {
+		r.configOptions.Set(configKey, foundDir)
+	} else if verbose {
+		fmt.Printf("Warning: Could not find directory '%s' relative to executable\r\n", dirName)
 	}
 }
 
@@ -174,22 +180,9 @@ func (r *REPL) listTemplates() error {
 	// Get the template directory from config
 	templateDir := r.configOptions.Get("dir.templates")
 	if templateDir == "" {
-		// Try common locations
-		commonLocations := []string{
-			"./templates",
-			"../templates",
-		}
-
-		found := false
-		for _, loc := range commonLocations {
-			if _, err := os.Stat(loc); err == nil {
-				templateDir = loc
-				found = true
-				break
-			}
-		}
-
-		if !found {
+		// Try to find templates directory relative to executable
+		templateDir = r.findDirectory("templates")
+		if templateDir == "" {
 			fmt.Print("No template directory found. Set one with /set templatedir <path>\r\n")
 			return nil
 		}
@@ -251,15 +244,9 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 		}
 	}
 
-	// Next, try common locations for templates
-	commonLocations := []string{
-		"./templates",  // Current directory's templates folder
-		"../templates", // Parent directory's templates folder
-	}
-
-	// Try each location
-	for _, location := range commonLocations {
-		templatePath := filepath.Join(location, templateName)
+	// Next, try to find templates directory relative to executable
+	if templateDir := r.findDirectory("templates"); templateDir != "" {
+		templatePath := filepath.Join(templateDir, templateName)
 
 		// Try with file as is
 		if _, err := os.Stat(templatePath); err == nil {

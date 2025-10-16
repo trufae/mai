@@ -124,9 +124,9 @@ func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string
 
 	// Add debug flag if enabled
 	/*
-	if debug {
-		cmdArgs = append([]string{"-d"}, cmdArgs...)
-	}
+		if debug {
+			cmdArgs = append([]string{"-d"}, cmdArgs...)
+		}
 	*/
 
 	// Set a timeout for the command execution
@@ -157,7 +157,7 @@ func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string
 
 // ExecuteTool runs a specified tool with provided arguments and returns the output
 // Kept for backward compatibility
-func (r *REPL)ExecuteTool(toolName string, args ...string) (string, error) {
+func (r *REPL) ExecuteTool(toolName string, args ...string) (string, error) {
 	tool := &Tool{
 		Name: toolName,
 		Args: args,
