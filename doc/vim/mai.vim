@@ -1,6 +1,6 @@
 function! Mai() range abort
   " 1) Read prompts.txt
-  let l:file = 'prompts.txt'
+  let l:file = expand('~/.vim/mai/prompts.txt')
   if !filereadable(l:file)
     echoerr "File not found: " . l:file
     return
