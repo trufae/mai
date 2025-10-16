@@ -27,14 +27,14 @@ func (r *REPL) toolsPromptPrefix() string {
 // 3. Update your plan only if **new, unforeseen information** is discovered.
 // 1. Track progress, each step should move the plan forward.
 const toolsPromptPrefixLow = `
-# Direct Tool Usage
+# Tool Selection Required
 
-Use tools directly and efficiently to solve the user's request. Minimize planning overhead.
-`
+Decide if any of the tools from the '<tools-catalog>' must be used to resolve the '<user-request>' as defined by the plan.`
+
 const toolsPromptPrefixMedium = `
-# System Prompt
+# Problem Resolution Plan
 
-This is a planning agent designed to solve user requests using tools efficiently.
+This prompt defines the reasoning that must be used to create a plan
 
 ## Instructions
 
@@ -230,7 +230,7 @@ const geminiToolsSchema = `
 `
 
 func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList string, chatHistory string) string {
-	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<rules>%s</rules><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><history>%s</history>",
+	return fmt.Sprintf("<user-request>\n%s\n</user-request>\n<tool-selection-prompt>%s</tool-selection-prompt><context>%s</context>\n<tools-catalog>\n%s\n</tools-catalog><conversation-log>%s</conversation-log>",
 		userInput, toolPrompt, ctx, toolList, chatHistory)
 }
 
@@ -240,16 +240,19 @@ func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList
 
 	// Debug output: show the reasoning prompt sent to LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		art.DebugBanner("MCP Reasoning Prompt", query)
+		art.DebugBanner("MCP Tool Selection", query)
 	}
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil)
 	if err != nil {
 		return PlanResponse{}, fmt.Errorf("failed to get response for tools: %v", err)
 	}
+	if r.configOptions.GetBool("mcp.debug") {
+		art.DebugBanner("MCP Tool Selection", responseJson)
+	}
 
 	// Debug output: show the raw response from LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		art.DebugBanner("MCP Raw Response", responseJson)
+		art.DebugBanner("MCP Tool Response", responseJson)
 	}
 
 	if strings.HasPrefix(responseJson, "```") {
@@ -391,7 +394,8 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	_ = r.configOptions.Set("llm.schema", schemaString)
 	// Recreate client with the new schema
 	r.currentClient, _ = llm.NewLLMClient(r.buildLLMConfig())
-	toolList, err := GetAvailableToolsWithConfig(r.configOptions, JSON)
+	// toolList, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
+	toolList, err := GetAvailableToolsWithConfig(r.configOptions, Quiet)
 	if err != nil {
 		fmt.Println("Cannot retrieve tools, doing nothing")
 		return input, nil
