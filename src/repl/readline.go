@@ -144,22 +144,76 @@ var fgMap = map[string]string{
 	"bright-white":   "97",
 }
 
+// parseRGB parses rgb:RGB format (3 hex chars) and returns ANSI code parameters
+func parseRGB(color string) (string, bool) {
+	if !strings.HasPrefix(color, "rgb:") || len(color) != 7 {
+		return "", false
+	}
+	hexStr := color[4:]
+	if len(hexStr) != 3 {
+		return "", false
+	}
+	var r, g, b int
+	for i, c := range hexStr {
+		var val int
+		switch {
+		case c >= '0' && c <= '9':
+			val = int(c - '0')
+		case c >= 'a' && c <= 'f':
+			val = 10 + int(c-'a')
+		case c >= 'A' && c <= 'F':
+			val = 10 + int(c-'A')
+		default:
+			return "", false
+		}
+		val *= 17
+		switch i {
+		case 0:
+			r = val
+		case 1:
+			g = val
+		case 2:
+			b = val
+		}
+	}
+	return fmt.Sprintf("%d;%d;%d", r, g, b), true
+}
+
 // getColorCodes returns the ANSI color codes for foreground and background based on fgColor and bgColor
 func (r *ReadLine) getColorCodes() string {
 	var codes []string
 	if r.bold {
 		codes = append(codes, "1")
 	}
+
+	var fgCode string
 	if r.fgColor != "" {
-		if fg, ok := fgMap[r.fgColor]; ok {
-			codes = append(codes, fg)
+		if strings.HasPrefix(r.fgColor, "rgb:") {
+			if code, ok := parseRGB(r.fgColor); ok {
+				fgCode = "38;2;" + code
+			}
+		} else if fg, ok := fgMap[r.fgColor]; ok {
+			fgCode = fg
 		}
 	}
+	if fgCode != "" {
+		codes = append(codes, fgCode)
+	}
+
+	var bgCode string
 	if r.bgColor != "" {
-		if info, ok := colorMap[r.bgColor]; ok {
-			codes = append(codes, info.bg)
+		if strings.HasPrefix(r.bgColor, "rgb:") {
+			if code, ok := parseRGB(r.bgColor); ok {
+				bgCode = "48;2;" + code
+			}
+		} else if info, ok := colorMap[r.bgColor]; ok {
+			bgCode = info.bg
 		}
 	}
+	if bgCode != "" {
+		codes = append(codes, bgCode)
+	}
+
 	if len(codes) == 0 {
 		return "\x1b[33m" // default yellow foreground
 	}
@@ -254,11 +308,10 @@ func (r *ReadLine) Read() (string, error) {
 
 	// Show the prompt immediately when starting to read
 	// Choose appropriate prompt based on mode
-	color := r.getColorCodes()
 	if r.isHeredoc || r.isContinuation {
-		fmt.Printf("\r%s%s\x1b[0m ", color, r.readlinePrompt)
+		fmt.Printf("\r\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 	} else {
-		fmt.Printf("\r%s%s\x1b[0m ", color, r.prompt)
+		fmt.Printf("\r\x1b[33m%s\x1b[0m ", r.prompt)
 	}
 	r.refreshLine()
 
@@ -309,7 +362,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add the line to heredoc buffer
 					r.heredocBuffer = append(r.heredocBuffer, result)
 					// Show the prompt again for next line
-					fmt.Printf("%s%s\x1b[0m ", r.getColorCodes(), r.readlinePrompt)
+					fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -325,7 +378,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add line without the trailing backslash to buffer
 					r.continuationBuffer = append(r.continuationBuffer, result[:len(result)-1])
 					// Show prompt for next line
-					fmt.Printf("%s%s\x1b[0m ", r.getColorCodes(), r.readlinePrompt)
+					fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -372,7 +425,7 @@ func (r *ReadLine) Read() (string, error) {
 				}
 
 				// Show the prompt for next line
-				fmt.Printf("%s%s\x1b[0m ", r.getColorCodes(), r.readlinePrompt)
+				fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -387,7 +440,7 @@ func (r *ReadLine) Read() (string, error) {
 				r.continuationBuffer = []string{result[:len(result)-1]} // Store line without backslash
 
 				// Show prompt for next line
-				fmt.Printf("%s%s ", r.getColorCodes(), r.readlinePrompt)
+				fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -443,7 +496,7 @@ func (r *ReadLine) Read() (string, error) {
 				r.interruptFunc()
 			}
 			// Continue reading input after interruption instead of returning error
-			fmt.Printf("%s%s\x1b[0m ", r.getColorCodes(), r.prompt)
+			fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
 			continue
 
 		case 23: // Ctrl+W (delete word)
@@ -539,11 +592,14 @@ func (r *ReadLine) refreshLine() {
 	// Clear the current line
 	fmt.Print("\r\033[2K")
 
-	// Print prompt and visible text with color, padding to full width
+	// Print prompt with default color
+	fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
+
+	// Print visible text and padding with set colors
 	color := r.getColorCodes()
 	visibleText := string(r.buffer[r.scrollPos:visibleEnd])
 	textLen := len(visibleText)
-	fmt.Printf("%s%s %s", color, r.prompt, visibleText)
+	fmt.Printf("%s%s", color, visibleText)
 	// Pad with spaces to fill the terminal width minus one to avoid colorizing the next line
 	padding := r.width - textLen - 1
 	if padding < 0 {
@@ -951,7 +1007,7 @@ func (r *ReadLine) exitSearchMode() {
 
 	// Clear the search prompt and show normal prompt
 	fmt.Print("\r\033[2K")
-	fmt.Printf("%s%s\x1b[0m ", r.getColorCodes(), r.prompt)
+	fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
 	r.refreshLine()
 }
 

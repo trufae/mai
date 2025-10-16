@@ -108,8 +108,8 @@ func NewConfigOptions() *ConfigOptions {
 	// Screen rendering options
 	co.RegisterOption("ui.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
 	co.RegisterOption("ui.stats", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
-	co.RegisterOption("ui.bgcolor", StringOption, "Background color for the input line (black, red, green, yellow, blue, dark-blue, magenta, cyan, white, grey, bright-red, bright-green, bright-yellow, bright-blue, bright-magenta, bright-cyan, bright-white)", "")
-	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (black, red, green, yellow, blue, magenta, cyan, white, grey, bright-red, bright-green, bright-yellow, bright-blue, bright-magenta, bright-cyan, bright-white)", "")
+	co.RegisterOption("ui.bgcolor", StringOption, "Background color for the input line (named colors or rgb:RGB)", "")
+	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (named colors or rgb:RGB)", "")
 	co.RegisterOption("ui.bold", BooleanOption, "Use bold text for the input line", "false")
 
 	// Tooling options
@@ -366,6 +366,41 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	return "", fmt.Errorf("prompt not found: %s", promptName)
 }
 
+// parseRGBColor parses rgb:RGB format (3 hex chars) and returns ANSI code parameters
+func parseRGBColor(color string) (string, bool) {
+	if !strings.HasPrefix(color, "rgb:") || len(color) != 7 {
+		return "", false
+	}
+	hexStr := color[4:]
+	if len(hexStr) != 3 {
+		return "", false
+	}
+	var r, g, b int
+	for i, c := range hexStr {
+		var val int
+		switch {
+		case c >= '0' && c <= '9':
+			val = int(c - '0')
+		case c >= 'a' && c <= 'f':
+			val = 10 + int(c-'a')
+		case c >= 'A' && c <= 'F':
+			val = 10 + int(c-'A')
+		default:
+			return "", false
+		}
+		val *= 17
+		switch i {
+		case 0:
+			r = val
+		case 1:
+			g = val
+		case 2:
+			b = val
+		}
+	}
+	return fmt.Sprintf("%d;%d;%d", r, g, b), true
+}
+
 // handleInvalidConfigKey generates an error message for invalid configuration keys with suggestions
 func (r *REPL) handleInvalidConfigKey(key string) string {
 	var output strings.Builder
@@ -600,16 +635,22 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
 	case "ui.bgcolor":
-		validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
-		isValid := false
-		for _, c := range validColors {
-			if value == c {
-				isValid = true
-				break
+		if value != "" && !strings.HasPrefix(value, "rgb:") {
+			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			isValid := false
+			for _, c := range validColors {
+				if value == c {
+					isValid = true
+					break
+				}
 			}
-		}
-		if value != "" && !isValid {
-			return fmt.Sprintf("Error: invalid color '%s'. Valid colors: %s\r\n", value, strings.Join(validColors, ", ")), nil
+			if !isValid {
+				return fmt.Sprintf("Error: invalid color '%s'. Valid named colors: %s or rgb:RGB\r\n", value, strings.Join(validColors, ", ")), nil
+			}
+		} else if strings.HasPrefix(value, "rgb:") {
+			if _, ok := parseRGBColor(value); !ok {
+				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
+			}
 		}
 		if value == "" {
 			output.WriteString("Input line background color reset to default\r\n")
@@ -617,16 +658,22 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			output.WriteString(fmt.Sprintf("Input line background color set to %s\r\n", value))
 		}
 	case "ui.fgcolor":
-		validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
-		isValid := false
-		for _, c := range validFgColors {
-			if value == c {
-				isValid = true
-				break
+		if value != "" && !strings.HasPrefix(value, "rgb:") {
+			validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			isValid := false
+			for _, c := range validFgColors {
+				if value == c {
+					isValid = true
+					break
+				}
 			}
-		}
-		if value != "" && !isValid {
-			return fmt.Sprintf("Error: invalid color '%s'. Valid colors: %s\r\n", value, strings.Join(validFgColors, ", ")), nil
+			if !isValid {
+				return fmt.Sprintf("Error: invalid color '%s'. Valid named colors: %s or rgb:RGB\r\n", value, strings.Join(validFgColors, ", ")), nil
+			}
+		} else if strings.HasPrefix(value, "rgb:") {
+			if _, ok := parseRGBColor(value); !ok {
+				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
+			}
 		}
 		if value == "" {
 			output.WriteString("Input line foreground color reset to default\r\n")
