@@ -1587,7 +1587,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	streamEnabled := r.configOptions.GetBool("llm.stream") && redirectType == "" && !forceDisableStreaming
 
 	// Reset the markdown processor state before starting a new streaming session
-	if streamEnabled && r.configOptions.GetBool("scr.markdown") {
+	if streamEnabled && r.configOptions.GetBool("ui.markdown") {
 		llm.ResetStreamRenderer()
 	}
 
@@ -1697,7 +1697,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 					out = llm.FilterOutThinkForOutput(out)
 					out = strings.TrimLeft(out, " \t\r\n")
 				}
-				if r.configOptions.GetBool("scr.markdown") {
+				if r.configOptions.GetBool("ui.markdown") {
 					// Use markdown formatting
 					fmt.Print(llm.RenderMarkdown(out))
 				} else {
@@ -2110,7 +2110,7 @@ func (r *REPL) initCommands() {
 			}
 
 			// Return the content with markdown rendering if enabled
-			if r.configOptions.GetBool("scr.markdown") {
+			if r.configOptions.GetBool("ui.markdown") {
 				return llm.RenderMarkdown(content) + "\r\n", nil
 			} else {
 				// Replace single newlines with \r\n for proper terminal display
@@ -2937,7 +2937,7 @@ func (r *REPL) displayFullConversationLog() string {
 
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
-		if r.configOptions.GetBool("scr.markdown") {
+		if r.configOptions.GetBool("ui.markdown") {
 			output.WriteString(fmt.Sprintf("%s\r\n", llm.RenderMarkdown(msg.Content.(string))))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display

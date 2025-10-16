@@ -106,8 +106,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("repl.skiprc", BooleanOption, "Skip loading rc file on start", "false")
 
 	// Screen rendering options
-	co.RegisterOption("scr.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
-	co.RegisterOption("scr.tps", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
+	co.RegisterOption("ui.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
+	co.RegisterOption("ui.tps", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
 
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
@@ -585,9 +585,9 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	case "chat.log":
 		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
-	case "scr.markdown":
+	case "ui.markdown":
 		markdownStatus := "enabled"
-		if !r.configOptions.GetBool("scr.markdown") {
+		if !r.configOptions.GetBool("ui.markdown") {
 			markdownStatus = "disabled"
 		}
 		output.WriteString(fmt.Sprintf("Markdown rendering %s\r\n", markdownStatus))
@@ -729,7 +729,7 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("AI reasoning reverted to default\r\n")
 	case "chat.log":
 		output.WriteString("Logging reverted to default\r\n")
-	case "scr.markdown":
+	case "ui.markdown":
 		output.WriteString("Markdown rendering reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":
 		output.WriteString("System prompt removed\r\n")

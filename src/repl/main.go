@@ -224,8 +224,8 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 		config.PromptFile = v
 	}
 	// Behavior toggles used by providers
-	if opts.Get("scr.markdown") != "" {
-		config.Markdown = opts.GetBool("scr.markdown")
+	if opts.Get("ui.markdown") != "" {
+		config.Markdown = opts.GetBool("ui.markdown")
 	}
 	if opts.Get("scr.tps") != "" {
 		config.ShowTPS = opts.GetBool("scr.tps")
