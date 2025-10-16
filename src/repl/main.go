@@ -132,11 +132,11 @@ OLLAMA_MODEL=mannix/jan-nano:latest
 
 Other:
 
-GEMINI_API_KEY=(or set in ~/.r2ai.gemini-key)
-OPENAI_API_KEY=(or set in ~/.r2ai.openai-key)
-CLAUDE_API_KEY=(or set in ~/.r2ai.anthropic-key)
-DEEPSEEK_API_KEY=(or set in ~/.r2ai.deepseek-key)
-MISTRAL_API_KEY=(or set in ~/.r2ai.mistral-key)
+GEMINI_API_KEY=(or set in ~/.config/mai/keys/gemini)
+OPENAI_API_KEY=(or set in ~/.config/mai/keys/openai)
+CLAUDE_API_KEY=(or set in ~/.config/mai/keys/anthropic)
+DEEPSEEK_API_KEY=(or set in ~/.config/mai/keys/deepseek)
+MISTRAL_API_KEY=(or set in ~/.config/mai/keys/mistral)
 
 Model Selection:
 
@@ -171,11 +171,13 @@ func showHelp() {
 -v               show version
 
 Files:
-.mai/rc (project or ~/.mai/rc)         : script to be loaded before the repl is shown
-.mai/history.json (project or ~/.mai) : REPL command history file (JSON array)
-.mai/chat (project or ~/.mai)         : storage for chat session files
-.mai/systemprompt.md (project or ~/.mai) : system prompt file (supports '@' include directives)
-./share/mai/prompts : directory containing custom prompts
+.mai/rc (project or ~/.config/mai/rc)  : script to be loaded before the repl is shown
+~/.mairc                               : legacy rc file (also loaded for compatibility)
+~/.config/mai/history.json            : REPL command history file (JSON array)
+~/.config/mai/chats                   : storage for chat session files
+~/.config/mai/systemprompt.md         : system prompt file (supports '@' include directives)
+~/.config/mai/prompts                 : directory containing custom prompts
+./share/mai/prompts                   : directory containing system prompts
 `)
 }
 

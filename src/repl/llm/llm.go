@@ -658,7 +658,7 @@ func PrepareMessages(input string, cfg *Config) []Message {
 
 	// Next, allow a default system prompt file to be loaded when no explicit
 	// inline <system>...</system> prompt is present. This mirrors the REPL's
-	// behavior where .mai/systemprompt.md (project or $HOME/.mai) is used.
+	// behavior where .mai/systemprompt.md (project or $HOME/.config/mai) is used.
 	systemPrompt, userPrompt := ExtractSystemPrompt(expanded)
 
 	messages := []Message{}
@@ -758,7 +758,7 @@ func expandAtMentions(input string) string {
 }
 
 // loadDefaultSystemPrompt attempts to load a system prompt from the
-// repository-local `.mai/systemprompt.md` or the user's `$HOME/.mai/systemprompt.md`.
+// repository-local `.mai/systemprompt.md` or the user's `$HOME/.config/mai/systemprompt.md`.
 // Lines starting with '@' are treated as include directives and are replaced
 // with the contents of the referenced file (path is resolved relative to the
 // system prompt file's directory).
@@ -770,9 +770,9 @@ func loadDefaultSystemPrompt() string {
 	}
 	// Fallback to home
 	if home, err := os.UserHomeDir(); err == nil {
-		cand2 := filepath.Join(home, ".mai", "systemprompt.md")
+		cand2 := filepath.Join(home, ".config", "mai", "systemprompt.md")
 		if b, err := os.ReadFile(cand2); err == nil {
-			return processIncludes(string(b), filepath.Join(home, ".mai"))
+			return processIncludes(string(b), filepath.Join(home, ".config", "mai"))
 		}
 	}
 	return ""

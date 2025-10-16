@@ -8,9 +8,32 @@ import (
 	"strings"
 )
 
-// loadRCFile loads and processes commands from the 'rc' file in the project or home .mai directory
+// loadRCFile loads and processes commands from the 'rc' file in the project or home config directory,
+// and also checks ~/.mairc for backward compatibility
 func (r *REPL) loadRCFile() error {
-	// Load commands from the 'rc' file in the project or home .mai directory
+	// First try ~/.mairc for backward compatibility
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	maircPath := filepath.Join(homeDir, ".mairc")
+	if _, err := os.Stat(maircPath); err == nil {
+		content, err := os.ReadFile(maircPath)
+		if err != nil {
+			return fmt.Errorf("failed to read ~/.mairc: %v", err)
+		}
+		for _, line := range strings.Split(string(content), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || !strings.HasPrefix(line, "/") {
+				continue
+			}
+			if err := r.handleCommand(line, "", ""); err != nil {
+				fmt.Printf("Error in rc file %s: %v\r\n", maircPath, err)
+			}
+		}
+	}
+
+	// Then load from config directory
 	maiDir, err := findMaiDir()
 	if err != nil {
 		return err
@@ -40,7 +63,7 @@ func (r *REPL) loadRCFile() error {
 // findMaiMD is no longer used; system prompt file loading is handled dynamically
 
 // findMaiDir searches for a .mai directory from the current directory up to root,
-// and returns it, or falls back to $HOME/.mai if none found.
+// and returns it, or falls back to $HOME/.config/mai, then $HOME/.mai for backward compatibility.
 func findMaiDir() (string, error) {
 	currentDir, err := os.Getwd()
 	if err != nil {
@@ -61,6 +84,12 @@ func findMaiDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %v", err)
 	}
+	// Check ~/.config/mai first
+	configMaiDir := filepath.Join(homeDir, ".config", "mai")
+	if fi, err := os.Stat(configMaiDir); err == nil && fi.IsDir() {
+		return configMaiDir, nil
+	}
+	// Fallback to ~/.mai for backward compatibility
 	return filepath.Join(homeDir, ".mai"), nil
 }
 
@@ -122,11 +151,11 @@ func (r *REPL) saveHistory() error {
 	if !r.configOptions.GetBool("repl.history") {
 		return nil
 	}
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return err
 	}
-	historyFile := filepath.Join(homeDir, ".mai", "history.json")
+	historyFile := filepath.Join(maiDir, "history.json")
 
 	// Overwrite history file with updated history
 	if r.readline != nil {
@@ -145,11 +174,11 @@ func (r *REPL) loadReplHistory() error {
 	if !r.configOptions.GetBool("repl.history") {
 		return nil
 	}
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return err
 	}
-	historyFile := filepath.Join(homeDir, ".mai", "history.json")
+	historyFile := filepath.Join(maiDir, "history.json")
 	data, err := os.ReadFile(historyFile)
 	if err != nil {
 		// Nothing to load if file doesn't exist or cannot be read
@@ -181,7 +210,7 @@ func (r *REPL) setupHistory() error {
 			return fmt.Errorf("cannot create %s: %v", maiDir, err)
 		}
 	}
-	chatDir := filepath.Join(maiDir, "chat")
+	chatDir := filepath.Join(maiDir, "chats")
 	if _, err := os.Stat(chatDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(chatDir, 0755); err != nil {
 			return fmt.Errorf("cannot create %s: %v", chatDir, err)

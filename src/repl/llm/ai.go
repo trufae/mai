@@ -39,7 +39,7 @@ type Config struct {
 	Schema map[string]interface{}
 
 	// Optional system prompt overrides. When set, providers and callers
-	// should prefer these over the repository or home `.mai/systemprompt.md`.
+	// should prefer these over the repository or home `.config/mai/systemprompt.md`.
 	SystemPrompt     string
 	SystemPromptFile string
 
@@ -87,6 +87,7 @@ type Config struct {
 // GetAPIKey resolves an API key by checking an environment variable first,
 // then falling back to reading the first available file from the provided list.
 // Filenames may include a leading '~' which will be expanded to the user home.
+// Supports both old ~/.r2ai.*-key and new ~/.config/mai/keys/* formats.
 func GetAPIKey(envVar string, filenames ...string) string {
 	if v := os.Getenv(envVar); v != "" {
 		return strings.TrimSpace(v)
@@ -108,6 +109,28 @@ func GetAPIKey(envVar string, filenames ...string) string {
 		s := strings.TrimSpace(string(data))
 		if s != "" {
 			return s
+		}
+	}
+
+	// Check new config directory format
+	// Map old ~/.r2ai.provider-key to ~/.config/mai/keys/provider
+	for _, fn := range filenames {
+		if strings.Contains(fn, ".r2ai.") && strings.HasSuffix(fn, "-key") {
+			// Extract provider from ~/.r2ai.provider-key
+			base := filepath.Base(fn)
+			if strings.HasPrefix(base, ".r2ai.") && strings.HasSuffix(base, "-key") {
+				provider := strings.TrimSuffix(strings.TrimPrefix(base, ".r2ai."), "-key")
+				if home, err := os.UserHomeDir(); err == nil {
+					newPath := filepath.Join(home, ".config", "mai", "keys", provider)
+					data, err := os.ReadFile(newPath)
+					if err == nil {
+						s := strings.TrimSpace(string(data))
+						if s != "" {
+							return s
+						}
+					}
+				}
+			}
 		}
 	}
 	return ""

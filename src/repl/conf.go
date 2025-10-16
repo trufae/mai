@@ -62,8 +62,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat.followup", BooleanOption, "Automatically run #followup after assistant replies", "false")
 	co.RegisterOption("chat.format", StringOption, "Chat formatting: tokens, labeled, or plain", "plain")
 	co.RegisterOption("chat.log", BooleanOption, "Enable conversation logging", "true")
-	// Memory option: load consolidated memory from ~/.mai/memory.txt into conversation context
-	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.mai and include in context", "false")
+	// Memory option: load consolidated memory from ~/.config/mai/memory.txt into conversation context
+	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.config/mai and include in context", "false")
 	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "false")
 	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
 	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
@@ -92,7 +92,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("llm.schemafile", StringOption, "Path to JSON schema file for formatted output", "")
 	co.RegisterOption("llm.stream", BooleanOption, "Enable streaming mode", "true")
 	co.RegisterOption("llm.systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
-	co.RegisterOption("llm.systempromptfile", StringOption, "Path to system prompt file (default: .mai/systemprompt.md)", "")
+	co.RegisterOption("llm.systempromptfile", StringOption, "Path to system prompt file (default: ~/.config/mai/systemprompt.md)", "")
 	co.RegisterOption("llm.temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
 	co.RegisterOption("llm.think", BooleanOption, "Enable AI reasoning", "false")
 	co.RegisterOption("llm.thinkhide", BooleanOption, "Hide <think> internal reasoning from internal messages and terminal", "false")
@@ -341,6 +341,11 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 	commonLocations := []string{
 		"./share/mai/prompts",  // Current directory's prompts folder
 		"../share/mai/prompts", // Parent directory's prompts folder
+	}
+	// Add user config prompts directory
+	if home, err := os.UserHomeDir(); err == nil {
+		userPrompts := filepath.Join(home, ".config", "mai", "prompts")
+		commonLocations = append(commonLocations, userPrompts)
 	}
 
 	// Try each location

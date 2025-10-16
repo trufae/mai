@@ -65,11 +65,11 @@ func (r *REPL) handleSessionCommand(args []string) (string, error) {
 		if len(args) < 3 {
 			return "Usage: /session show <session-name>\r\n", nil
 		}
-		homeDir, err := os.UserHomeDir()
+		maiDir, err := findMaiDir()
 		if err != nil {
-			return fmt.Sprintf("Cannot get home directory: %v\r\n", err), nil
+			return fmt.Sprintf("Cannot find mai directory: %v\r\n", err), nil
 		}
-		sessionFile := filepath.Join(homeDir, ".mai", "chat", args[2]+".json")
+		sessionFile := filepath.Join(maiDir, "chats", args[2]+".json")
 		data, err := os.ReadFile(sessionFile)
 		if err != nil {
 			return fmt.Sprintf("Cannot read session file: %v\r\n", err), nil
@@ -97,11 +97,11 @@ func (r *REPL) handleSessionCommand(args []string) (string, error) {
 		if len(args) < 3 {
 			return "Usage: /session del <session-name>\r\n", nil
 		}
-		homeDir, err := os.UserHomeDir()
+		maiDir, err := findMaiDir()
 		if err != nil {
-			return "", fmt.Errorf("cannot get home directory: %v\r\n", err)
+			return "", fmt.Errorf("cannot find mai directory: %v\r\n", err)
 		}
-		chatDir := filepath.Join(homeDir, ".mai", "chat")
+		chatDir := filepath.Join(maiDir, "chats")
 		sessionFile := filepath.Join(chatDir, args[2]+".json")
 		topicFile := filepath.Join(chatDir, args[2]+".topic")
 		if err := os.Remove(sessionFile); err != nil {
@@ -144,11 +144,11 @@ func (r *REPL) getSessionTopic(sessionName string) string {
 	if sessionName == "" {
 		return ""
 	}
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
 		return ""
 	}
-	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
+	topicFile := filepath.Join(maiDir, "chats", sessionName+".topic")
 	if _, err := os.Stat(topicFile); os.IsNotExist(err) {
 		return ""
 	}
@@ -163,11 +163,11 @@ func (r *REPL) setSessionTopic(sessionName string, topic string) {
 	if sessionName == "" {
 		return
 	}
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
 		return
 	}
-	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
+	topicFile := filepath.Join(maiDir, "chats", sessionName+".topic")
 	if err := os.WriteFile(topicFile, []byte(topic), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing topic file: %v\n", err)
 	}
@@ -254,12 +254,12 @@ func (r *REPL) handleSessionNameCompletion(line *strings.Builder, command, parti
 }
 
 func (r *REPL) saveSession(sessionName string) error {
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return err
 	}
-	sessionFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".json")
-	topicFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".topic")
+	sessionFile := filepath.Join(maiDir, "chats", sessionName+".json")
+	topicFile := filepath.Join(maiDir, "chats", sessionName+".topic")
 
 	sess := sessionData{
 		Messages: r.messages,
@@ -297,11 +297,11 @@ func (r *REPL) saveSession(sessionName string) error {
 }
 
 func (r *REPL) loadSession(sessionName string) error {
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return err
 	}
-	sessionFile := filepath.Join(homeDir, ".mai", "chat", sessionName+".json")
+	sessionFile := filepath.Join(maiDir, "chats", sessionName+".json")
 
 	data, err := os.ReadFile(sessionFile)
 	if err != nil {
@@ -321,11 +321,11 @@ func (r *REPL) loadSession(sessionName string) error {
 }
 
 func (r *REPL) listSessions() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot get home directory: %v", err)
+		return "", err
 	}
-	chatDir := filepath.Join(homeDir, ".mai", "chat")
+	chatDir := filepath.Join(maiDir, "chats")
 
 	files, err := os.ReadDir(chatDir)
 	if err != nil {

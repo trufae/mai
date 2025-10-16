@@ -1071,11 +1071,11 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 			return "", r.generateMemory()
 		}
 		if args[2] == "show" {
-			homeDir, err := os.UserHomeDir()
+			maiDir, err := findMaiDir()
 			if err != nil {
-				return fmt.Sprintf("Cannot get home directory: %v\r\n", err), nil
+				return fmt.Sprintf("Cannot find mai directory: %v\r\n", err), nil
 			}
-			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+			memFile := filepath.Join(maiDir, "memory.txt")
 			b, err := os.ReadFile(memFile)
 			if err != nil {
 				return fmt.Sprintf("Cannot read memory file: %v\r\n", err), nil
@@ -1083,11 +1083,11 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 			return fmt.Sprintf("%s\r\n", string(b)), nil
 		}
 		if args[2] == "clear" {
-			homeDir, err := os.UserHomeDir()
+			maiDir, err := findMaiDir()
 			if err != nil {
-				return fmt.Sprintf("Cannot get home directory: %v\r\n", err), nil
+				return fmt.Sprintf("Cannot find mai directory: %v\r\n", err), nil
 			}
-			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+			memFile := filepath.Join(maiDir, "memory.txt")
 			_ = os.Remove(memFile)
 			return "Memory file removed\r\n", nil
 		}
@@ -1099,11 +1099,11 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 
 // generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to ~/.mai/memory.txt
 func (r *REPL) generateMemory() error {
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return err
 	}
-	chatDir := filepath.Join(homeDir, ".mai", "chat")
+	chatDir := filepath.Join(maiDir, "chats")
 	files, err := os.ReadDir(chatDir)
 	if err != nil {
 		return fmt.Errorf("cannot read chat directory: %v", err)
@@ -1161,7 +1161,7 @@ func (r *REPL) generateMemory() error {
 		return fmt.Errorf("failed to generate memory: %v", err)
 	}
 
-	memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+	memFile := filepath.Join(maiDir, "memory.txt")
 	if err := os.WriteFile(memFile, []byte(response), 0644); err != nil {
 		return fmt.Errorf("cannot write memory file: %v", err)
 	}
@@ -1465,9 +1465,9 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	// If memory option is enabled, load consolidated memory and include as system context
 	if r.configOptions.GetBool("chat.memory") {
-		homeDir, err := os.UserHomeDir()
+		maiDir, err := findMaiDir()
 		if err == nil {
-			memFile := filepath.Join(homeDir, ".mai", "memory.txt")
+			memFile := filepath.Join(maiDir, "memory.txt")
 			if b, err := os.ReadFile(memFile); err == nil && len(b) > 0 {
 				messages = append(messages, llm.Message{Role: "system", Content: "MEMORY:\n" + string(b)})
 			}
