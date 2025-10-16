@@ -339,8 +339,8 @@ func (r *REPL) resolvePromptPath(promptName string) (string, error) {
 
 	// Next, try common locations for prompts
 	commonLocations := []string{
-		"./prompts",  // Current directory's prompts folder
-		"../prompts", // Parent directory's prompts folder
+		"./share/mai/prompts",  // Current directory's prompts folder
+		"../share/mai/prompts", // Parent directory's prompts folder
 	}
 
 	// Try each location

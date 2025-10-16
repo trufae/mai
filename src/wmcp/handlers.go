@@ -537,7 +537,7 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 		var section strings.Builder
-	//	section.WriteString(fmt.Sprintf("## %s\n\n", category))
+		//	section.WriteString(fmt.Sprintf("## %s\n\n", category))
 
 		for _, entry := range entries {
 			// section.WriteString(fmt.Sprintf("ToolName: %s/%s\n", entry.Server, entry.Name))

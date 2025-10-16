@@ -181,7 +181,7 @@ func (r *REPL) listTemplates() error {
 	templateDir := r.configOptions.Get("dir.templates")
 	if templateDir == "" {
 		// Try to find templates directory relative to executable
-		templateDir = r.findDirectory("templates")
+		templateDir = r.findDirectory("share/mai/templates")
 		if templateDir == "" {
 			fmt.Print("No template directory found. Set one with /set templatedir <path>\r\n")
 			return nil
@@ -245,7 +245,7 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 	}
 
 	// Next, try to find templates directory relative to executable
-	if templateDir := r.findDirectory("templates"); templateDir != "" {
+	if templateDir := r.findDirectory("share/mai/templates"); templateDir != "" {
 		templatePath := filepath.Join(templateDir, templateName)
 
 		// Try with file as is
@@ -268,7 +268,7 @@ func (r *REPL) resolveTemplatePath(templateName string) (string, error) {
 // autoDetectTemplateDir attempts to find a templates directory relative to the executable path
 // and sets the templatedir config variable if found
 func (r *REPL) autoDetectTemplateDir() {
-	r.autoDetectDirectory("dir.templates", "templates", false)
+	r.autoDetectDirectory("dir.templates", "share/mai/templates", false)
 }
 
 // autoDetectWwwRoot attempts to find a www directory relative to the executable path

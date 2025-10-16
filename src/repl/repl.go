@@ -778,7 +778,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			// Determine prompt directory
 			promptDir := r.configOptions.Get("dir.prompt")
 			if promptDir == "" {
-				for _, loc := range []string{"./prompts", "../prompts"} {
+				for _, loc := range []string{"./share/mai/prompts", "../share/mai/prompts"} {
 					if _, err := os.Stat(loc); err == nil {
 						promptDir = loc
 						break
@@ -853,7 +853,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			// Determine template directory
 			templDir := r.configOptions.Get("dir.templates")
 			if templDir == "" {
-				for _, loc := range []string{"./templates", "../templates"} {
+				for _, loc := range []string{"./share/mai/templates", "../share/mai/templates"} {
 					if _, err := os.Stat(loc); err == nil {
 						templDir = loc
 						break
@@ -3172,7 +3172,7 @@ func (r *REPL) processIncludeStatements(content, baseDir string) string {
 // autoDetectPromptDir attempts to find a prompts directory relative to the executable path
 // and sets the promptdir config variable if found
 func (r *REPL) autoDetectPromptDir() {
-	r.autoDetectDirectory("dir.prompt", "prompts", true)
+	r.autoDetectDirectory("dir.prompt", "share/mai/prompts", true)
 }
 
 // showCurrentModel displays the current model based on the provider

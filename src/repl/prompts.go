@@ -33,8 +33,8 @@ func (r *REPL) listPrompts() ([]string, error) {
 	if promptDir == "" {
 		// Try common locations
 		commonLocations := []string{
-			"./prompts",
-			"../prompts",
+			"./share/mai/prompts",
+			"../share/mai/prompts",
 		}
 
 		found := false
