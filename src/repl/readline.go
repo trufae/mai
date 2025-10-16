@@ -355,7 +355,8 @@ func (r *ReadLine) Read() (string, error) {
 				return "", io.EOF
 			}
 		case '\f': // Ctrl+L
-			fmt.Printf("\033[2J\033[H\x1b[33m%s\x1b[0m ", r.prompt) // Clear screen ANSI
+			fmt.Printf("\033[2J\033[H") // Clear screen ANSI
+			r.refreshLine()             // Refresh the input line after clearing
 
 		case 3: // Ctrl+C
 			// This case may not get triggered if our custom terminal mode allows
