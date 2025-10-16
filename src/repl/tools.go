@@ -90,7 +90,7 @@ func GetAvailableToolsWithConfig(configOptions ConfigOptions, defaultFormat Form
 }
 
 // callTool executes a specified tool with provided arguments and returns the output
-func callTool(tool *Tool, debug bool, timeoutSeconds int) (string, error) {
+func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string, error) {
 	// Validate the tool name
 	if tool.Name == "" {
 		return "", fmt.Errorf("empty tool name provided")
@@ -116,6 +116,11 @@ func callTool(tool *Tool, debug bool, timeoutSeconds int) (string, error) {
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
+	if format == "json" {
+		cmdArgs = append([]string{"-j"}, cmdArgs...)
+	} else if format == "xml" {
+		cmdArgs = append([]string{"-x"}, cmdArgs...)
+	}
 
 	// Add debug flag if enabled
 	if debug {
@@ -150,12 +155,13 @@ func callTool(tool *Tool, debug bool, timeoutSeconds int) (string, error) {
 
 // ExecuteTool runs a specified tool with provided arguments and returns the output
 // Kept for backward compatibility
-func ExecuteTool(toolName string, args ...string) (string, error) {
+func (r *REPL)ExecuteTool(toolName string, args ...string) (string, error) {
 	tool := &Tool{
 		Name: toolName,
 		Args: args,
 	}
-	return callTool(tool, false, 60)
+	toolFormat := r.configOptions.Get("mcp.toolformat")
+	return callTool(tool, false, toolFormat, 60)
 }
 
 // TODO: some field names dont match the json schema which is confusing

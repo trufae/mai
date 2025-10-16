@@ -3550,7 +3550,7 @@ func (r *REPL) handleToolCommand(args []string) (string, error) {
 			output.WriteString("\n")
 		}
 	} else {
-		res, err := ExecuteTool(args[1], args[2:]...)
+		res, err := r.ExecuteTool(args[1], args[2:]...)
 		if err == nil {
 			output.WriteString(res)
 			output.WriteString("\n")

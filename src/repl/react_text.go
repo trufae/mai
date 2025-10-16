@@ -701,7 +701,8 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		if err != nil || timeout <= 0 {
 			timeout = 60
 		}
-		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), int(timeout))
+		toolFormat := r.configOptions.Get("mcp.toolformat")
+		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), toolFormat, int(timeout))
 		if err != nil {
 			if r.configOptions.GetBool("repl.debug") {
 				art.DebugBanner("Tool Call Error", err.Error())

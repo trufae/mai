@@ -467,7 +467,9 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		if err != nil || timeout <= 0 {
 			timeout = 60
 		}
-		result, err := callTool(tool, r.configOptions.GetBool("mcp.debug"), int(timeout))
+		toolDebug := r.configOptions.GetBool("mcp.debug")
+		toolFormat := r.configOptions.Get("mcp.toolformat")
+		result, err := callTool(tool, toolDebug, toolFormat, int(timeout))
 		if err != nil {
 			fmt.Println(err)
 			// Update chat history with failed tool call
