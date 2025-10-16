@@ -213,13 +213,9 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 
 	// Set prompts in the readline instance
 	if repl.readline != nil {
-		if prompt := repl.configOptions.Get("repl.prompt"); prompt != "" {
-			repl.readline.SetPrompt(prompt)
-		}
+		repl.readline.SetPrompt(repl.configOptions.Get("repl.prompt"))
 
-		if readlinePrompt := repl.configOptions.Get("repl.prompt2"); readlinePrompt != "" {
-			repl.readline.SetReadlinePrompt(readlinePrompt)
-		}
+		repl.readline.SetReadlinePrompt(repl.configOptions.Get("repl.prompt2"))
 
 		if bgcolor := repl.configOptions.Get("ui.bgcolor"); bgcolor != "" {
 			repl.readline.SetBgColor(bgcolor)
@@ -2347,9 +2343,6 @@ func (r *REPL) handleTemplateSlashCommand(args []string) error {
 		if interactive {
 			// Interactive mode: prompt for missing vars
 			prompt := r.configOptions.Get("repl.prompt")
-			if prompt == "" {
-				prompt = ">>>"
-			}
 
 			p := r.readline.defaultPrompt
 			r.readline.defaultPrompt = "?"

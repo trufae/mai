@@ -608,9 +608,6 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 		}
 		if clearScreen && display != "quiet" {
 			prompt := r.configOptions.Get("repl.prompt")
-			if prompt == "" {
-				prompt = ">>>"
-			}
 			fmt.Print("\033[2J\033[H\033[33m" + prompt + " " + input + "\r\n")
 			cl := len(context)
 			if cl > 0 {

@@ -58,7 +58,7 @@ func NewReadLine() (*ReadLine, error) {
 	}
 
 	// Default prompts
-	prompt := ">>>"
+	prompt := ""
 	readlinePrompt := "..." // multiline
 
 	// Account for prompt length plus a space
@@ -569,11 +569,17 @@ func (r *ReadLine) Read() (string, error) {
 
 // refreshLine redraws the current line with scrolling if needed
 func (r *ReadLine) refreshLine() {
+	// Calculate extra space for background color indicator
+	extraSpace := 0
+	if r.bgColor != "" {
+		extraSpace = 1
+	}
+
 	// Get terminal width
 	width, _, err := term.GetSize(int(os.Stdin.Fd()))
 	if err == nil {
-		// Account for prompt length plus a space
-		promptLen := len(r.prompt) + 1
+		// Account for prompt length plus spaces
+		promptLen := len(r.prompt) + 1 + extraSpace
 		r.width = width - promptLen
 	}
 	// First, calculate the visible portion of the buffer
@@ -593,10 +599,16 @@ func (r *ReadLine) refreshLine() {
 	fmt.Print("\r\033[2K")
 
 	// Print prompt with default color
-	fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
+	fmt.Printf("\x1b[33m%s\x1b[0m", r.prompt)
 
-	// Print visible text and padding with set colors
+	// Print space after prompt with background color if set
 	color := r.getColorCodes()
+	if r.bgColor != "" {
+		fmt.Printf("%s \x1b[0m", color)
+	} else {
+		fmt.Print(" ")
+	}
+
 	visibleText := string(r.buffer[r.scrollPos:visibleEnd])
 	textLen := len(visibleText)
 	fmt.Printf("%s%s", color, visibleText)
