@@ -4,33 +4,14 @@ A Vim plugin that integrates the `mai` AI assistant into your Vim workflow. Send
 
 ## Requirements
 
-- Vim with `+python` support (optional, for advanced features)
 - The `mai` command-line tool installed and available in your PATH
-- An API key configured for your chosen AI provider (see `mai --help`)
+- By default, uses Ollama with Gemma3:1B model
 
 ## Installation
-
-### Automatic Installation
-
-Run the provided Makefile:
 
 ```bash
 make install
 ```
-
-This will:
-- Create the directory `~/.vim/mai/`
-- Copy `mai.vim` and `prompts.txt` to `~/.vim/mai/`
-- Add `source ~/.vim/mai/mai.vim` to your `~/.vimrc`
-
-### Manual Installation
-
-1. Copy `mai.vim` to `~/.vim/mai/mai.vim`
-2. Copy `prompts.txt` to `~/.vim/mai/prompts.txt`
-3. Add this line to your `~/.vimrc`:
-   ```vim
-   source ~/.vim/mai/mai.vim
-   ```
 
 ## Configuration
 
@@ -49,26 +30,26 @@ Edit `~/.vim/mai/prompts.txt` to add your own prompts. Each line is a separate p
 
 ## Usage
 
-1. Select text in visual mode (or use the current line in normal mode)
-2. Press `m` to invoke mai.vim
-3. Choose a prompt from the menu
-4. Review the AI output
-5. Select how to apply the output:
-   - Ignore
-   - Replace selected text
-   - Append below
-   - Wrap in C preprocessor conditional block
-   - Show in a separate split
+1. 🔍 Select text in visual mode (or use the current line in normal mode)
+2. ⌨️ Press `m` to invoke mai.vim
+3. 📋 Choose a prompt from the menu
+4. 👀 Review the AI output
+5. 🔄 Select how to apply the output:
+   - ❌ Ignore
+   - 🔄 Replace selected text
+   - ➕ Append below
+   - 🛠️ Wrap in C preprocessor conditional block
+   - 📄 Show in a separate split
 
 ## Key Mappings
 
-- Visual mode: `m` - Process selected text with mai
+- ⌨️ Visual mode: `m` - Process selected text with mai
 
 ## Examples
 
-- Fix typos: Select text, press `m`, choose "fix typos", replace selection
-- Translate: Select text, press `m`, choose "translate to catalan", append below
-- Improve writing: Select text, press `m`, choose "improve wording", replace selection
+- 🔧 Fix typos: Select text, press `m`, choose "fix typos", replace selection
+- 🌐 Translate: Select text, press `m`, choose "translate to catalan", append below
+- ✍️ Improve writing: Select text, press `m`, choose "improve wording", replace selection
 
 ## Uninstallation
 
