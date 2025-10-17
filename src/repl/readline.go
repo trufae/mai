@@ -383,13 +383,7 @@ func (r *ReadLine) Read() (string, error) {
 	}
 
 	// Show the prompt immediately when starting to read
-	// Choose appropriate prompt based on mode
-	promptColor := r.getPromptColorCodes()
-	if r.isHeredoc || r.isContinuation {
-		fmt.Printf("\r%s%s\x1b[0m ", promptColor, r.readlinePrompt)
-	} else {
-		fmt.Printf("\r%s%s\x1b[0m ", promptColor, r.prompt)
-	}
+	r.printPrompt()
 	r.refreshLine()
 
 	// Buffer large enough to handle multi-byte characters
@@ -439,8 +433,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add the line to heredoc buffer
 					r.heredocBuffer = append(r.heredocBuffer, result)
 					// Show the prompt again for next line
-					promptColor := r.getPromptColorCodes()
-					fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
+					r.printPrompt()
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -456,8 +449,7 @@ func (r *ReadLine) Read() (string, error) {
 					// Add line without the trailing backslash to buffer
 					r.continuationBuffer = append(r.continuationBuffer, result[:len(result)-1])
 					// Show prompt for next line
-					promptColor := r.getPromptColorCodes()
-					fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
+					r.printPrompt()
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -504,8 +496,7 @@ func (r *ReadLine) Read() (string, error) {
 				}
 
 				// Show the prompt for next line
-				promptColor := r.getPromptColorCodes()
-				fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
+				r.printPrompt()
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -520,8 +511,7 @@ func (r *ReadLine) Read() (string, error) {
 				r.continuationBuffer = []string{result[:len(result)-1]} // Store line without backslash
 
 				// Show prompt for next line
-				promptColor := r.getPromptColorCodes()
-				fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
+				r.printPrompt()
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -577,8 +567,7 @@ func (r *ReadLine) Read() (string, error) {
 				r.interruptFunc()
 			}
 			// Continue reading input after interruption instead of returning error
-			promptColor := r.getPromptColorCodes()
-			fmt.Printf("%s%s\x1b[0m ", promptColor, r.prompt)
+			r.printPrompt()
 			continue
 
 		case 23: // Ctrl+W (delete word)
@@ -651,19 +640,22 @@ func (r *ReadLine) Read() (string, error) {
 
 // refreshLine redraws the current line with scrolling if needed
 func (r *ReadLine) refreshLine() {
+	// Get terminal width
+	fullWidth, _, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil {
+		fullWidth = 80 // fallback
+	}
+
 	// Calculate extra space for background color indicator
 	extraSpace := 0
 	if r.bgColor != "" {
 		extraSpace = 1
 	}
 
-	// Get terminal width
-	width, _, err := term.GetSize(int(os.Stdin.Fd()))
-	if err == nil {
-		// Account for prompt length plus spaces
-		promptLen := len(r.prompt) + 1 + extraSpace
-		r.width = width - promptLen
-	}
+	// Account for prompt length plus spaces
+	promptLen := len(r.prompt) + 1 + extraSpace
+	r.width = fullWidth - promptLen
+
 	// First, calculate the visible portion of the buffer
 	visibleEnd := r.scrollPos + r.width
 	if visibleEnd > len(r.buffer) {
@@ -695,20 +687,16 @@ func (r *ReadLine) refreshLine() {
 	visibleText := string(r.buffer[r.scrollPos:visibleEnd])
 	textLen := len(visibleText)
 	fmt.Printf("%s%s", color, visibleText)
+
 	// Pad with spaces to fill the full terminal width minus one to avoid colorizing the next line
-	fullWidth, _, err := term.GetSize(int(os.Stdin.Fd()))
-	if err != nil {
-		fullWidth = 80 // fallback
-	}
-	padding := fullWidth - len(r.prompt) - 1 - textLen
+	padding := fullWidth - len(r.prompt) - 1 - textLen + extraSpace
 	if padding < 0 {
 		padding = 0
 	}
 	fmt.Printf("%s%s\x1b[0m", color, strings.Repeat(" ", padding)) // pad with color and reset
 
 	// Calculate cursor position on screen
-	promptLen := len(r.prompt) + 1 // +1 for space
-	screenPos := r.cursorPos - r.scrollPos + promptLen
+	screenPos := r.cursorPos - r.scrollPos + len(r.prompt) + 1 + extraSpace
 
 	// Move cursor to the correct position
 	fmt.Printf("\r\033[%dC", screenPos)
@@ -880,6 +868,16 @@ func (r *ReadLine) SetFgPromptColor(color string) {
 // SetBgPromptColor sets the background color for the prompt text
 func (r *ReadLine) SetBgPromptColor(color string) {
 	r.bgPromptColor = color
+}
+
+// printPrompt prints the current prompt with color
+func (r *ReadLine) printPrompt() {
+	promptColor := r.getPromptColorCodes()
+	prompt := r.prompt
+	if r.isHeredoc || r.isContinuation {
+		prompt = r.readlinePrompt
+	}
+	fmt.Printf("\r%s%s\x1b[0m ", promptColor, prompt)
 }
 
 // handleTabCompletion handles tab completion (kept for reference)
@@ -1117,9 +1115,6 @@ func (r *ReadLine) exitSearchMode() {
 	}
 
 	// Clear the search prompt and show normal prompt
-	fmt.Print("\r\033[2K")
-	promptColor := r.getPromptColorCodes()
-	fmt.Printf("%s%s\x1b[0m ", promptColor, r.prompt)
 	r.refreshLine()
 }
 
