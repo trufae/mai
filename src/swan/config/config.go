@@ -31,7 +31,10 @@ type ProviderConfig struct {
 // MCPConfig defines an MCP server with its configuration
 type MCPConfig struct {
 	Name      string                 `yaml:"name"`
-	Type      string                 `yaml:"type"` // e.g., "code", "shell", "websearch"
+	Type      string                 `yaml:"type"`           // e.g., "code", "shell", "websearch"
+	Command   string                 `yaml:"command"`        // Executable command (e.g., "mai-mcp-wttr")
+	Args      []string               `yaml:"args,omitempty"` // Command arguments
+	Env       map[string]string      `yaml:"env,omitempty"`  // Environment variables
 	Config    map[string]interface{} `yaml:"config,omitempty"`
 	Immutable bool                   `yaml:"immutable,omitempty"`
 }

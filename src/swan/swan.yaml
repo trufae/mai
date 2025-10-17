@@ -2,39 +2,47 @@
 work_dir: "./work"
 
 providers:
-  - name: "openai-gpt-4o"
-    provider: "openai"
-    model: "gpt-4o"
-    immutable: true
+#  - name: "openai-gpt-4o"
+#    provider: "openai"
+#    model: "gpt-4o"
+#    immutable: true
   - name: "ollama-gemma3-1b"
     provider: "ollama"
     model: "gemma3:1b"
     baseurl: "http://localhost:11434"
     immutable: true
-  - name: "ollama-gemma3-27b"
+  - name: "ollama-gemma3-12b"
     provider: "ollama"
-    model: "gemma3:27b"
+    model: "gemma3:12b"
     baseurl: "http://localhost:11434"
     immutable: true
 
 mcps:
   - name: "wttr"
     type: "wttr"
+    command: "mai-mcp-wttr"
+    args: []
     config:
       enabled: true
     immutable: true
   - name: "pancode"
     type: "pancode"
+    command: "mai-mcp-pancode"
+    args: []
     config:
       enabled: true
     immutable: true
   - name: "time"
     type: "time"
+    command: "mai-mcp-time"
+    args: []
     config:
       enabled: true
     immutable: true
   - name: "shell"
     type: "shell"
+    command: "mai-mcp-shell"
+    args: []
     config:
       enabled: true
     immutable: true
@@ -60,16 +68,15 @@ agents:
     mcps: ["shell", "time"]
     prompts: ["default-system"]
     immutable: true
-  - name: "agent-gemma3-27b"
-    provider: "ollama-gemma3-27b"
-    mcps: ["pancode", "shell", "time"]
+  - name: "agent-gemma3-12b"
+    provider: "ollama-gemma3-12b"
+    mcps: ["pancode", "shell", "wttr", "time"]
     prompts: ["coding-assistant"]
     immutable: true
 
 orchestrator:
   port: 9090
   listen_addr: "127.0.0.1"
-  vdb_path: "./work/vdb"
 
 # SWAN's own prompts - can be customized and will evolve over time
 swan_prompts:

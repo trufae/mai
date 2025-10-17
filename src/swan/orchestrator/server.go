@@ -81,9 +81,11 @@ func (s *OrchestratorServer) Start() error {
 
 	// SWAN-specific endpoints
 	mux.HandleFunc("/api/agents", s.handleListAgents)
+	mux.HandleFunc("/api/mcps", s.handleListMCPs)
 	mux.HandleFunc("/api/task", s.handleTask)
 	mux.HandleFunc("/api/communicate", s.handleInterAgentCommunication)
 	mux.HandleFunc("/api/network-knowledge", s.handleGetNetworkKnowledge)
+	mux.HandleFunc("/api/statistics", s.handleStatistics)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	listenAddr := fmt.Sprintf("%s:%d", s.config.Orchestrator.ListenAddr, s.config.Orchestrator.Port)
@@ -102,6 +104,8 @@ func (s *OrchestratorServer) Start() error {
 	fmt.Printf("Models list: http://%s/api/tags\n", listenAddr)
 	fmt.Printf("Health check: http://%s/health\n", listenAddr)
 	fmt.Printf("Agent list: http://%s/api/agents\n", listenAddr)
+	fmt.Printf("MCP list: http://%s/api/mcps\n", listenAddr)
+	fmt.Printf("Statistics: http://%s/api/statistics\n", listenAddr)
 	fmt.Printf("DEBUG: Calling ListenAndServe...\n")
 	return s.server.ListenAndServe()
 }
@@ -244,6 +248,18 @@ func (s *OrchestratorServer) handleListAgents(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(agents)
 }
 
+// handleListMCPs returns list of running MCPs
+func (s *OrchestratorServer) handleListMCPs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mcps := s.daemonMgr.ListMCPs()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(mcps)
+}
+
 // handleTask handles direct task execution
 func (s *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -315,6 +331,26 @@ func (s *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(result)
 }
 
+// handleStatistics returns learning engine statistics
+func (s *OrchestratorServer) handleStatistics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var stats map[string]interface{}
+	if s.learning != nil {
+		stats = s.learning.GetStatistics()
+	} else {
+		stats = map[string]interface{}{
+			"status": "learning_engine_disabled",
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
 // handleHealth returns health status
 func (s *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	agents := s.daemonMgr.ListAgents()
@@ -333,7 +369,72 @@ func (s *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(response)
 }
 
-// selectAgent selects an agent for task execution using learning engine
+// analyzeTone analyzes the tone of a user query
+func (s *OrchestratorServer) analyzeTone(query string) (tone string, confidence float64) {
+	query = strings.ToLower(query)
+
+	// Aggressive/frustrated indicators
+	aggressiveWords := []string{"stupid", "idiot", "useless", "broken", "sucks", "hate", "worst", "terrible", "awful", "damn", "hell"}
+	correctionWords := []string{"wrong", "incorrect", "mistake", "error", "fix", "should be", "not working"}
+	urgentWords := []string{"urgent", "asap", "immediately", "right now", "quickly"}
+	informationalWords := []string{"what", "how", "explain", "tell me", "show me", "can you"}
+
+	aggressiveScore := 0
+	correctionScore := 0
+	urgentScore := 0
+	informationalScore := 0
+
+	words := strings.Fields(query)
+	for _, word := range words {
+		for _, aw := range aggressiveWords {
+			if strings.Contains(word, aw) {
+				aggressiveScore++
+			}
+		}
+		for _, cw := range correctionWords {
+			if strings.Contains(word, cw) {
+				correctionScore++
+			}
+		}
+		for _, uw := range urgentWords {
+			if strings.Contains(word, uw) {
+				urgentScore++
+			}
+		}
+		for _, iw := range informationalWords {
+			if strings.Contains(word, iw) {
+				informationalScore++
+			}
+		}
+	}
+
+	// Check for exclamation marks and question marks
+	exclamationCount := strings.Count(query, "!")
+	questionCount := strings.Count(query, "?")
+
+	// Determine dominant tone
+	scores := []float64{float64(aggressiveScore), float64(correctionScore), float64(urgentScore), float64(informationalScore)}
+	maxScore := scores[0]
+	for _, score := range scores {
+		if score > maxScore {
+			maxScore = score
+		}
+	}
+
+	if aggressiveScore > 0 && exclamationCount > 1 {
+		return "aggressive", float64(aggressiveScore) / float64(len(words))
+	} else if correctionScore > 0 {
+		return "corrective", float64(correctionScore) / float64(len(words))
+	} else if urgentScore > 0 || exclamationCount > 0 {
+		return "urgent", float64(urgentScore+exclamationCount) / float64(len(words)+1)
+	} else if informationalScore > 0 || questionCount > 0 {
+		return "informational", float64(informationalScore+questionCount) / float64(len(words)+1)
+	}
+
+	return "neutral", 0.5
+}
+
+// selectAgent selects an agent for task execution using learning engine and tone analysis
 func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -341,6 +442,30 @@ func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 	agents := s.daemonMgr.ListAgents()
 	if len(agents) == 0 {
 		return nil
+	}
+
+	// Analyze query tone for intelligent routing
+	tone, confidence := s.analyzeTone(query)
+
+	// Log tone analysis
+	if s.learning != nil {
+		s.learning.GetLogger().LogDecision("tone_analysis", fmt.Sprintf("Detected tone: %s (confidence: %.2f)", tone, confidence),
+			map[string]interface{}{"tone": tone, "confidence": confidence, "query_length": len(query)}, nil, true, nil)
+	}
+
+	// For aggressive tones, prefer more experienced/stable agents
+	if tone == "aggressive" && confidence > 0.1 {
+		// Try to find an agent with good performance history
+		if s.learning != nil {
+			stats := s.learning.GetStatistics()
+			if agentRankings, ok := stats["agent_rankings"].([]map[string]interface{}); ok && len(agentRankings) > 0 {
+				// Pick the highest ranked agent
+				bestAgentName := agentRankings[0]["agent"].(string)
+				if agent, exists := agents[bestAgentName]; exists {
+					return agent
+				}
+			}
+		}
 	}
 
 	// Try to get best agent from learning engine based on time/quality metrics
@@ -714,8 +839,27 @@ func (s *OrchestratorServer) handleAdminQuery(query string) string {
 				name, agent.PID, agent.Port, agent.Config.Provider, agent.Config.Model)
 		}
 		return response
+	case "/mcps", "list mcps", "mcps":
+		mcps := s.daemonMgr.ListMCPs()
+		if len(mcps) == 0 {
+			return "No MCPs currently running"
+		}
+		response := "Running MCPs:\n"
+		for name, mcp := range mcps {
+			response += fmt.Sprintf("- %s (PID: %d, Port: %d, Command: %s)\n",
+				name, mcp.PID, mcp.Port, mcp.Config.Command)
+		}
+		return response
+	case "/stats", "statistics", "stats":
+		if s.learning != nil {
+			stats := s.learning.GetStatistics()
+			return fmt.Sprintf("SWAN Statistics:\nTotal tasks: %v\nCached responses: %v\nVDB entries: %v\nAgents tracked: %v\nAvg quality: %.2f\nSuccess rate: %.2f%%",
+				stats["total_tasks"], stats["cached_responses"], stats["vdb_entries"], stats["agents_tracked"],
+				stats["avg_quality"], stats["success_rate"].(float64)*100)
+		}
+		return "Learning engine not available"
 	case "/help", "help":
-		return "Available commands:\n/health - Show system health\n/agents - List running agents\n/help - Show this help"
+		return "Available commands:\n/health - Show system health\n/agents - List running agents\n/mcps - List running MCPs\n/stats - Show learning statistics\n/help - Show this help"
 	default:
 		return ""
 	}

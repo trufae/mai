@@ -557,7 +557,7 @@ find work/network/ -name "*.txt" -exec wc -l {} \; | sort -nr
 
 ## Future Plans & Roadmap
 
-### Phase 1 (Current) ✅
+### Current State ✅
 - Basic multi-agent orchestration
 - Time/quality-based decision making
 - VDB caching for performance
@@ -568,7 +568,7 @@ find work/network/ -name "*.txt" -exec wc -l {} \; | sort -nr
 - Network knowledge files
 - Autonomous evolution
 
-### Phase 2 (Next 3 Months)
+### Phase 2
 - **Reinforcement Learning**: Advanced algorithms for agent selection optimization
 - **Dynamic Architecture**: Automatically modify agent configurations and add/remove agents
 - **Cost-Aware Routing**: Optimize for API costs while maintaining quality
@@ -576,14 +576,14 @@ find work/network/ -name "*.txt" -exec wc -l {} \; | sort -nr
 - **Real-time Dashboard**: Web UI for monitoring performance and competitions
 - **Federated Learning**: Share knowledge across multiple SWAN instances
 
-### Phase 3 (6 Months)
+### Phase 3
 - **Federated Learning**: Share learnings across multiple SWAN instances
 - **Agent Marketplace**: Community-contributed agent configurations
 - **Auto-Scaling**: Automatically spawn/terminate agents based on load
 - **Advanced Caching**: Semantic caching with embedding similarity
 - **Integration APIs**: Native integrations with popular development tools
 
-### Phase 4 (1 Year)
+### Phase 4
 - **Multi-Cloud Deployment**: Seamless operation across cloud providers
 - **Edge Computing**: Run SWAN on edge devices for privacy/local processing
 - **Advanced Analytics**: Predictive modeling for query routing
@@ -864,45 +864,32 @@ orchestrator:
 
 ### Decision Flow
 
-```
-User Query
-    ↓
-Extract Features (length, complexity, keywords)
-    ↓
-Check VDB Cache
-    ↓ (cache miss)
-Check Competition Needed?
-    ↓ (yes)
-Run Competition → Select Winner
-    ↓ (no)
-Query Historical Performance
-    ↓
-Apply Network Knowledge
-    ↓
-Select Best Agent
-    ↓
-Execute Task
-    ↓
-Assess Quality
-    ↓
-Update Metrics
-    ↓
-Cache if High Quality
-    ↓
-Log Decision & Learn
+1. User Query
+2. Extract Features (length, complexity, keywords)
+3. Check VDB Cache (cache miss?)
+4. Check Competition Needed?
+  * (yes) Run Competition → Select Winner
+  * (no) Query Historical Performance
+5. Apply Network Knowledge
+6. Select Best Agent
+7. Execute Task
+8. Assess Quality
+9. Update Metrics
+10. Cache if High Quality
+11. Log Decision & Learn
 ```
 
 ### Data Flow Architecture
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   User Query    │───▶│  Orchestrator    │───▶│   Agent Pool    │
-│                 │    │                  │    │                 │
+┌─────────────────┐    ┌───────────────────┐    ┌─────────────────┐
+│   User Query    │───▶│  Orchestrator     │───▶│   Agent Pool    │
+│                 │    │                   │    │                 │
 │ OpenAI API      │    │ - Decision Making │    │ - MAI Instances │
 │ Direct API      │    │ - Competitions    │    │ - MCP Tools     │
 └─────────────────┘    │ - Caching         │    └─────────────────┘
-                       │ - Evolution       │             │
-                       └───────────────────┘             │
+                       │ - Evolution       │           │
+                       └───────────────────┘           │
                                ▲                       │
                                │                       ▼
                        ┌───────────────────┐    ┌─────────────────┐
@@ -936,41 +923,6 @@ WORK_DIR=/var/lib/swan ./mai-swan swan.yaml
 
 # Background service
 nohup ./mai-swan swan.yaml > swan.log 2>&1 &
-```
-
-### Production Deployment
-
-#### Docker Container
-```dockerfile
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go build -o mai-swan ./cmd
-
-FROM alpine:latest
-RUN apk add --no-cache ca-certificates
-COPY --from=builder /app/swan /usr/local/bin/
-EXPOSE 8080
-CMD ["swan", "/etc/swan/swan.yaml"]
-```
-
-#### Systemd Service
-```ini
-[Unit]
-Description=SWAN Multi-Agent Orchestrator
-After=network.target
-
-[Service]
-Type=simple
-User=swan
-ExecStart=/usr/local/bin/mai-swan /etc/swan/swan.yaml
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
 ```
 
 ### Scaling Considerations

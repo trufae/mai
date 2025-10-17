@@ -3,9 +3,10 @@ package learning
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -46,6 +47,7 @@ type LearningEngine struct {
 	logger       *logging.Logger
 	vdbPath      string              // Path to VDB data directory
 	networkFiles map[string]*os.File // Network knowledge files for each agent
+	vdb          *SimpleVDB          // Vector database for semantic caching
 }
 
 // NewLearningEngine creates a new learning engine
@@ -67,7 +69,7 @@ func NewLearningEngine(cfg *config.SwanConfig) (*LearningEngine, error) {
 		return nil, fmt.Errorf("failed to create network directory: %v", err)
 	}
 
-	return &LearningEngine{
+	engine := &LearningEngine{
 		config:       cfg,
 		metrics:      make(map[string]*PerformanceMetric),
 		tasks:        make([]*TaskRecord, 0),
@@ -75,7 +77,13 @@ func NewLearningEngine(cfg *config.SwanConfig) (*LearningEngine, error) {
 		logger:       logger,
 		vdbPath:      vdbPath,
 		networkFiles: make(map[string]*os.File),
-	}, nil
+		vdb:          NewSimpleVDB(64), // 64-dimensional vectors
+	}
+
+	// Load existing cache from disk
+	engine.loadCacheFromDisk()
+
+	return engine, nil
 }
 
 // RecordTask stores a task execution record with quality assessment and caching
@@ -90,25 +98,58 @@ func (le *LearningEngine) RecordTask(record *TaskRecord) error {
 	// Cache good responses from slow models for fast retrieval
 	if record.Duration > 10*time.Second && quality > 0.8 {
 		le.cache[record.Query] = record
-		le.storeInVDB(record)
-		le.logger.LogCacheOperation("cached", record.Query, true, record.Duration)
+		if err := le.storeInVDB(record); err != nil {
+			le.logger.LogDecision("cache_error", fmt.Sprintf("Failed to store in VDB: %v", err), nil, nil, false, err)
+		} else {
+			le.logger.LogCacheOperation("cached", record.Query, true, record.Duration)
+		}
 	}
 
-	// Update performance metrics
+	// Save context information for VDB reloading
+	le.saveContextForVDB(record)
+
+	// Update performance metrics and rankings
 	le.updateMetrics(record)
+	le.updateRankings(record)
 
 	// Detect and log mistakes
 	le.detectAndLogMistakes(record, quality)
 
-	// Log the task execution
+	// Log the task execution with comprehensive statistics
 	metrics := map[string]interface{}{
-		"duration": record.Duration.String(),
-		"quality":  quality,
-		"success":  record.Success,
+		"duration_ms":     record.Duration.Milliseconds(),
+		"quality":         quality,
+		"success":         record.Success,
+		"response_length": len(record.Response),
+		"query_length":    len(record.Query),
+		"cache_hit":       false, // This will be updated when cache is checked
 	}
 	le.logger.LogDecision("task_executed", fmt.Sprintf("Task %s executed by %s", record.TaskID, record.AgentName), metrics, nil, true, nil)
 
 	return nil
+}
+
+// GetLogger returns the logger instance
+func (le *LearningEngine) GetLogger() *logging.Logger {
+	return le.logger
+}
+
+// saveContextForVDB saves context information that can be reloaded by the VDB
+func (le *LearningEngine) saveContextForVDB(record *TaskRecord) {
+	contextDir := filepath.Join(le.vdbPath, "context")
+	if err := os.MkdirAll(contextDir, 0755); err != nil {
+		le.logger.LogDecision("context_save_error", fmt.Sprintf("Failed to create context directory: %v", err), nil, nil, false, err)
+		return
+	}
+
+	// Create context file with query-response pair and metadata
+	contextFile := filepath.Join(contextDir, fmt.Sprintf("task_%s.txt", record.TaskID))
+	context := fmt.Sprintf("Query: %s\nResponse: %s\nAgent: %s\nQuality: %.2f\nDuration: %v\nTimestamp: %s\nSuccess: %t\n",
+		record.Query, record.Response, record.AgentName, record.Quality, record.Duration, record.Timestamp.Format(time.RFC3339), record.Success)
+
+	if err := os.WriteFile(contextFile, []byte(context), 0644); err != nil {
+		le.logger.LogDecision("context_save_error", fmt.Sprintf("Failed to save context file: %v", err), nil, nil, false, err)
+	}
 }
 
 // QuerySimilarTasks finds similar past tasks for a given query
@@ -139,7 +180,7 @@ func (le *LearningEngine) GetBestAgent(query string) (string, error) {
 	// Check VDB cache for similar queries
 	if cachedResponse, err := le.queryVDBCache(query); err == nil && cachedResponse != "" {
 		le.logger.LogCacheOperation("vdb_hit", query, true, 0)
-		// Return a fast agent for cached responses
+		// Return a fast agent for cached responses - could be improved to return the original agent
 		return "fast-agent", nil
 	}
 
@@ -187,6 +228,89 @@ func (le *LearningEngine) GetBestAgent(query string) (string, error) {
 // AnalyzePerformance returns performance analysis for all agents
 func (le *LearningEngine) AnalyzePerformance() map[string]*PerformanceMetric {
 	return le.metrics
+}
+
+// loadCacheFromDisk loads cached entries from disk on startup
+func (le *LearningEngine) loadCacheFromDisk() {
+	cacheFile := filepath.Join(le.vdbPath, "cache.json")
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		// No cache file exists yet, which is fine
+		return
+	}
+
+	var entries []CacheEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		le.logger.LogDecision("cache_load_error", fmt.Sprintf("Failed to load cache from disk: %v", err), nil, nil, false, err)
+		return
+	}
+
+	// Rebuild the VDB with loaded entries
+	for _, entry := range entries {
+		le.vdb.Insert(entry)
+		// Also populate in-memory cache for fast access
+		if entry.Quality > 0.8 {
+			le.cache[entry.Query] = &TaskRecord{
+				Query:     entry.Query,
+				Response:  entry.Response,
+				AgentName: entry.AgentName,
+				Quality:   entry.Quality,
+				Duration:  entry.Duration,
+				Timestamp: entry.Timestamp,
+				Success:   true,
+			}
+		}
+	}
+
+	le.logger.LogDecision("cache_loaded", fmt.Sprintf("Loaded %d cached entries from disk", len(entries)), map[string]interface{}{
+		"entries_loaded": len(entries),
+		"vdb_size":       len(le.vdb.Entries),
+	}, nil, true, nil)
+}
+
+// GetStatistics returns comprehensive statistics about the learning engine
+func (le *LearningEngine) GetStatistics() map[string]interface{} {
+	stats := map[string]interface{}{
+		"total_tasks":      len(le.tasks),
+		"cached_responses": len(le.cache),
+		"vdb_entries":      len(le.vdb.Entries),
+		"agents_tracked":   len(le.metrics),
+		"network_files":    len(le.networkFiles),
+	}
+
+	// Calculate average quality and duration
+	var totalQuality float64
+	var totalDuration time.Duration
+	var successfulTasks int
+
+	for _, task := range le.tasks {
+		totalQuality += task.Quality
+		totalDuration += task.Duration
+		if task.Success {
+			successfulTasks++
+		}
+	}
+
+	if len(le.tasks) > 0 {
+		stats["avg_quality"] = totalQuality / float64(len(le.tasks))
+		stats["avg_duration_ms"] = totalDuration.Milliseconds() / int64(len(le.tasks))
+		stats["success_rate"] = float64(successfulTasks) / float64(len(le.tasks))
+	}
+
+	// Agent rankings
+	var rankings []map[string]interface{}
+	for agent, metric := range le.metrics {
+		rankings = append(rankings, map[string]interface{}{
+			"agent":        agent,
+			"total_tasks":  metric.TotalTasks,
+			"success_rate": metric.SuccessRate,
+			"avg_duration": metric.AvgDuration.String(),
+			"last_updated": metric.LastUpdated,
+		})
+	}
+	stats["agent_rankings"] = rankings
+
+	return stats
 }
 
 // SuggestImprovements suggests ways to improve the system
@@ -326,6 +450,19 @@ func (le *LearningEngine) AssessQuality(record *TaskRecord) float64 {
 	return quality
 }
 
+// updateRankings updates agent rankings based on performance
+func (le *LearningEngine) updateRankings(record *TaskRecord) {
+	// This could be expanded to maintain global rankings
+	// For now, just log ranking changes
+	if record.Success && record.Quality > 0.8 {
+		le.logger.LogDecision("ranking_update", fmt.Sprintf("Agent %s improved ranking with quality %.2f", record.AgentName, record.Quality), map[string]interface{}{
+			"agent":       record.AgentName,
+			"quality":     record.Quality,
+			"duration_ms": record.Duration.Milliseconds(),
+		}, nil, true, nil)
+	}
+}
+
 // updateMetrics updates performance metrics for an agent
 func (le *LearningEngine) updateMetrics(record *TaskRecord) {
 	metric, exists := le.metrics[record.AgentName]
@@ -417,22 +554,29 @@ func extractQueryFromText(text string) string {
 
 // storeInVDB stores a cached response in the VDB for future retrieval
 func (le *LearningEngine) storeInVDB(record *TaskRecord) error {
-	// Create a statement file for VDB consumption (statement per line)
-	cacheFile := filepath.Join(le.vdbPath, "cached_responses.txt")
-
-	// Format: Query: <query> | Response: <response> | Agent: <agent> | Quality: <quality> | Duration: <duration>
-	statement := fmt.Sprintf("Query: %s | Response: %s | Agent: %s | Quality: %.2f | Duration: %v",
-		record.Query, record.Response, record.AgentName, record.Quality, record.Duration)
-
-	// Append to the cache file
-	file, err := os.OpenFile(cacheFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open cache file: %v", err)
+	// Store in the vector database for semantic search
+	entry := CacheEntry{
+		Query:     record.Query,
+		Response:  record.Response,
+		AgentName: record.AgentName,
+		Quality:   record.Quality,
+		Duration:  record.Duration,
+		Timestamp: record.Timestamp,
 	}
-	defer file.Close()
 
-	if _, err := file.WriteString(statement + "\n"); err != nil {
-		return fmt.Errorf("failed to write to cache file: %v", err)
+	le.vdb.Insert(entry)
+
+	// Also save to disk for persistence (optional - could be loaded on startup)
+	cacheFile := filepath.Join(le.vdbPath, "cache.json")
+	entries := le.vdb.Entries
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cache: %v", err)
+	}
+
+	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %v", err)
 	}
 
 	return nil
@@ -536,37 +680,21 @@ func (le *LearningEngine) checkResponseConsistency(currentRecord *TaskRecord) {
 
 // queryVDBCache queries the VDB cache for similar queries
 func (le *LearningEngine) queryVDBCache(query string) (string, error) {
-	// Use mai-vdb command to query the cache
-	cmd := exec.Command("mai-vdb", "-s", le.vdbPath, "-n", "1", "-j", query)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to query VDB: %v", err)
-	}
-
-	// Parse JSON output to extract the most similar cached response
-	var result struct {
-		Query   string   `json:"query"`
-		Results []string `json:"results"`
-	}
-
-	if err := json.Unmarshal(output, &result); err != nil {
-		return "", fmt.Errorf("failed to parse VDB output: %v", err)
-	}
-
-	if len(result.Results) == 0 {
+	// Query the vector database for similar cached responses
+	entries := le.vdb.Query(query, 1)
+	if len(entries) == 0 {
 		return "", fmt.Errorf("no cached results found")
 	}
 
-	// Extract response from the cached statement
-	cachedStatement := result.Results[0]
-	parts := strings.Split(cachedStatement, " | ")
-	for _, part := range parts {
-		if strings.HasPrefix(part, "Response: ") {
-			return strings.TrimPrefix(part, "Response: "), nil
+	// Return the best match (highest quality)
+	bestEntry := entries[0]
+	for _, entry := range entries {
+		if entry.Quality > bestEntry.Quality {
+			bestEntry = entry
 		}
 	}
 
-	return "", fmt.Errorf("no response found in cached statement")
+	return bestEntry.Response, nil
 }
 
 // RunEvaluationCompetition runs a competition between agents for the same task
@@ -725,4 +853,229 @@ func (le *LearningEngine) GetNetworkKnowledge(agentName string) ([]string, error
 	}
 
 	return knowledge, nil
+}
+
+// VDB integration for caching
+type CacheEntry struct {
+	Query     string
+	Response  string
+	AgentName string
+	Quality   float64
+	Duration  time.Duration
+	Timestamp time.Time
+}
+
+// Simple VDB implementation for caching
+type SimpleVDB struct {
+	Dimension int
+	Entries   []CacheEntry
+	Root      *KDNode
+}
+
+type KDNode struct {
+	Point []float32
+	Text  string
+	Left  *KDNode
+	Right *KDNode
+	Entry *CacheEntry
+}
+
+func NewSimpleVDB(dimension int) *SimpleVDB {
+	return &SimpleVDB{
+		Dimension: dimension,
+		Entries:   make([]CacheEntry, 0),
+	}
+}
+
+func (db *SimpleVDB) computeEmbedding(text string) []float32 {
+	vec := make([]float32, db.Dimension)
+
+	re := regexp.MustCompile(`[^a-z0-9\s]+`)
+	words := strings.Fields(re.ReplaceAllString(strings.ToLower(text), " "))
+
+	localTokens := make(map[string]int)
+	for _, word := range words {
+		localTokens[word]++
+	}
+
+	totalDocs := len(db.Entries) + 1
+
+	df := make(map[string]int)
+
+	// Count tokens across all entries
+	for _, entry := range db.Entries {
+		entryTokens := make(map[string]int)
+		entryWords := strings.Fields(re.ReplaceAllString(strings.ToLower(entry.Query+" "+entry.Response), " "))
+		for _, word := range entryWords {
+			entryTokens[word]++
+		}
+		for token := range entryTokens {
+			df[token]++
+		}
+	}
+
+	// Add current document
+	for token := range localTokens {
+		df[token]++
+	}
+
+	for token, count := range localTokens {
+		tf := 1 + math.Log(float64(count))
+		idf := math.Log(float64(totalDocs+1)/float64(df[token]+1)) + 1
+		weight := tf * idf
+		index := db.simpleHash(token) % db.Dimension
+		vec[index] += float32(weight)
+	}
+
+	return normalizeVector(vec)
+}
+
+func (db *SimpleVDB) simpleHash(s string) int {
+	hash := 0
+	for _, c := range s {
+		hash = hash*31 + int(c)
+	}
+	if hash < 0 {
+		hash = -hash
+	}
+	return hash
+}
+
+func normalizeVector(vec []float32) []float32 {
+	var sum float32
+	for _, v := range vec {
+		sum += v * v
+	}
+	if sum == 0 {
+		return vec
+	}
+	norm := float32(math.Sqrt(float64(sum)))
+	for i := range vec {
+		vec[i] /= norm
+	}
+	return vec
+}
+
+func insertRecursive(node *KDNode, point []float32, text string, depth int, dimension int, entry *CacheEntry) *KDNode {
+	if node == nil {
+		return &KDNode{
+			Point: point,
+			Text:  text,
+			Entry: entry,
+		}
+	}
+
+	cd := depth % dimension
+	if point[cd] < node.Point[cd] {
+		node.Left = insertRecursive(node.Left, point, text, depth+1, dimension, entry)
+	} else {
+		node.Right = insertRecursive(node.Right, point, text, depth+1, dimension, entry)
+	}
+
+	return node
+}
+
+func (db *SimpleVDB) Insert(entry CacheEntry) {
+	if entry.Quality < 0.7 { // Only cache high-quality responses
+		return
+	}
+
+	text := entry.Query + " " + entry.Response
+	embedding := db.computeEmbedding(text)
+
+	db.Entries = append(db.Entries, entry)
+	db.Root = insertRecursive(db.Root, embedding, text, 0, db.Dimension, &db.Entries[len(db.Entries)-1])
+}
+
+func knnSearch(node *KDNode, query []float32, k int, dimension int) []Result {
+	var results []Result
+	knnSearchRecursive(node, query, k, 0, dimension, &results)
+
+	// Sort by distance
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[i].Distance > results[j].Distance {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
+
+	if len(results) > k {
+		results = results[:k]
+	}
+	return results
+}
+
+type Result struct {
+	Node     *KDNode
+	Distance float32
+}
+
+func knnSearchRecursive(node *KDNode, query []float32, k int, depth int, dimension int, results *[]Result) {
+	if node == nil {
+		return
+	}
+
+	dist := euclideanDistance(query, node.Point)
+	*results = append(*results, Result{Node: node, Distance: dist})
+
+	cd := depth % dimension
+	var first, second *KDNode
+	if query[cd] < node.Point[cd] {
+		first, second = node.Left, node.Right
+	} else {
+		first, second = node.Right, node.Left
+	}
+
+	knnSearchRecursive(first, query, k, depth+1, dimension, results)
+
+	// Check if we need to search the other subtree
+	if len(*results) < k || euclideanDistance(query, node.Point) < getKthDistance(*results, k) {
+		knnSearchRecursive(second, query, k, depth+1, dimension, results)
+	}
+
+	// Keep only k closest
+	if len(*results) > k {
+		*results = (*results)[:k]
+		for i := 0; i < len(*results)-1; i++ {
+			for j := i + 1; j < len(*results); j++ {
+				if (*results)[i].Distance > (*results)[j].Distance {
+					(*results)[i], (*results)[j] = (*results)[j], (*results)[i]
+				}
+			}
+		}
+	}
+}
+
+func euclideanDistance(a, b []float32) float32 {
+	var sum float32
+	for i := range a {
+		diff := a[i] - b[i]
+		sum += diff * diff
+	}
+	return float32(math.Sqrt(float64(sum)))
+}
+
+func getKthDistance(results []Result, k int) float32 {
+	if len(results) < k {
+		return math.MaxFloat32
+	}
+	return results[k-1].Distance
+}
+
+func (db *SimpleVDB) Query(query string, k int) []*CacheEntry {
+	if db.Root == nil {
+		return nil
+	}
+
+	queryVec := db.computeEmbedding(query)
+	results := knnSearch(db.Root, queryVec, k, db.Dimension)
+
+	var entries []*CacheEntry
+	for _, result := range results {
+		if result.Node.Entry != nil {
+			entries = append(entries, result.Node.Entry)
+		}
+	}
+	return entries
 }

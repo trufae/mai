@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -40,6 +41,18 @@ func main() {
 	// Override work directory
 	cfg.WorkDir = *workdir
 
+	// Update VDB path to be relative to the new work directory
+	cfg.Orchestrator.VDBPath = filepath.Join(cfg.WorkDir, "vdb")
+
+	// Ensure work directory and subdirectories exist
+	if err := os.MkdirAll(cfg.WorkDir, 0755); err != nil {
+		log.Fatalf("Failed to create work directory: %v", err)
+	}
+	tmpDir := filepath.Join(cfg.WorkDir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		log.Fatalf("Failed to create tmp directory: %v", err)
+	}
+
 	fmt.Printf("Starting SWAN with config: %s\n", *configPath)
 	fmt.Printf("Work directory: %s\n", cfg.WorkDir)
 	if *debug {
@@ -56,9 +69,19 @@ func main() {
 		log.Printf("Warning: failed to load agents: %v", err)
 	}
 
+	// Load existing MCPs
+	if err = daemonMgr.LoadMCPs(); err != nil {
+		log.Printf("Warning: failed to load MCPs: %v", err)
+	}
+
 	// Start all agents from config
 	if err = daemonMgr.StartAllAgents(); err != nil {
 		log.Printf("Warning: failed to start some agents: %v", err)
+	}
+
+	// Start all MCPs from config
+	if err = daemonMgr.StartAllMCPs(); err != nil {
+		log.Printf("Warning: failed to start some MCPs: %v", err)
 	}
 
 	// Initialize orchestrator server with learning engine
@@ -89,6 +112,11 @@ func main() {
 	// Stop all agents
 	if err := daemonMgr.StopAllAgents(); err != nil {
 		log.Printf("Error stopping agents: %v", err)
+	}
+
+	// Stop all MCPs
+	if err := daemonMgr.StopAllMCPs(); err != nil {
+		log.Printf("Error stopping MCPs: %v", err)
 	}
 
 	fmt.Println("SWAN shutdown complete")
