@@ -1,11 +1,14 @@
 package orchestrator
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,40 +55,47 @@ func NewOrchestratorServer(cfg *config.SwanConfig, daemonMgr *daemon.DaemonManag
 }
 
 // Start starts the orchestrator server
-func (os *OrchestratorServer) Start() error {
+func (s *OrchestratorServer) Start() error {
 	fmt.Printf("DEBUG: Creating HTTP mux...\n")
 	mux := http.NewServeMux()
 
 	// Root endpoint for status
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
 		w.Write([]byte("SWAN orchestrator is running"))
 	})
 
 	// OpenAI-compatible endpoints
-	mux.HandleFunc("/v1/chat/completions", os.handleChatCompletions)
-	mux.HandleFunc("/v1/models", os.handleModels)
+	mux.HandleFunc("/v1/chat/completions", s.handleChatCompletions)
+	mux.HandleFunc("/v1/models", s.handleModels)
 
 	// Ollama-compatible endpoints
-	mux.HandleFunc("/api/generate", os.handleGenerate)
-	mux.HandleFunc("/api/tags", os.handleTags)
+	mux.HandleFunc("/api/chat", s.handleChat)
+	mux.HandleFunc("/api/generate", s.handleGenerate)
+	mux.HandleFunc("/v1/generate", s.handleGenerate) // Alias for compatibility
+	mux.HandleFunc("/api/tags", s.handleTags)
+	mux.HandleFunc("/api/version", s.handleVersion)
 
 	// SWAN-specific endpoints
-	mux.HandleFunc("/api/agents", os.handleListAgents)
-	mux.HandleFunc("/api/task", os.handleTask)
-	mux.HandleFunc("/api/communicate", os.handleInterAgentCommunication)
-	mux.HandleFunc("/api/network-knowledge", os.handleGetNetworkKnowledge)
-	mux.HandleFunc("/health", os.handleHealth)
+	mux.HandleFunc("/api/agents", s.handleListAgents)
+	mux.HandleFunc("/api/task", s.handleTask)
+	mux.HandleFunc("/api/communicate", s.handleInterAgentCommunication)
+	mux.HandleFunc("/api/network-knowledge", s.handleGetNetworkKnowledge)
+	mux.HandleFunc("/health", s.handleHealth)
 
-	listenAddr := fmt.Sprintf("%s:%d", os.config.Orchestrator.ListenAddr, os.config.Orchestrator.Port)
+	listenAddr := fmt.Sprintf("%s:%d", s.config.Orchestrator.ListenAddr, s.config.Orchestrator.Port)
 	fmt.Printf("DEBUG: Creating HTTP server on %s...\n", listenAddr)
-	os.server = &http.Server{
+	s.server = &http.Server{
 		Addr:    listenAddr,
 		Handler: mux,
 	}
 
 	fmt.Printf("SWAN Orchestrator starting...\n")
 	fmt.Printf("Main orchestrator listening on: %s\n", listenAddr)
-	fmt.Printf("Port: %d\n", os.config.Orchestrator.Port)
+	fmt.Printf("Port: %d\n", s.config.Orchestrator.Port)
 	fmt.Printf("To connect with MAI: mai -M -b http://%s\n", listenAddr)
 	fmt.Printf("OpenAI-compatible API: http://%s/v1/chat/completions\n", listenAddr)
 	fmt.Printf("Ollama-compatible API: http://%s/api/generate\n", listenAddr)
@@ -93,21 +103,21 @@ func (os *OrchestratorServer) Start() error {
 	fmt.Printf("Health check: http://%s/health\n", listenAddr)
 	fmt.Printf("Agent list: http://%s/api/agents\n", listenAddr)
 	fmt.Printf("DEBUG: Calling ListenAndServe...\n")
-	return os.server.ListenAndServe()
+	return s.server.ListenAndServe()
 }
 
 // Stop stops the orchestrator server
-func (os *OrchestratorServer) Stop() error {
-	if os.server != nil {
-		return os.server.Close()
+func (s *OrchestratorServer) Stop() error {
+	if s.server != nil {
+		return s.server.Close()
 	}
 	return nil
 }
 
 // handleChatCompletions handles OpenAI chat completions
-func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOpenAIError(w, "method_not_allowed", "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -122,7 +132,7 @@ func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *ht
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		s.sendOpenAIError(w, "invalid_request", fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -136,20 +146,20 @@ func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *ht
 	}
 
 	// Handle admin queries directly
-	if response := os.handleAdminQuery(query); response != "" {
-		os.recordTask(map[string]interface{}{"messages": req.Messages}, &TaskResult{
+	if response := s.handleAdminQuery(query); response != "" {
+		s.recordTask(map[string]interface{}{"messages": req.Messages}, &TaskResult{
 			AgentName: "swan-admin",
 			Response:  response,
 			Duration:  0,
 		})
-		os.sendOpenAIResponse(w, "swan-admin", response, req.Stream)
+		s.sendOpenAIResponse(w, "swan-admin", response, req.Stream)
 		return
 	}
 
 	// Select agent (may involve competition)
-	agent := os.selectAgentWithCompetition(query)
+	agent := s.selectAgentWithCompetition(query)
 	if agent == nil {
-		http.Error(w, "No agents available", http.StatusServiceUnavailable)
+		s.sendOpenAIError(w, "service_unavailable", "No agents available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -161,7 +171,7 @@ func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *ht
 	}
 
 	// Execute task
-	result, err := os.executeTask(agent, taskPayload)
+	result, err := s.executeTask(agent, taskPayload)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
 		return
@@ -195,13 +205,13 @@ func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *ht
 }
 
 // handleModels returns available models (agents)
-func (os *OrchestratorServer) handleModels(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOpenAIError(w, "method_not_allowed", "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	agents := os.daemonMgr.ListAgents()
+	agents := s.daemonMgr.ListAgents()
 	var models []map[string]interface{}
 
 	for _, agent := range agents {
@@ -223,21 +233,21 @@ func (os *OrchestratorServer) handleModels(w http.ResponseWriter, r *http.Reques
 }
 
 // handleListAgents returns list of running agents
-func (os *OrchestratorServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	agents := os.daemonMgr.ListAgents()
+	agents := s.daemonMgr.ListAgents()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agents)
 }
 
 // handleTask handles direct task execution
-func (os *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -247,16 +257,16 @@ func (os *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		s.sendOllamaError(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	var agent *daemon.AgentProcess
 	if req.AgentName != "" {
 		var exists bool
-		agent, exists = os.daemonMgr.GetAgent(req.AgentName)
+		agent, exists = s.daemonMgr.GetAgent(req.AgentName)
 		if !exists {
-			http.Error(w, "Agent not found", http.StatusNotFound)
+			s.sendOllamaError(w, "Agent not found", http.StatusNotFound)
 			return
 		}
 	} else {
@@ -277,25 +287,27 @@ func (os *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request)
 			query = q
 		}
 
-		agent = os.selectAgent(query)
+		agent = s.selectAgent(query)
 		if agent == nil {
 			// Try to create a new dynamic agent
-			if suggestion, err := os.learning.SuggestNewAgent(); err == nil {
-				if err := os.daemonMgr.StartResolvedAgent(*suggestion); err == nil {
-					// Get the newly created agent
-					agent, _ = os.daemonMgr.GetAgent(suggestion.Name)
+			if s.learning != nil {
+				if suggestion, err := s.learning.SuggestNewAgent(); err == nil {
+					if err := s.daemonMgr.StartResolvedAgent(*suggestion); err == nil {
+						// Get the newly created agent
+						agent, _ = s.daemonMgr.GetAgent(suggestion.Name)
+					}
 				}
 			}
 			if agent == nil {
-				http.Error(w, "No agents available", http.StatusServiceUnavailable)
+				s.sendOllamaError(w, "No agents available", http.StatusServiceUnavailable)
 				return
 			}
 		}
 	}
 
-	result, err := os.executeTask(agent, req.Payload)
+	result, err := s.executeTask(agent, req.Payload)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
+		s.sendOllamaError(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -304,8 +316,8 @@ func (os *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request)
 }
 
 // handleHealth returns health status
-func (os *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	agents := os.daemonMgr.ListAgents()
+func (s *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	agents := s.daemonMgr.ListAgents()
 	status := "healthy"
 	if len(agents) == 0 {
 		status = "degraded"
@@ -322,19 +334,21 @@ func (os *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Reques
 }
 
 // selectAgent selects an agent for task execution using learning engine
-func (os *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
-	os.mu.Lock()
-	defer os.mu.Unlock()
+func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	agents := os.daemonMgr.ListAgents()
+	agents := s.daemonMgr.ListAgents()
 	if len(agents) == 0 {
 		return nil
 	}
 
 	// Try to get best agent from learning engine based on time/quality metrics
-	if bestAgent, err := os.learning.GetBestAgent(query); err == nil {
-		if agent, exists := agents[bestAgent]; exists {
-			return agent
+	if s.learning != nil {
+		if bestAgent, err := s.learning.GetBestAgent(query); err == nil {
+			if agent, exists := agents[bestAgent]; exists {
+				return agent
+			}
 		}
 	}
 
@@ -344,32 +358,73 @@ func (os *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 		agentNames = append(agentNames, name)
 	}
 
-	selected := agentNames[os.agentIndex%len(agentNames)]
-	os.agentIndex++
+	selected := agentNames[s.agentIndex%len(agentNames)]
+	s.agentIndex++
 
 	return agents[selected]
 }
 
 // executeTask executes a task on the specified agent
-func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload map[string]interface{}) (*TaskResult, error) {
+func (s *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload map[string]interface{}) (*TaskResult, error) {
 	start := time.Now()
 
-	// Build request to agent's OpenAI endpoint
-	agentURL := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", agent.Port)
+	// Build request to agent's provider endpoint
+	baseURL := agent.Config.BaseURL
+	if baseURL == "" {
+		if agent.Config.Provider == "openai" {
+			baseURL = "https://api.openai.com/v1"
+		} else {
+			baseURL = "http://localhost:11434/v1" // Default for Ollama
+		}
+	}
+	agentURL := baseURL + "/chat/completions"
+
+	// Set up headers
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	// Add API key if needed
+	if agent.Config.Provider == "openai" {
+		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+			headers["Authorization"] = "Bearer " + apiKey
+		}
+	}
+
+	// Override model with agent's configured model
+	payload["model"] = agent.Config.Model
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal payload: %v", err)
 	}
 
-	resp, err := http.Post(agentURL, "application/json", bytes.NewReader(payloadBytes))
+	// Create request
+	req, err := http.NewRequest("POST", agentURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		result := &TaskResult{
 			AgentName: agent.Name,
 			Error:     err.Error(),
 			Duration:  time.Since(start),
 		}
-		os.recordTask(payload, result)
+		s.recordTask(payload, result)
+		return result, nil
+	}
+
+	// Add headers
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		result := &TaskResult{
+			AgentName: agent.Name,
+			Error:     err.Error(),
+			Duration:  time.Since(start),
+		}
+		s.recordTask(payload, result)
 		return result, nil
 	}
 	defer resp.Body.Close()
@@ -381,7 +436,7 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 			Error:     fmt.Sprintf("failed to read response: %v", err),
 			Duration:  time.Since(start),
 		}
-		os.recordTask(payload, result)
+		s.recordTask(payload, result)
 		return result, nil
 	}
 
@@ -391,7 +446,7 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 			Error:     fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
 			Duration:  time.Since(start),
 		}
-		os.recordTask(payload, result)
+		s.recordTask(payload, result)
 		return result, nil
 	}
 
@@ -410,7 +465,7 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 			Response:  string(body),
 			Duration:  time.Since(start),
 		}
-		os.recordTask(payload, result)
+		s.recordTask(payload, result)
 		return result, nil
 	}
 
@@ -424,29 +479,29 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 		Response:  response,
 		Duration:  time.Since(start),
 	}
-	os.recordTask(payload, result)
+	s.recordTask(payload, result)
 	return result, nil
 }
 
 // selectAgentWithCompetition selects an agent, potentially running a competition
-func (os *OrchestratorServer) selectAgentWithCompetition(query string) *daemon.AgentProcess {
+func (s *OrchestratorServer) selectAgentWithCompetition(query string) *daemon.AgentProcess {
 	// Check if we should run an evaluation competition
-	if os.shouldRunCompetition(query) {
-		result, err := os.runCompetition(query)
+	if s.shouldRunCompetition(query) {
+		result, err := s.runCompetition(query)
 		if err == nil && result.Winner != "" {
 			// Use the winning agent
-			if winnerAgent, exists := os.daemonMgr.GetAgent(result.Winner); exists {
+			if winnerAgent, exists := s.daemonMgr.GetAgent(result.Winner); exists {
 				return winnerAgent
 			}
 		}
 	}
 
 	// Fall back to regular agent selection
-	return os.selectAgent(query)
+	return s.selectAgent(query)
 }
 
 // shouldRunCompetition determines if a competition should be run for this query
-func (os *OrchestratorServer) shouldRunCompetition(query string) bool {
+func (s *OrchestratorServer) shouldRunCompetition(query string) bool {
 	// Run competitions for:
 	// 1. Important/complex queries (longer than 50 characters)
 	// 2. Queries we haven't seen much data for
@@ -457,7 +512,7 @@ func (os *OrchestratorServer) shouldRunCompetition(query string) bool {
 	}
 
 	// Check if we have enough agents for a competition
-	agents := os.daemonMgr.ListAgents()
+	agents := s.daemonMgr.ListAgents()
 	if len(agents) < 2 {
 		return false // Need at least 2 agents
 	}
@@ -467,8 +522,8 @@ func (os *OrchestratorServer) shouldRunCompetition(query string) bool {
 }
 
 // runCompetition executes a competition between agents
-func (os *OrchestratorServer) runCompetition(query string) (*learning.CompetitionResult, error) {
-	agents := os.daemonMgr.ListAgents()
+func (s *OrchestratorServer) runCompetition(query string) (*learning.CompetitionResult, error) {
+	agents := s.daemonMgr.ListAgents()
 	if len(agents) < 2 {
 		return nil, fmt.Errorf("not enough agents for competition")
 	}
@@ -500,8 +555,8 @@ func (os *OrchestratorServer) runCompetition(query string) (*learning.Competitio
 	// Run tasks on each competitor and collect results
 	results := make(map[string]*TaskResult)
 	for _, agentName := range competitorNames {
-		if agent, exists := os.daemonMgr.GetAgent(agentName); exists {
-			result, err := os.executeTask(agent, taskPayload)
+		if agent, exists := s.daemonMgr.GetAgent(agentName); exists {
+			result, err := s.executeTask(agent, taskPayload)
 			if err == nil {
 				results[agentName] = result
 			}
@@ -524,14 +579,17 @@ func (os *OrchestratorServer) runCompetition(query string) (*learning.Competitio
 
 	for agentName, result := range results {
 		// Assess quality for competition
-		quality := os.learning.AssessQuality(&learning.TaskRecord{
-			Query:     query,
-			Response:  result.Response,
-			Duration:  result.Duration,
-			Success:   result.Error == "",
-			Error:     result.Error,
-			Timestamp: time.Now(),
-		})
+		quality := 0.5 // Default quality if learning engine is disabled
+		if s.learning != nil {
+			quality = s.learning.AssessQuality(&learning.TaskRecord{
+				Query:     query,
+				Response:  result.Response,
+				Duration:  result.Duration,
+				Success:   result.Error == "",
+				Error:     result.Error,
+				Timestamp: time.Now(),
+			})
+		}
 
 		taskRecord := &learning.TaskRecord{
 			TaskID:    fmt.Sprintf("competition-%d", time.Now().UnixNano()),
@@ -560,9 +618,9 @@ func (os *OrchestratorServer) runCompetition(query string) (*learning.Competitio
 }
 
 // handleInterAgentCommunication handles communication between agents
-func (os *OrchestratorServer) handleInterAgentCommunication(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleInterAgentCommunication(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -573,20 +631,22 @@ func (os *OrchestratorServer) handleInterAgentCommunication(w http.ResponseWrite
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		s.sendOllamaError(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	if req.FromAgent == "" || req.ToAgent == "" || req.Message == "" {
-		http.Error(w, "Missing required fields: from_agent, to_agent, message", http.StatusBadRequest)
+		s.sendOllamaError(w, "Missing required fields: from_agent, to_agent, message", http.StatusBadRequest)
 		return
 	}
 
 	// Record the communication
-	err := os.learning.RecordInterAgentCommunication(req.FromAgent, req.ToAgent, req.Message)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to record communication: %v", err), http.StatusInternalServerError)
-		return
+	if s.learning != nil {
+		err := s.learning.RecordInterAgentCommunication(req.FromAgent, req.ToAgent, req.Message)
+		if err != nil {
+			s.sendOllamaError(w, fmt.Sprintf("Failed to record communication: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -594,22 +654,28 @@ func (os *OrchestratorServer) handleInterAgentCommunication(w http.ResponseWrite
 }
 
 // handleGetNetworkKnowledge returns network knowledge for an agent
-func (os *OrchestratorServer) handleGetNetworkKnowledge(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleGetNetworkKnowledge(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	agentName := r.URL.Query().Get("agent")
 	if agentName == "" {
-		http.Error(w, "Missing agent parameter", http.StatusBadRequest)
+		s.sendOllamaError(w, "Missing agent parameter", http.StatusBadRequest)
 		return
 	}
 
-	knowledge, err := os.learning.GetNetworkKnowledge(agentName)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get network knowledge: %v", err), http.StatusInternalServerError)
-		return
+	var knowledge []string
+	var err error
+	if s.learning != nil {
+		knowledge, err = s.learning.GetNetworkKnowledge(agentName)
+		if err != nil {
+			s.sendOllamaError(w, fmt.Sprintf("Failed to get network knowledge: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		knowledge = []string{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -620,22 +686,25 @@ func (os *OrchestratorServer) handleGetNetworkKnowledge(w http.ResponseWriter, r
 }
 
 // TriggerEvolution triggers autonomous evolution of prompts and configurations
-func (os *OrchestratorServer) TriggerEvolution() error {
-	return os.learning.EvolvePrompts()
+func (s *OrchestratorServer) TriggerEvolution() error {
+	if s.learning != nil {
+		return s.learning.EvolvePrompts()
+	}
+	return nil
 }
 
 // handleAdminQuery handles special administrative queries
-func (os *OrchestratorServer) handleAdminQuery(query string) string {
+func (s *OrchestratorServer) handleAdminQuery(query string) string {
 	switch query {
 	case "/health", "show health", "health":
-		agents := os.daemonMgr.ListAgents()
+		agents := s.daemonMgr.ListAgents()
 		status := "healthy"
 		if len(agents) == 0 {
 			status = "degraded"
 		}
 		return fmt.Sprintf("SWAN Status: %s\nAgents running: %d\nTimestamp: %d", status, len(agents), time.Now().Unix())
 	case "/agents", "list agents", "agents":
-		agents := os.daemonMgr.ListAgents()
+		agents := s.daemonMgr.ListAgents()
 		if len(agents) == 0 {
 			return "No agents currently running"
 		}
@@ -653,37 +722,252 @@ func (os *OrchestratorServer) handleAdminQuery(query string) string {
 }
 
 // sendOpenAIResponse sends a response in OpenAI format
-func (os *OrchestratorServer) sendOpenAIResponse(w http.ResponseWriter, model string, content string, stream bool) {
-	response := map[string]interface{}{
-		"id":      fmt.Sprintf("swan-%d", time.Now().Unix()),
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   model,
-		"choices": []map[string]interface{}{
-			{
-				"index": 0,
-				"message": map[string]interface{}{
-					"role":    "assistant",
-					"content": content,
+func (s *OrchestratorServer) sendOpenAIResponse(w http.ResponseWriter, model string, content string, stream bool) {
+	if stream {
+		// Send streaming response
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		// Send the full content as a single streaming chunk
+		streamResponse := map[string]interface{}{
+			"id":      fmt.Sprintf("swan-%d", time.Now().Unix()),
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   model,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"content": content,
+					},
+					"finish_reason": nil,
 				},
-				"finish_reason": "stop",
 			},
-		},
-		"usage": map[string]interface{}{
-			"prompt_tokens":     0,
-			"completion_tokens": 0,
-			"total_tokens":      0,
-		},
+		}
+
+		data, _ := json.Marshal(streamResponse)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+
+		// Send completion message
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	} else {
+		// Send regular response
+		response := map[string]interface{}{
+			"id":      fmt.Sprintf("swan-%d", time.Now().Unix()),
+			"object":  "chat.completion",
+			"created": time.Now().Unix(),
+			"model":   model,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": content,
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{
+				"prompt_tokens":     0,
+				"completion_tokens": 0,
+				"total_tokens":      0,
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// handleChat handles Ollama /api/chat
+func (s *OrchestratorServer) handleChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	var req struct {
+		Model    string `json:"model"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+		Stream bool `json:"stream"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.sendOllamaError(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Extract query from last user message
+	query := ""
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i].Role == "user" {
+			query = req.Messages[i].Content
+			break
+		}
+	}
+
+	// Handle admin queries
+	if response := s.handleAdminQuery(query); response != "" {
+		s.recordTask(map[string]interface{}{"messages": req.Messages}, &TaskResult{
+			AgentName: "swan-admin",
+			Response:  response,
+			Duration:  0,
+		})
+		s.sendOllamaChatResponse(w, "swan-admin", response, req.Stream)
+		return
+	}
+
+	// Select agent
+	agent := s.selectAgent(query)
+	if agent == nil {
+		s.sendOllamaError(w, "No agents available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Convert messages
+	messages := make([]map[string]interface{}, len(req.Messages))
+	for i, m := range req.Messages {
+		messages[i] = map[string]interface{}{"role": m.Role, "content": m.Content}
+	}
+
+	if req.Stream {
+		s.handleStreamingChat(w, agent, messages)
+	} else {
+		// Build task payload
+		taskPayload := map[string]interface{}{
+			"messages": messages,
+			"model":    req.Model,
+			"stream":   req.Stream,
+		}
+
+		// Execute task
+		result, err := s.executeTask(agent, taskPayload)
+		if err != nil {
+			s.sendOllamaError(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Return Ollama chat response
+		s.sendOllamaChatResponse(w, agent.Name, result.Response, req.Stream)
+	}
+}
+
+// handleStreamingChat handles streaming for /api/chat
+func (s *OrchestratorServer) handleStreamingChat(w http.ResponseWriter, agent *daemon.AgentProcess, messages []map[string]interface{}) {
+	var agentURL string
+	var payload map[string]interface{}
+	var headers map[string]string
+
+	if agent.Config.Provider == "openai" {
+		baseURL := agent.Config.BaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		agentURL = baseURL + "/chat/completions"
+		payload = map[string]interface{}{
+			"messages": messages,
+			"model":    agent.Config.Model,
+			"stream":   true,
+		}
+		headers = map[string]string{"Content-Type": "application/json"}
+		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+			headers["Authorization"] = "Bearer " + apiKey
+		}
+	} else {
+		baseURL := "http://localhost:11434"
+		agentURL = baseURL + "/api/chat"
+		payload = map[string]interface{}{
+			"model":    agent.Config.Model,
+			"messages": messages,
+			"stream":   true,
+		}
+		headers = map[string]string{"Content-Type": "application/json"}
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		s.sendOllamaError(w, fmt.Sprintf("Failed to marshal payload: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	req, err := http.NewRequest("POST", agentURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		s.sendOllamaError(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.sendOllamaError(w, fmt.Sprintf("Request failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		s.sendOllamaError(w, fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)), http.StatusInternalServerError)
+		return
+	}
+
+	if agent.Config.Provider == "openai" {
+		w.Header().Set("Content-Type", "text/plain")
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data: ") {
+				dataStr := line[6:]
+				if dataStr == "[DONE]" {
+					w.Write([]byte("data: [DONE]\n\n"))
+					if f, ok := w.(http.Flusher); ok {
+						f.Flush()
+					}
+					continue
+				}
+				var data map[string]interface{}
+				if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+					continue
+				}
+				data["model"] = "mai-swan"
+				jsonBytes, _ := json.Marshal(data)
+				w.Write([]byte("data: "))
+				w.Write(jsonBytes)
+				w.Write([]byte("\n\n"))
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+			}
+		}
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+			line = strings.Replace(line, `"model":"`+agent.Config.Model+`"`, `"model":"mai-swan"`, 1)
+			w.Write([]byte(line))
+			w.Write([]byte("\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	}
 }
 
 // handleGenerate handles Ollama /api/generate
-func (os *OrchestratorServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -694,73 +978,143 @@ func (os *OrchestratorServer) handleGenerate(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		s.sendOllamaError(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// Handle admin queries
-	if response := os.handleAdminQuery(req.Prompt); response != "" {
-		os.recordTask(map[string]interface{}{"prompt": req.Prompt}, &TaskResult{
+	if response := s.handleAdminQuery(req.Prompt); response != "" {
+		s.recordTask(map[string]interface{}{"prompt": req.Prompt}, &TaskResult{
 			AgentName: "swan-admin",
 			Response:  response,
 			Duration:  0,
 		})
-		os.sendOllamaResponse(w, "swan-admin", response)
+		s.sendOllamaResponse(w, "swan-admin", response, req.Stream)
 		return
 	}
 
 	// Select agent
-	agent := os.selectAgent(req.Prompt)
+	agent := s.selectAgent(req.Prompt)
 	if agent == nil {
-		http.Error(w, "No agents available", http.StatusServiceUnavailable)
+		s.sendOllamaError(w, "No agents available", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Build task payload
+	if req.Stream {
+		// Handle streaming
+		s.handleStreamingGenerate(w, agent, req.Prompt)
+	} else {
+		// Build task payload
+		taskPayload := map[string]interface{}{
+			"messages": []map[string]interface{}{
+				{"role": "user", "content": req.Prompt},
+			},
+			"model":  req.Model,
+			"stream": req.Stream,
+		}
+
+		// Execute task
+		result, err := s.executeTask(agent, taskPayload)
+		if err != nil {
+			s.sendOllamaError(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Return Ollama response
+		s.sendOllamaResponse(w, "mai-swan", result.Response, req.Stream)
+	}
+}
+
+// handleStreamingGenerate handles streaming for /api/generate
+func (s *OrchestratorServer) handleStreamingGenerate(w http.ResponseWriter, agent *daemon.AgentProcess, prompt string) {
+	// Build request to agent's provider endpoint
+	baseURL := agent.Config.BaseURL
+	if baseURL == "" {
+		baseURL = "http://localhost:11434" // Default for Ollama
+	}
+	// For Ollama, use /api/generate
+	if strings.Contains(baseURL, "11434") {
+		baseURL = "http://localhost:11434"
+	}
+	agentURL := baseURL + "/api/generate"
+
+	// Build payload for Ollama /api/generate
 	taskPayload := map[string]interface{}{
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": req.Prompt},
-		},
-		"model":  req.Model,
-		"stream": req.Stream,
+		"model":  agent.Config.Model,
+		"prompt": prompt,
+		"stream": true,
 	}
 
-	// Execute task
-	result, err := os.executeTask(agent, taskPayload)
+	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
+		s.sendOllamaError(w, fmt.Sprintf("Failed to marshal payload: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Return Ollama response
-	os.sendOllamaResponse(w, agent.Name, result.Response)
+	// Create request
+	req, err := http.NewRequest("POST", agentURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		s.sendOllamaError(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.sendOllamaError(w, fmt.Sprintf("Request failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		s.sendOllamaError(w, fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)), http.StatusInternalServerError)
+		return
+	}
+
+	// Stream response
+	w.Header().Set("Content-Type", "application/json")
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		// Replace the model in the JSON string
+		line = strings.Replace(line, `"model":"`+agent.Config.Model+`"`, `"model":"mai-swan"`, 1)
+		w.Write([]byte(line))
+		w.Write([]byte("\n"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
 }
 
 // handleTags handles Ollama /api/tags
-func (os *OrchestratorServer) handleTags(w http.ResponseWriter, r *http.Request) {
+func (s *OrchestratorServer) handleTags(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	agents := os.daemonMgr.ListAgents()
-	var models []map[string]interface{}
-
-	for name, agent := range agents {
-		models = append(models, map[string]interface{}{
-			"name":   name,
+	// Return a single fake model named "mai-swan"
+	models := []map[string]interface{}{
+		{
+			"name":   "mai-swan",
 			"size":   0,
 			"digest": "",
 			"details": map[string]interface{}{
 				"format":             "gguf",
-				"family":             agent.Config.Provider,
-				"families":           []string{agent.Config.Provider},
+				"family":             "swan",
+				"families":           []string{"swan"},
 				"parameter_size":     "unknown",
 				"quantization_level": "unknown",
 			},
-			"model":       name,
-			"modified_at": agent.StartTime.Format(time.RFC3339),
-		})
+			"model":       "mai-swan",
+			"modified_at": time.Now().Format(time.RFC3339),
+		},
 	}
 
 	response := map[string]interface{}{
@@ -771,8 +1125,89 @@ func (os *OrchestratorServer) handleTags(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
-// sendOllamaResponse sends a response in Ollama format
-func (os *OrchestratorServer) sendOllamaResponse(w http.ResponseWriter, model string, content string) {
+// handleVersion handles Ollama /api/version
+func (s *OrchestratorServer) handleVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.sendOllamaError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response := map[string]interface{}{
+		"version": "0.1.0",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// sendOllamaChatResponse sends a response in Ollama /api/chat format
+func (s *OrchestratorServer) sendOllamaChatResponse(w http.ResponseWriter, model string, content string, stream bool) {
+	if stream {
+		// Send streaming response - simulate with single chunk
+		w.Header().Set("Content-Type", "application/json")
+
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+
+		// Send the content as a single streaming message
+		streamResponse := map[string]interface{}{
+			"model": model,
+			"message": map[string]interface{}{
+				"role":    "assistant",
+				"content": content,
+			},
+			"done":              false,
+			"total_duration":    0,
+			"load_duration":     0,
+			"prompt_eval_count": 0,
+			"eval_count":        0,
+			"eval_duration":     0,
+		}
+
+		enc.Encode(streamResponse)
+		w.Write([]byte("\n"))
+
+		// Send completion message
+		doneResponse := map[string]interface{}{
+			"model":             model,
+			"message":           map[string]interface{}{},
+			"done":              true,
+			"total_duration":    0,
+			"load_duration":     0,
+			"prompt_eval_count": 0,
+			"eval_count":        0,
+			"eval_duration":     0,
+		}
+
+		enc.Encode(doneResponse)
+	} else {
+		// Send regular response
+		response := map[string]interface{}{
+			"model": model,
+			"message": map[string]interface{}{
+				"role":    "assistant",
+				"content": content,
+			},
+			"done":              true,
+			"total_duration":    0,
+			"load_duration":     0,
+			"prompt_eval_count": 0,
+			"eval_count":        0,
+			"eval_duration":     0,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}
+}
+
+// sendOllamaResponse sends a response in Ollama /api/generate format
+func (s *OrchestratorServer) sendOllamaResponse(w http.ResponseWriter, model string, content string, stream bool) {
+	// Streaming is handled separately in handleStreamingGenerate
+	if stream {
+		// Should not reach here
+		return
+	}
 	response := map[string]interface{}{
 		"model":             model,
 		"response":          content,
@@ -786,11 +1221,13 @@ func (os *OrchestratorServer) sendOllamaResponse(w http.ResponseWriter, model st
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.Encode(response)
 }
 
 // recordTask records the task execution for learning
-func (os *OrchestratorServer) recordTask(payload map[string]interface{}, result *TaskResult) {
+func (s *OrchestratorServer) recordTask(payload map[string]interface{}, result *TaskResult) {
 	// Extract query from payload
 	query := ""
 	if messages, ok := payload["messages"].([]interface{}); ok && len(messages) > 0 {
@@ -812,5 +1249,32 @@ func (os *OrchestratorServer) recordTask(payload map[string]interface{}, result 
 		Timestamp: time.Now(),
 	}
 
-	os.learning.RecordTask(record)
+	if s.learning != nil {
+		s.learning.RecordTask(record)
+	}
+}
+
+// sendOpenAIError sends an error response in OpenAI format
+func (s *OrchestratorServer) sendOpenAIError(w http.ResponseWriter, errorType, message string, statusCode int) {
+	response := map[string]interface{}{
+		"error": map[string]interface{}{
+			"type":    errorType,
+			"message": message,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(response)
+}
+
+// sendOllamaError sends an error response in Ollama format
+func (s *OrchestratorServer) sendOllamaError(w http.ResponseWriter, message string, statusCode int) {
+	response := map[string]interface{}{
+		"error": message,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(response)
 }

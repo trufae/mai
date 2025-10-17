@@ -2,20 +2,19 @@
 work_dir: "./work"
 
 providers:
+  - name: "openai-gpt-4o"
+    provider: "openai"
+    model: "gpt-4o"
+    immutable: true
   - name: "ollama-gemma3-1b"
-    provider: "openai"
+    provider: "ollama"
     model: "gemma3:1b"
-    baseurl: "http://localhost:11434/v1"
+    baseurl: "http://localhost:11434"
     immutable: true
-  - name: "ollama-gemma3-12b"
-    provider: "openai"
-    model: "gemma3:12b"
-    baseurl: "http://localhost:11434/v1"
-    immutable: true
-  - name: "ollama-gpt-oss-20b"
-    provider: "openai"
-    model: "gpt-oss:20b"
-    baseurl: "http://localhost:11434/v1"
+  - name: "ollama-gemma3-27b"
+    provider: "ollama"
+    model: "gemma3:27b"
+    baseurl: "http://localhost:11434"
     immutable: true
 
 mcps:
@@ -61,15 +60,10 @@ agents:
     mcps: ["shell", "time"]
     prompts: ["default-system"]
     immutable: true
-  - name: "agent-gemma3-12b"
-    provider: "ollama-gemma3-12b"
+  - name: "agent-gemma3-27b"
+    provider: "ollama-gemma3-27b"
     mcps: ["pancode", "shell", "time"]
     prompts: ["coding-assistant"]
-    immutable: true
-  - name: "agent-gpt-oss-20b"
-    provider: "ollama-gpt-oss-20b"
-    mcps: ["wttr", "time"]
-    prompts: ["research-assistant"]
     immutable: true
 
 orchestrator:

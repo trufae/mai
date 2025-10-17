@@ -301,12 +301,22 @@ func (dm *DaemonManager) killProcess(pid int) error {
 	return nil
 }
 
-// StartAllAgents starts all agents from config
+// StartAllAgents loads all agents from config (no processes started)
 func (dm *DaemonManager) StartAllAgents() error {
 	for _, agentConfig := range dm.config.Agents {
-		if err := dm.StartAgent(agentConfig); err != nil {
-			fmt.Printf("Warning: failed to start agent %s: %v\n", agentConfig.Name, err)
+		resolved, err := dm.config.ResolveAgentConfig(&agentConfig)
+		if err != nil {
+			fmt.Printf("Warning: failed to resolve agent %s: %v\n", agentConfig.Name, err)
+			continue
 		}
+		agent := &AgentProcess{
+			Name:      resolved.Name,
+			PID:       0, // No process
+			Port:      0, // No port
+			Config:    *resolved,
+			StartTime: time.Now(),
+		}
+		dm.agents[resolved.Name] = agent
 	}
 	return nil
 }
