@@ -12,6 +12,11 @@ type Token struct {
 	DF    int
 }
 
+type Document struct {
+	Text     string
+	Metadata map[string]interface{}
+}
+
 type VectorDB struct {
 	Dimension int
 	Root      *KDNode
@@ -19,10 +24,15 @@ type VectorDB struct {
 	TotalDocs int
 	Size      int
 	Inserted  map[string]bool
+	Documents map[string]*Document // Map text to document for metadata access
 }
 
 func NewVectorDB(dimension int) *VectorDB {
-	return &VectorDB{Dimension: dimension, Inserted: make(map[string]bool)}
+	return &VectorDB{
+		Dimension: dimension,
+		Inserted:  make(map[string]bool),
+		Documents: make(map[string]*Document),
+	}
 }
 
 func (db *VectorDB) isValidToken(token string) bool {
@@ -84,10 +94,16 @@ func (db *VectorDB) computeEmbedding(text string) []float32 {
 }
 
 func (db *VectorDB) Insert(text string) {
+	db.InsertWithMetadata(text, nil)
+}
+
+func (db *VectorDB) InsertWithMetadata(text string, metadata map[string]interface{}) {
 	if text == "" || db.Inserted[text] {
 		return
 	}
 	db.Inserted[text] = true
+	doc := &Document{Text: text, Metadata: metadata}
+	db.Documents[text] = doc
 	embedding := db.computeEmbedding(text)
 	db.Root = insertRecursive(db.Root, embedding, text, 0, db.Dimension)
 	db.Size++
@@ -117,4 +133,9 @@ func (db *VectorDB) Query(text string, k int) []string {
 
 func (db *VectorDB) GetSize() int {
 	return db.Size
+}
+
+func (db *VectorDB) GetDocument(text string) (*Document, bool) {
+	doc, exists := db.Documents[text]
+	return doc, exists
 }
