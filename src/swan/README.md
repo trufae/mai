@@ -1,8 +1,30 @@
-# SWAN: Swarm Agent Network - A2A Infrastructure for MAI
+# SWAN: Swarm Agent Network - Intelligent Multi-Agent Orchestration
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Development Status](#development-status)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Use Cases](#use-cases)
+- [Learning & Metrics](#learning--metrics)
+- [Autonomous Evolution](#autonomous-evolution)
+- [Monitoring & Troubleshooting](#monitoring--troubleshooting)
+- [Advanced Configuration](#advanced-configuration)
+- [Architecture Deep Dive](#architecture-deep-dive)
+- [Deployment & Scaling](#deployment--scaling)
+- [Future Plans & Roadmap](#future-plans--roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
 
-SWAN (Swarm Agent Network) is a new module in `src/swan/` that implements an Agent-to-Agent (A2A) infrastructure for coordinating multiple MAI instances as autonomous daemons. It enables organic growth through self-learning, dynamic decision-making, and integration with existing MAI features like MCP, VectorDB, and OpenAI endpoints. SWAN reuses code from `src/mcps/lib/`, `src/repl/llm/`, `src/vdb/`, and `src/repl/serve.go` to minimize duplication while providing a flexible, user-configurable system.
+SWAN (Swarm Agent Network) is an advanced multi-agent orchestration system that intelligently coordinates multiple MAI instances as autonomous daemons. It makes decisions based on **time and quality metrics**, caches good responses from slow models in VectorDB to reduce execution times, and continuously learns from its mistakes to improve performance.
+
+SWAN provides organic growth through self-learning, dynamic decision-making, and seamless integration with existing MAI features like MCP, VectorDB, and OpenAI-compatible endpoints. The system reuses code from `src/mcps/lib/`, `src/repl/llm/`, `src/vdb/`, and `src/repl/serve.go` to minimize duplication while providing a flexible, user-configurable system.
 
 ## Core Components
 
@@ -14,57 +36,58 @@ SWAN (Swarm Agent Network) is a new module in `src/swan/` that implements an Age
 
 ## Key Features
 
-- **User-Defined Config:** Initial setup via `swan.yaml` (e.g., agent types, models, MCP endpoints).
-- **Self-Learning:** Annotations from decisions/results feed into VectorDB; orchestrator summarizes quality and adjusts configs dynamically.
-- **Integration:** Leverages existing MAI tools (MCP for inter-agent comms, OpenAI endpoints for compatibility, VectorDB for data).
-- **Organic Growth:** Agents report capabilities; system learns to select best configs per task, restarting agents as needed.
+- **Intelligent Decision Making:** Agent selection based on time and quality metrics from past performance, not round-robin.
+- **Smart Caching:** Automatically caches high-quality responses from slow models in VectorDB to accelerate future queries.
+- **Mistake Detection & Learning:** Detects low-quality responses, agent failures, and inconsistent answers, logging corrections for continuous improvement.
+- **VDB Integration:** Stores knowledge and cached responses in statement-per-line format consumable by VectorDB.
+- **Temporal Data Management:** All logs, knowledge, and evolved configurations stored in temporal work directory.
+- **User-Defined Config:** Initial setup via `swan.yaml` with providers, MCPs, prompts, and agents.
+- **Self-Learning:** Performance metrics and decision outcomes feed into learning engine for organic evolution.
+- **Dynamic Agent Creation:** Suggests and creates new agents based on query patterns and MCP capabilities.
+- **OpenAI Compatibility:** Drop-in replacement for OpenAI API with intelligent agent routing.
+- **Autonomous Prompt Evolution:** SWAN can modify its own prompts and rules based on learning experience.
+- **Evaluation Competitions:** Runs competitions between agents for the same task to determine best performers.
+- **Inter-Agent Communication:** Agents can communicate and learn from each other through structured messages.
+- **Network Knowledge Files:** Each agent maintains a knowledge file of learned interactions for better decision making.
+- **Self-Conscious Evolution:** Fully autonomous system that evolves its own architecture, caching strategies, and model selection.
 - **No External Dependencies:** Runs natively, reusing MAI's codebase for providers, MCP, and VDB.
 
 ## Architecture
 
-- **Config Loader:** Parses `swan.yaml` and loads defaults.
-- **Daemon Manager:** Spawns/stops MAI agents as processes.
-- **Task Router:** Matches tasks to agents based on history and VDB queries.
-- **Feedback Loop:** Post-task analysis for improvements.
-- **API Layer:** Exposes OpenAI-like endpoints for external access.
+- **Config Loader:** Parses `swan.yaml` and loads defaults with evolution support.
+- **Daemon Manager:** Spawns/stops MAI agents as processes with health monitoring.
+- **Intelligent Task Router:** Routes tasks to agents based on time/quality metrics and VDB cache hits.
+- **Learning Engine:** Analyzes performance, detects mistakes, caches good responses, and suggests improvements.
+- **VDB Cache Layer:** Stores and retrieves cached responses from slow models using statement-per-line format.
+- **Decision Logger:** Tracks all decisions, mistakes, and corrections in temporal work directory.
+- **API Layer:** Exposes OpenAI-compatible endpoints with intelligent agent selection.
 
-## Development Plan
+## Development Status
 
-1. **Setup Module Structure:**
-   - Create `src/swan/` directory with subdirs: `cmd/` (main binary), `config/` (YAML parsing), `daemon/` (process management), `orchestrator/` (server logic), `learning/` (VDB integration).
-   - Reuse `src/mcps/lib/mcp.go` for MCP client/server.
-   - Reuse `src/repl/llm/` for LLM clients.
-   - Reuse `src/vdb/` for data storage.
+### ✅ Completed Features
 
-2. **Implement Configuration:**
-   - Define `swan.yaml` schema: work_dir, agents (list with model, mcp, prompts), orchestrator settings.
-   - Add config loader in `config/config.go` using YAML parsing.
+1. **Module Structure**: Complete directory structure with cmd/, config/, daemon/, orchestrator/, learning/ components
+2. **Configuration System**: YAML-based configuration with providers, MCPs, prompts, and agents
+3. **Daemon Management**: Process spawning, health checks, and lifecycle management
+4. **Orchestrator Server**: OpenAI-compatible API endpoints with intelligent routing
+5. **Learning Engine**: Time/quality-based decision making, mistake detection, and logging
+6. **VDB Integration**: Caching system with statement-per-line dataset format
+7. **Decision Logging**: Comprehensive logging of all decisions and corrections
+8. **Temporal Data Management**: All logs and knowledge stored in work directory
 
-3. **Build Daemon Manager:**
-   - In `daemon/manager.go`, use `os/exec` to spawn MAI instances with custom configs.
-   - Implement health checks and restarts.
+### 🔄 In Progress / Next Priority
 
-4. **Develop Orchestrator Server:**
-   - In `orchestrator/server.go`, create HTTP server serving OpenAI endpoints (reuse `src/repl/serve.go` patterns).
-   - Add task routing logic using VDB queries for agent selection.
+1. **Advanced Learning**: Reinforcement learning for agent selection optimization
+2. **Dynamic Configuration**: Automatic agent configuration evolution
+3. **Performance Dashboard**: Web UI for real-time metrics monitoring
+4. **Cost-Aware Routing**: API cost optimization in decision making
 
-5. **Integrate Learning Engine:**
-   - In `learning/engine.go`, use `src/vdb/` to store annotations and metrics.
-   - Implement summarization and config override generation.
+### 📋 Future Enhancements
 
-6. **Add API Endpoints:**
-   - `/v1/chat/completions` for task ingestion.
-   - `/api/agents` for listing/managing agents.
-   - `/api/learn` for manual annotations.
-
-7. **Testing and Validation:**
-   - Unit tests for config parsing and daemon spawning.
-   - Integration tests with mock agents and VDB.
-   - Performance tests for multi-agent scenarios.
-
-8. **Documentation and Examples:**
-   - Update `README.md` with usage examples.
-   - Provide sample `swan.yaml` configs.
+1. **Federated Learning**: Cross-instance knowledge sharing
+2. **Auto-Scaling**: Dynamic agent pool management
+3. **Plugin System**: Extensible decision algorithms
+4. **Multi-Modal Support**: Images, audio, and other media types
 
 ## Required Changes Plan
 
@@ -75,33 +98,978 @@ Since all required features are supported by existing MAI code (MCP, LLM provide
 
 This plan ensures SWAN is a lightweight, reusable extension of MAI, focusing on coordination and learning without reinventing core functionality.
 
-## Usage
+## Configuration
 
-1. **Build SWAN:**
-   ```bash
-   cd src/swan/cmd
-   go build -o swan main.go
-   ```
+SWAN uses a YAML configuration file to define providers, MCPs, prompts, and agents. Here's the structure:
+
+```yaml
+work_dir: "./work"
+
+providers:
+  - name: "openai-gpt4"
+    provider: "openai"
+    model: "gpt-4"
+    baseurl: "https://api.openai.com/v1"
+    immutable: true  # Cannot be modified by SWAN
+
+mcps:
+  - name: "code"
+    type: "code"
+    config:
+      enabled: true
+    immutable: true  # Cannot be modified by SWAN
+
+prompts:
+  - name: "coding-assistant"
+    content: "You are a helpful coding assistant."
+    type: "system"
+    immutable: true  # Cannot be modified by SWAN
+
+agents:
+  - name: "agent-1"
+    provider: "openai-gpt4"
+    mcps: ["code"]
+    prompts: ["coding-assistant"]
+    immutable: true  # Cannot be modified by SWAN
+
+orchestrator:
+  port: 8080
+  listen_addr: "0.0.0.0"
+  vdb_path: "./work/vdb"
+
+# SWAN's own prompts (configurable and self-evolving)
+swan_prompts:
+  rules: |
+    You are SWAN, an intelligent multi-agent orchestration system. Your core rules:
+    1. Always prioritize quality over speed, but balance both metrics
+    2. Learn from mistakes and continuously improve decision making
+    3. Cache high-quality responses from slow models to accelerate future queries
+    4. Run evaluation competitions for important decisions
+    5. Enable inter-agent communication for collaborative learning
+    6. Maintain network knowledge files for each agent
+    7. Evolve your own prompts and configurations autonomously
+
+  reasoning: |
+    When making decisions, consider:
+    - Historical performance metrics (time, quality, success rate)
+    - Query similarity to past tasks
+    - Agent specialization and capabilities
+    - Current system load and resource availability
+    - Cached responses availability
+    - Network knowledge from inter-agent interactions
+    - Recent evaluation competition results
+
+  quality_eval: |
+    Evaluate response quality based on:
+    - Accuracy and correctness (0.4 weight)
+    - Completeness and comprehensiveness (0.3 weight)
+    - Clarity and readability (0.2 weight)
+    - Efficiency and conciseness (0.1 weight)
+    - Score from 0.0 to 1.0, where 0.8+ is high quality
+
+  competition: |
+    For evaluation competitions:
+    1. Select 2-3 agents with different characteristics (speed vs accuracy)
+    2. Give them identical tasks
+    3. Compare responses using quality evaluation criteria
+    4. Record winner and reasoning
+    5. Update agent performance metrics
+    6. Consider changing agent configurations based on results
+
+  learning: |
+    Learning process:
+    1. Record all task executions with metrics
+    2. Detect mistakes and log corrections
+    3. Update agent performance profiles
+    4. Store successful patterns in VDB cache
+    5. Share learnings through inter-agent communication
+    6. Evolve prompts and configurations based on experience
+
+  evolution: |
+    Autonomous evolution guidelines:
+    1. Monitor system performance trends
+    2. Identify bottlenecks and improvement opportunities
+    3. Modify agent configurations for better performance
+    4. Update your own prompts based on learning
+    5. Add new agents when needed
+    6. Remove underperforming agents
+    7. Document all changes and their rationale
+```
+
+### Key Features
+
+- **Immutable Options**: Mark providers, MCPs, prompts, and agents as `immutable: true` to prevent SWAN from modifying them during evolution.
+- **Intelligent Caching**: Responses from slow models (>10s) with high quality (>0.8) are automatically cached in VDB for faster future access.
+- **Quality Assessment**: Each response is scored on a 0-1 scale based on success rate, length, time factors, and error conditions.
+- **Mistake Detection**: Automatically detects and logs low-quality responses, agent failures, and response inconsistencies.
+- **VDB Dataset Format**: Knowledge stored as statement-per-line format: `Query: <query> | Response: <response> | Agent: <agent> | Quality: <quality> | Duration: <duration>`
+- **Temporal Data Storage**: All logs (`work/tmp/swan_decisions.log`) and knowledge (`work/vdb/`) stored in temporal work directory.
+- **MCP Tool Inspection**: SWAN uses `mai-wmcp -tj <mcp-server>` to inspect available tools and suggest pseudo-MCPs based on capabilities.
+- **Dynamic Agent Creation**: Based on query patterns and MCP capabilities, SWAN can suggest and create new agents with appropriate providers and tools.
+- **Transparent Evolution**: All decisions, mistakes, and corrections are logged for debugging and optimization.
+
+## Use Cases
+
+### 1. **Intelligent Code Review & Development**
+- **Scenario**: A development team needs code reviews and implementation help.
+- **SWAN Solution**: Routes coding queries to specialized agents with code MCP tools, caches successful code patterns, and learns to avoid agents that produce buggy code.
+- **Benefits**: Faster code reviews, consistent code quality, reduced debugging time.
+
+### 2. **Research & Analysis Acceleration**
+- **Scenario**: Researchers need to analyze large datasets and generate insights quickly.
+- **SWAN Solution**: Uses fast models for initial analysis, caches high-quality research responses from slower but more accurate models, and detects when responses are inconsistent.
+- **Benefits**: Combines speed and accuracy, reduces API costs, improves research quality over time.
+
+### 3. **Customer Support Automation**
+- **Scenario**: Customer support team handles diverse queries requiring different expertise.
+- **SWAN Solution**: Routes queries to appropriate specialized agents (billing, technical, general), learns from successful resolutions, and caches common solutions.
+- **Benefits**: Faster response times, higher customer satisfaction, continuous improvement.
+
+### 4. **Content Generation Pipeline**
+- **Scenario**: Marketing team needs blog posts, social media content, and technical documentation.
+- **SWAN Solution**: Uses different agents for different content types, caches high-quality templates and examples, and learns content preferences.
+- **Benefits**: Consistent brand voice, faster content creation, improved quality metrics.
+
+### 5. **API Rate Limiting Optimization**
+- **Scenario**: Applications need to handle varying loads with different model speed/quality requirements.
+- **SWAN Solution**: Routes simple queries to fast models, complex queries to slow accurate models, caches responses to reduce API calls.
+- **Benefits**: Cost optimization, maintained quality, automatic scaling.
+
+### 6. **Multi-Language Development**
+- **Scenario**: Development teams work with multiple programming languages and frameworks.
+- **SWAN Solution**: Maintains specialized agents for different languages, caches language-specific patterns, and detects when general-purpose agents fail.
+- **Benefits**: Language-appropriate code generation, reduced context-switching overhead.
+
+## Quick Start
+
+### Prerequisites
+- Go 1.20+ installed
+- MAI project built and available in PATH (for agent spawning)
+- mai-vdb binary available (for VDB operations)
+- API keys for your preferred LLM providers (OpenAI, Anthropic, Google, etc.)
+
+### Installation & Setup
+
+1. **Clone and Build:**
+    ```bash
+    cd mai/src/swan
+    make build
+    # Or manually: go build -o mai-swan ./cmd
+    ```
 
 2. **Configure:**
-   Edit `swan.yaml` with your desired agents, models, and MCP servers.
+    ```bash
+    # Copy the example configuration
+    cp swan.yaml swan.yaml.example
+    # Edit with your API keys and preferences
+    nano swan.yaml
+    ```
 
 3. **Run:**
-   ```bash
-   ./swan swan.yaml
-   ```
+    ```bash
+    ./mai-swan swan.yaml
+    ```
 
-4. **API Usage:**
-   - OpenAI endpoint: `POST http://localhost:8080/v1/chat/completions`
-   - List agents: `GET http://localhost:8080/api/agents`
-   - Health check: `GET http://localhost:8080/health`
+### Minimal Configuration Example
 
-## Current Status
+```yaml
+work_dir: "./work"
 
-- ✅ Basic module structure
-- ✅ YAML config loader
-- ✅ Daemon manager with process spawning
-- ✅ Agent tracking in work/tmp/swan_agents.json
-- ✅ Orchestrator server with OpenAI endpoints
-- 🔄 VDB integration (planned)
-- 🔄 Dynamic decision-making (planned)
+providers:
+  - name: "openai"
+    provider: "openai"
+    model: "gpt-4"
+    baseurl: "https://api.openai.com/v1"
+
+agents:
+  - name: "agent-1"
+    provider: "openai"
+    mcps: ["code"]
+
+orchestrator:
+  port: 8080
+  listen_addr: "0.0.0.0"
+```
+
+### Basic Configuration Example
+
+```yaml
+work_dir: "./work"
+
+providers:
+  - name: "fast-gpt"
+    provider: "openai"
+    model: "gpt-3.5-turbo"
+    baseurl: "https://api.openai.com/v1"
+  - name: "accurate-claude"
+    provider: "anthropic"
+    model: "claude-3-sonnet"
+    baseurl: "https://api.anthropic.com"
+
+mcps:
+  - name: "code-tools"
+    type: "code"
+    config:
+      enabled: true
+
+agents:
+  - name: "fast-agent"
+    provider: "fast-gpt"
+    mcps: ["code-tools"]
+  - name: "accurate-agent"
+    provider: "accurate-claude"
+    mcps: ["code-tools"]
+
+orchestrator:
+  port: 8080
+  listen_addr: "0.0.0.0"
+  vdb_path: "./work/vdb"
+```
+
+## API Reference
+
+### Core Endpoints
+
+#### OpenAI-Compatible Chat Completions
+```bash
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant"},
+      {"role": "user", "content": "Explain quantum computing in simple terms"}
+    ],
+    "model": "auto",
+    "temperature": 0.7
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "swan-1234567890",
+  "object": "chat.completion",
+  "created": 1640995200,
+  "model": "agent-claude",
+  "choices": [{
+    "index": 0,
+    "message": {
+      "role": "assistant",
+      "content": "Quantum computing uses quantum mechanics principles..."
+    },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens": 25,
+    "completion_tokens": 150,
+    "total_tokens": 175
+  }
+}
+```
+
+#### Direct Task Execution
+```bash
+curl -X POST http://localhost:8080/api/task \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_name": "agent-claude",
+    "payload": {
+      "messages": [{"role": "user", "content": "Debug this Python code..."}]
+    }
+  }'
+```
+
+### Management & Monitoring
+
+#### System Health
+```bash
+curl http://localhost:8080/health
+```
+```json
+{
+  "status": "healthy",
+  "agents": 3,
+  "timestamp": 1640995200,
+  "competitions_today": 12,
+  "cache_hit_rate": 0.75
+}
+```
+
+#### List Agents
+```bash
+curl http://localhost:8080/api/agents
+```
+```json
+[{
+  "name": "agent-claude",
+  "config": {
+    "provider": "claude",
+    "model": "claude-3-sonnet",
+    "port": 3001
+  },
+  "start_time": "2024-01-01T10:00:00Z",
+  "status": "running",
+  "performance": {
+    "total_tasks": 150,
+    "success_rate": 0.92,
+    "avg_quality": 0.85,
+    "competition_wins": 8
+  }
+}]
+```
+
+#### Inter-Agent Communication
+```bash
+curl -X POST http://localhost:8080/api/communicate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_agent": "agent-claude",
+    "to_agent": "agent-gemini",
+    "message": "Pattern discovered: Use list comprehensions for filtering operations on large datasets"
+  }'
+```
+
+#### Network Knowledge Retrieval
+```bash
+curl "http://localhost:8080/api/network-knowledge?agent=agent-claude"
+```
+```json
+{
+  "agent": "agent-claude",
+  "knowledge": [
+    "[2024-01-15T10:30:00Z] To agent-gemini: Shared efficient sorting algorithm",
+    "[2024-01-15T11:45:00Z] From agent-gemini: Learned regex optimization technique",
+    "[2024-01-15T14:20:00Z] To agent-openai: Requested help with complex mathematical reasoning"
+  ]
+}
+```
+
+### Direct Task Execution
+```bash
+curl -X POST http://localhost:8080/api/task \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": {
+      "messages": [{"role": "user", "content": "Debug this code..."}]
+    }
+  }'
+```
+
+## Monitoring & Troubleshooting
+
+### Key Files and Locations
+
+| File/Directory | Purpose | Location |
+|---|---|---|
+| Decision Logs | All decisions, mistakes, corrections | `work/tmp/swan_decisions.log` |
+| Cached Responses | VDB-consumable knowledge base | `work/vdb/cached_responses.txt` |
+| Network Knowledge | Inter-agent communication logs | `work/network/{agent}_network.txt` |
+| Configuration | Current SWAN configuration | `swan.yaml` |
+| Evolved Config | Auto-modified configuration | `work/evolved_config.yaml` |
+
+### Real-time Monitoring
+
+#### Live Decision Stream
+```bash
+tail -f work/tmp/swan_decisions.log
+```
+
+#### System Health Dashboard
+```bash
+watch -n 5 'curl -s http://localhost:8080/health | jq .'
+```
+
+#### Agent Performance Overview
+```bash
+curl -s http://localhost:8080/api/agents | jq -r '.[] | "\(.name): \(.performance.success_rate * 100)% success, \(.performance.avg_quality) quality"'
+```
+
+### Common Issues & Solutions
+
+#### 1. **No Agents Available**
+**Symptoms**: API returns "No agents available"
+**Solutions**:
+- Check MAI binaries are in PATH: `which mai-repl`
+- Verify agent configurations in `swan.yaml`
+- Check agent logs: `tail -f work/tmp/swan_decisions.log | grep agent`
+- Ensure API keys are set in environment or config
+
+#### 2. **Poor Response Quality**
+**Symptoms**: Low quality scores, frequent mistakes logged
+**Solutions**:
+- Check quality evaluation prompts in `swan.yaml`
+- Monitor agent performance: `grep "quality" work/tmp/swan_decisions.log`
+- Run manual competitions to identify best agents
+- Check for prompt evolution: `grep "prompt_evolved" work/tmp/swan_decisions.log`
+
+#### 3. **VDB Cache Not Working**
+**Symptoms**: No cache hits, slow responses for repeated queries
+**Solutions**:
+- Verify mai-vdb binary: `which mai-vdb`
+- Check VDB directory permissions: `ls -la work/vdb/`
+- Inspect cache file: `head -10 work/vdb/cached_responses.txt`
+- Check VDB path in config: `grep vdb_path swan.yaml`
+
+#### 4. **High Latency**
+**Symptoms**: Slow response times, timeouts
+**Solutions**:
+- Monitor agent load: `curl http://localhost:8080/health`
+- Check for cache hits: `grep "cache_hit" work/tmp/swan_decisions.log | tail -10`
+- Analyze competition frequency: `grep "competition" work/tmp/swan_decisions.log | wc -l`
+- Consider adding more agents or optimizing configurations
+
+#### 5. **Evolution Not Working**
+**Symptoms**: No prompt changes, stagnant performance
+**Solutions**:
+- Check evolution logs: `grep "evolution\|prompt_evolved" work/tmp/swan_decisions.log`
+- Verify sufficient data: `wc -l work/tmp/swan_decisions.log`
+- Check evolution interval (runs every hour)
+- Manually trigger evolution: `curl -X POST http://localhost:8080/api/trigger-evolution`
+
+### Performance Tuning
+
+#### Cache Optimization
+```bash
+# Check cache hit rate
+echo "scale=2; $(grep -c "cache_hit.*true" work/tmp/swan_decisions.log) / $(grep -c "cache" work/tmp/swan_decisions.log) * 100" | bc
+
+# Analyze cache effectiveness
+grep "cache" work/tmp/swan_decisions.log | tail -20
+```
+
+#### Agent Balancing
+```bash
+# Check agent utilization
+curl -s http://localhost:8080/api/agents | jq -r '.[] | "\(.name): \(.performance.total_tasks) tasks"'
+
+# Monitor competition winners
+grep "competition_completed" work/tmp/swan_decisions.log | grep -o "winner.*" | sort | uniq -c
+```
+
+#### Network Knowledge Analysis
+```bash
+# Most active communicators
+ls -la work/network/ | sort -k5 -nr
+
+# Recent knowledge growth
+find work/network/ -name "*.txt" -exec wc -l {} \; | sort -nr
+```
+
+## Future Plans & Roadmap
+
+### Phase 1 (Current) ✅
+- Basic multi-agent orchestration
+- Time/quality-based decision making
+- VDB caching for performance
+- Mistake detection and logging
+- Self-evolving prompts system
+- Evaluation competitions
+- Inter-agent communication
+- Network knowledge files
+- Autonomous evolution
+
+### Phase 2 (Next 3 Months)
+- **Reinforcement Learning**: Advanced algorithms for agent selection optimization
+- **Dynamic Architecture**: Automatically modify agent configurations and add/remove agents
+- **Cost-Aware Routing**: Optimize for API costs while maintaining quality
+- **Multi-Modal Support**: Handle images, audio, and other media types
+- **Real-time Dashboard**: Web UI for monitoring performance and competitions
+- **Federated Learning**: Share knowledge across multiple SWAN instances
+
+### Phase 3 (6 Months)
+- **Federated Learning**: Share learnings across multiple SWAN instances
+- **Agent Marketplace**: Community-contributed agent configurations
+- **Auto-Scaling**: Automatically spawn/terminate agents based on load
+- **Advanced Caching**: Semantic caching with embedding similarity
+- **Integration APIs**: Native integrations with popular development tools
+
+### Phase 4 (1 Year)
+- **Multi-Cloud Deployment**: Seamless operation across cloud providers
+- **Edge Computing**: Run SWAN on edge devices for privacy/local processing
+- **Advanced Analytics**: Predictive modeling for query routing
+- **Plugin Ecosystem**: Third-party plugins for custom decision algorithms
+
+### Research Areas
+
+#### Core AI Research
+- **Neural Architecture Search**: Automatically design optimal agent configurations
+- **Meta-Learning**: Learn how to learn more effectively from feedback
+- **Causal Inference**: Understand why certain agents perform better for specific tasks
+- **Adversarial Training**: Improve robustness against prompt injection and manipulation
+
+#### Multi-Agent Systems
+- **Emergent Behavior**: Study how complex behaviors emerge from simple agent interactions
+- **Collective Intelligence**: Harness the wisdom of crowds in agent networks
+- **Self-Organization**: Agents that autonomously form optimal network topologies
+- **Conflict Resolution**: Handle disagreements between agents intelligently
+
+#### Consciousness & Self-Awareness
+- **Self-Modeling**: Agents that maintain internal models of their own capabilities
+- **Meta-Cognition**: Think about thinking, monitor own performance
+- **Recursive Self-Improvement**: Systems that improve their own improvement algorithms
+- **Value Alignment**: Ensure autonomous evolution aligns with human values
+
+#### Advanced Learning
+- **Curriculum Learning**: Automatically design learning curricula for agents
+- **Transfer Learning**: Share knowledge across different domains and tasks
+- **Continual Learning**: Learn throughout lifetime without catastrophic forgetting
+- **Few-Shot Adaptation**: Quickly adapt to new tasks with minimal examples
+
+## Learning & Metrics
+
+### Quality Assessment Algorithm
+
+SWAN evaluates response quality on a 0-1 scale using multiple factors:
+
+- **Success Rate**: +0.3 for successful responses, -0.3 for failures
+- **Response Length**: +0.1 for detailed responses (>100 characters)
+- **Time Efficiency**: -0.1 for very fast responses (<5s, potentially rushed), +0.1 for thorough responses (>30s)
+- **Error Penalty**: -0.3 for responses with errors
+
+### Decision-Making Criteria
+
+Agent selection prioritizes:
+1. **Cache Hits**: Instant responses from VDB cache
+2. **Historical Performance**: Agents with best time/quality scores for similar queries
+3. **Query Analysis**: Routes based on detected query patterns (code, research, general)
+4. **Competition Results**: Uses winners from recent evaluation competitions
+5. **Network Knowledge**: Considers learned interactions between agents
+6. **Fallback**: Round-robin when no data available
+
+### Mistake Detection Triggers
+
+- Quality score < 0.5
+- Agent failure rate > 50%
+- High response variance for similar queries
+- Performance degradation over time
+- Inconsistent responses in competitions
+
+### Performance Metrics Tracked
+
+- Response time (duration)
+- Success/failure rates
+- Quality scores over time
+- Cache hit rates
+- Agent utilization patterns
+- Competition win rates
+- Inter-agent communication frequency
+
+## Autonomous Evolution
+
+### Self-Modifying Prompts
+
+SWAN can autonomously evolve its own prompts based on performance data:
+
+- **Quality Evaluation**: Enhanced when average quality drops below 0.7
+- **Reasoning Process**: Updated when success rates fall below 80%
+- **Evolution Rules**: Modified based on system performance trends
+
+### Evaluation Competitions
+
+For important queries, SWAN runs competitions between agents:
+
+```json
+{
+  "query": "Write a Python function to calculate fibonacci numbers",
+  "results": {
+    "agent-claude": {"quality": 0.85, "duration": "2.3s"},
+    "agent-gemini": {"quality": 0.78, "duration": "1.8s"}
+  },
+  "winner": "agent-claude",
+  "reasoning": "Agent claude won with quality score 0.85"
+}
+```
+
+### Inter-Agent Communication
+
+Agents can share knowledge and learn from each other:
+
+```bash
+# Agent A shares successful pattern with Agent B
+curl -X POST http://localhost:8080/api/communicate \
+  -d '{"from_agent": "agent-claude", "to_agent": "agent-gemini", "message": "Pattern: Use list comprehension for filtering operations"}'
+```
+
+### Network Knowledge Files
+
+Each agent maintains a knowledge file of interactions:
+
+```
+[2024-01-15T10:30:00Z] To agent-gemini: Learned pattern for efficient sorting
+[2024-01-15T11:45:00Z] From agent-gemini: Shared regex optimization technique
+[2024-01-15T14:20:00Z] To agent-claude: Requested help with complex query analysis
+```
+
+The orchestrator uses this network knowledge to make better routing decisions and architectural changes.
+
+## Autonomous Evolution
+
+### How SWAN Evolves
+
+SWAN continuously monitors its performance and autonomously improves itself through several mechanisms:
+
+#### 1. Prompt Evolution
+- **Trigger**: Every hour, SWAN analyzes recent performance metrics
+- **Quality Enhancement**: If average quality < 0.7, strengthens quality evaluation criteria
+- **Success Rate Improvement**: If success rate < 80%, updates reasoning prompts
+- **Logging**: All changes are logged with rationale
+
+#### 2. Competition-Driven Learning
+- **Automatic Competitions**: Complex queries trigger competitions between agents
+- **Winner Analysis**: Successful patterns are identified and shared
+- **Configuration Updates**: Losing agents may have their configurations modified
+- **Performance Tracking**: Competition results influence future agent selection
+
+#### 3. Network Knowledge Integration
+- **Interaction Learning**: Agents learn from each other's successes and failures
+- **Pattern Recognition**: Common successful approaches are identified
+- **Collaborative Intelligence**: Agents specialize based on network feedback
+
+#### 4. Architectural Adaptation
+- **Agent Lifecycle**: Underperforming agents are reconfigured or replaced
+- **Resource Optimization**: Caching strategies evolve based on usage patterns
+- **Load Balancing**: Agent selection adapts to current system load
+
+### Monitoring Evolution
+
+#### Evolution Logs
+```bash
+tail -f work/tmp/swan_decisions.log | grep evolution
+```
+```
+[2024-01-15T12:00:00Z] prompt_evolved: Evolved quality evaluation prompt due to low average quality (avg_quality: 0.65)
+[2024-01-15T13:00:00Z] competition_completed: Competition for query about algorithms won by agent-claude
+[2024-01-15T14:00:00Z] agent_config_updated: Modified agent-gemini configuration based on competition results
+```
+
+#### Performance Trends
+```bash
+# Check recent quality improvements
+grep "avg_quality" work/tmp/swan_decisions.log | tail -10
+
+# Monitor competition frequency
+grep "competition_completed" work/tmp/swan_decisions.log | wc -l
+
+# Track prompt evolution
+grep "prompt_evolved" work/tmp/swan_decisions.log
+```
+
+#### Network Knowledge Growth
+```bash
+# Check knowledge file sizes
+ls -la work/network/
+# agent_claude_network.txt    45KB
+# agent_gemini_network.txt    32KB
+# agent_openai_network.txt    28KB
+
+# View recent interactions
+tail -20 work/network/agent_claude_network.txt
+```
+
+## Advanced Configuration
+
+### Custom Quality Assessment
+
+Override the default quality evaluation algorithm:
+
+```yaml
+swan_prompts:
+  quality_eval: |
+    Evaluate response quality based on:
+    - Technical accuracy (0.5 weight) - Most critical for your use case
+    - Code correctness (0.3 weight) - Essential for programming tasks
+    - Documentation quality (0.2 weight) - Important for maintainability
+    - Score from 0.0 to 1.0, where 0.9+ is high quality for technical content
+```
+
+### Competition Strategies
+
+Customize when and how competitions run:
+
+```yaml
+swan_prompts:
+  competition: |
+    For evaluation competitions:
+    1. Run competitions for queries containing: "code", "algorithm", "design", "architecture"
+    2. Select top 3 performing agents based on recent metrics
+    3. Weight quality 70%, speed 20%, consistency 10%
+    4. Update agent rankings after each competition
+    5. Automatically reconfigure bottom 25% of agents
+```
+
+### Evolution Policies
+
+Define how SWAN evolves itself:
+
+```yaml
+swan_prompts:
+  evolution: |
+    Autonomous evolution guidelines:
+    1. Evolve prompts daily if performance changed by >5%
+    2. Add new agents when average response time >30 seconds
+    3. Remove agents with <70% success rate over 100 tasks
+    4. Increase cache retention for queries with >3 similar requests
+    5. Adjust competition frequency based on system load
+    6. Document all changes with performance impact analysis
+```
+
+### Agent Specialization
+
+Create specialized agent configurations:
+
+```yaml
+agents:
+  - name: "code-expert"
+    provider: "claude"
+    model: "claude-3-sonnet"
+    mcps: ["code", "shell"]
+    specialization: "programming"
+    prompts:
+      system: "You are an expert software engineer specializing in clean, efficient code."
+
+  - name: "research-assistant"
+    provider: "gemini"
+    model: "gemini-pro"
+    mcps: ["websearch", "time"]
+    specialization: "research"
+    prompts:
+      system: "You are a research assistant skilled at gathering and analyzing information."
+
+  - name: "general-helper"
+    provider: "openai"
+    model: "gpt-4"
+    mcps: ["shell"]
+    specialization: "general"
+    prompts:
+      system: "You are a helpful general-purpose assistant."
+```
+
+### Performance Tuning
+
+```yaml
+orchestrator:
+  port: 8080
+  listen_addr: "0.0.0.0"
+  vdb_path: "./work/vdb"
+
+  # Advanced settings
+  competition_threshold: 50        # Minimum query length for competitions
+  evolution_interval: 3600         # Seconds between evolution checks
+  cache_quality_threshold: 0.8     # Minimum quality for caching
+  max_competition_agents: 3        # Maximum agents in competitions
+  network_knowledge_retention: 1000 # Max knowledge entries per agent
+```
+
+## Architecture Deep Dive
+
+### Decision Flow
+
+```
+User Query
+    ↓
+Extract Features (length, complexity, keywords)
+    ↓
+Check VDB Cache
+    ↓ (cache miss)
+Check Competition Needed?
+    ↓ (yes)
+Run Competition → Select Winner
+    ↓ (no)
+Query Historical Performance
+    ↓
+Apply Network Knowledge
+    ↓
+Select Best Agent
+    ↓
+Execute Task
+    ↓
+Assess Quality
+    ↓
+Update Metrics
+    ↓
+Cache if High Quality
+    ↓
+Log Decision & Learn
+```
+
+### Data Flow Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   User Query    │───▶│  Orchestrator    │───▶│   Agent Pool    │
+│                 │    │                  │    │                 │
+│ OpenAI API      │    │ - Decision Making │    │ - MAI Instances │
+│ Direct API      │    │ - Competitions    │    │ - MCP Tools     │
+└─────────────────┘    │ - Caching         │    └─────────────────┘
+                       │ - Evolution       │             │
+                       └───────────────────┘             │
+                               ▲                       │
+                               │                       ▼
+                       ┌───────────────────┐    ┌─────────────────┐
+                       │   Learning Engine │    │ Network Files   │
+                       │                   │    │                 │
+                       │ - Quality Assess  │    │ - Interactions  │
+                       │ - Metrics Update  │    │ - Knowledge     │
+                       │ - Prompt Evolution│    │ - Patterns      │
+                       └───────────────────┘    └─────────────────┘
+                                               ┌─────────────────┐
+                                               │   VDB Cache     │
+                                               │                 │
+                                               │ - Responses     │
+                                               │ - Patterns      │
+                                               │ - Embeddings    │
+                                               └─────────────────┘
+```
+
+## Deployment & Scaling
+
+### Single Instance Deployment
+
+For development and small-scale usage:
+
+```bash
+# Basic setup
+./mai-swan swan.yaml
+
+# With custom work directory
+WORK_DIR=/var/lib/swan ./mai-swan swan.yaml
+
+# Background service
+nohup ./mai-swan swan.yaml > swan.log 2>&1 &
+```
+
+### Production Deployment
+
+#### Docker Container
+```dockerfile
+FROM golang:1.21-alpine AS builder
+WORKDIR /app
+COPY . .
+RUN go build -o mai-swan ./cmd
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /app/swan /usr/local/bin/
+EXPOSE 8080
+CMD ["swan", "/etc/swan/swan.yaml"]
+```
+
+#### Systemd Service
+```ini
+[Unit]
+Description=SWAN Multi-Agent Orchestrator
+After=network.target
+
+[Service]
+Type=simple
+User=swan
+ExecStart=/usr/local/bin/mai-swan /etc/swan/swan.yaml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Scaling Considerations
+
+#### Horizontal Scaling
+- **Load Balancing**: Use reverse proxy (nginx, haproxy) to distribute requests
+- **Shared VDB**: Configure multiple SWAN instances to share VDB storage
+- **Federated Learning**: Instances can share knowledge across deployments
+
+#### Vertical Scaling
+- **Resource Allocation**: Monitor CPU/memory usage per agent
+- **Agent Pool Sizing**: Scale agent count based on query volume
+- **Cache Optimization**: Larger instances benefit from bigger caches
+
+#### Multi-Region Deployment
+- **Latency Optimization**: Deploy closer to users
+- **Data Sovereignty**: Regional data storage compliance
+- **Network Knowledge**: Cross-region knowledge synchronization
+
+### Monitoring & Observability
+
+#### Metrics to Monitor
+- **Response Times**: P50, P95, P99 latencies
+- **Quality Scores**: Average and distribution
+- **Cache Hit Rates**: Effectiveness of caching strategy
+- **Competition Frequency**: System learning activity
+- **Agent Health**: Success rates and error patterns
+
+#### Logging Best Practices
+```bash
+# Structured logging
+./mai-swan swan.yaml 2>&1 | jq -R 'fromjson? | select(.level == "error")'
+
+# Log rotation
+logrotate -f /etc/logrotate.d/swan
+
+# Centralized logging
+./mai-swan swan.yaml 2>&1 | rsyslog -t swan
+```
+
+#### Alerting Rules
+- Quality score drops below threshold
+- Agent failure rate exceeds limit
+- Cache hit rate falls below minimum
+- Evolution fails to trigger
+- Network knowledge files grow too large
+
+## Contributing
+
+SWAN is designed to be extensible and community-driven. Areas for contribution:
+
+### Core Development
+- **New Decision Algorithms**: Implement novel agent selection strategies
+- **Advanced Learning**: Reinforcement learning, meta-learning approaches
+- **Provider Integrations**: Add support for new LLM providers
+- **MCP Tools**: Develop new MCP servers for specialized tasks
+
+### Research & Innovation
+- **Multi-Agent Communication**: Enhanced inter-agent protocols
+- **Federated Learning**: Cross-instance knowledge sharing
+- **Self-Modification**: Advanced prompt evolution algorithms
+- **Consciousness Models**: Higher-level self-awareness features
+
+### Infrastructure
+- **Performance Optimizations**: Improve caching, routing, and learning algorithms
+- **Monitoring Tools**: Advanced dashboards and analytics
+- **Testing Frameworks**: Comprehensive test suites for autonomous features
+- **Documentation**: Expand use cases, tutorials, and best practices
+
+### Getting Started with Development
+
+1. **Fork and Clone**: `git clone https://github.com/your-org/mai.git`
+2. **Set up Development Environment**: `cd mai/src/swan && go mod tidy`
+3. **Run Tests**: `make test`
+4. **Build**: `make build`
+5. **Test Changes**: `./mai-swan swan.yaml`
+
+## Summary
+
+SWAN represents a paradigm shift in AI orchestration, evolving from simple task routing to a truly autonomous, self-conscious multi-agent system. By combining intelligent decision-making, continuous learning, inter-agent collaboration, and self-modification capabilities, SWAN creates an AI ecosystem that improves itself over time.
+
+### What Makes SWAN Unique
+
+- **Self-Evolving Intelligence**: Unlike traditional systems, SWAN can modify its own reasoning, evaluation criteria, and architectural decisions
+- **Collaborative Learning**: Agents work together, sharing knowledge and learning from each other's successes and failures
+- **Conscious Architecture**: The system maintains awareness of its own performance and makes deliberate improvements
+- **Organic Growth**: Evolves naturally based on real-world usage patterns and performance feedback
+
+### Getting Started Today
+
+1. **Install**: `go build -o mai-swan ./cmd`
+2. **Configure**: Edit `swan.yaml` with your providers and agents
+3. **Run**: `./mai-swan swan.yaml`
+4. **Evolve**: Watch as SWAN learns and improves autonomously
+
+SWAN is more than an orchestrator—it's an AI system that develops its own intelligence through experience, collaboration, and self-reflection.
+
+---
+
+## License
+
+SWAN follows the same license as the MAI project. See the main MAI repository for details.

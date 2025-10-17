@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"mai/src/swan/config"
 	"mai/src/swan/daemon"
@@ -43,13 +44,25 @@ func main() {
 		log.Printf("Warning: failed to start some agents: %v", err)
 	}
 
-	// Initialize orchestrator server
+	// Initialize orchestrator server with learning engine
 	orchServer := orchestrator.NewOrchestratorServer(cfg, daemonMgr)
 
 	// Start orchestrator server in background
 	go func() {
 		if err := orchServer.Start(); err != nil {
 			log.Fatalf("Failed to start orchestrator server: %v", err)
+		}
+	}()
+
+	// Start autonomous evolution in background
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour) // Evolve every hour
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := orchServer.TriggerEvolution(); err != nil {
+				log.Printf("Warning: failed to evolve prompts: %v", err)
+			}
 		}
 	}()
 

@@ -11,12 +11,14 @@ import (
 
 	"mai/src/swan/config"
 	"mai/src/swan/daemon"
+	"mai/src/swan/learning"
 )
 
 // OrchestratorServer manages task routing to agents
 type OrchestratorServer struct {
 	config     *config.SwanConfig
 	daemonMgr  *daemon.DaemonManager
+	learning   *learning.LearningEngine
 	server     *http.Server
 	agentIndex int
 	mu         sync.Mutex
@@ -32,9 +34,17 @@ type TaskResult struct {
 
 // NewOrchestratorServer creates a new orchestrator server
 func NewOrchestratorServer(cfg *config.SwanConfig, daemonMgr *daemon.DaemonManager) *OrchestratorServer {
+	learningEngine, err := learning.NewLearningEngine(cfg)
+	if err != nil {
+		// Log error but continue - learning features will be disabled
+		fmt.Printf("Warning: failed to initialize learning engine: %v\n", err)
+		learningEngine = nil
+	}
+
 	return &OrchestratorServer{
 		config:    cfg,
 		daemonMgr: daemonMgr,
+		learning:  learningEngine,
 	}
 }
 
@@ -49,6 +59,8 @@ func (os *OrchestratorServer) Start() error {
 	// SWAN-specific endpoints
 	mux.HandleFunc("/api/agents", os.handleListAgents)
 	mux.HandleFunc("/api/task", os.handleTask)
+	mux.HandleFunc("/api/communicate", os.handleInterAgentCommunication)
+	mux.HandleFunc("/api/network-knowledge", os.handleGetNetworkKnowledge)
 	mux.HandleFunc("/health", os.handleHealth)
 
 	listenAddr := fmt.Sprintf("%s:%d", os.config.Orchestrator.ListenAddr, os.config.Orchestrator.Port)
@@ -91,8 +103,17 @@ func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Select agent
-	agent := os.selectAgent()
+	// Extract query from last user message
+	query := ""
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i].Role == "user" {
+			query = req.Messages[i].Content
+			break
+		}
+	}
+
+	// Select agent (may involve competition)
+	agent := os.selectAgentWithCompetition(query)
 	if agent == nil {
 		http.Error(w, "No agents available", http.StatusServiceUnavailable)
 		return
@@ -205,10 +226,36 @@ func (os *OrchestratorServer) handleTask(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	} else {
-		agent = os.selectAgent()
+		// Extract query from payload
+		query := ""
+		if messages, ok := req.Payload["messages"].([]interface{}); ok && len(messages) > 0 {
+			for i := len(messages) - 1; i >= 0; i-- {
+				if msg, ok := messages[i].(map[string]interface{}); ok {
+					if role, ok := msg["role"].(string); ok && role == "user" {
+						if content, ok := msg["content"].(string); ok {
+							query = content
+							break
+						}
+					}
+				}
+			}
+		} else if q, ok := req.Payload["query"].(string); ok {
+			query = q
+		}
+
+		agent = os.selectAgent(query)
 		if agent == nil {
-			http.Error(w, "No agents available", http.StatusServiceUnavailable)
-			return
+			// Try to create a new dynamic agent
+			if suggestion, err := os.learning.SuggestNewAgent(); err == nil {
+				if err := os.daemonMgr.StartResolvedAgent(*suggestion); err == nil {
+					// Get the newly created agent
+					agent, _ = os.daemonMgr.GetAgent(suggestion.Name)
+				}
+			}
+			if agent == nil {
+				http.Error(w, "No agents available", http.StatusServiceUnavailable)
+				return
+			}
 		}
 	}
 
@@ -240,8 +287,8 @@ func (os *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(response)
 }
 
-// selectAgent selects an agent for task execution (simple round-robin for now)
-func (os *OrchestratorServer) selectAgent() *daemon.AgentProcess {
+// selectAgent selects an agent for task execution using learning engine
+func (os *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 	os.mu.Lock()
 	defer os.mu.Unlock()
 
@@ -250,7 +297,14 @@ func (os *OrchestratorServer) selectAgent() *daemon.AgentProcess {
 		return nil
 	}
 
-	// Simple round-robin selection
+	// Try to get best agent from learning engine based on time/quality metrics
+	if bestAgent, err := os.learning.GetBestAgent(query); err == nil {
+		if agent, exists := agents[bestAgent]; exists {
+			return agent
+		}
+	}
+
+	// Fallback to round-robin if no learning data available
 	agentNames := make([]string, 0, len(agents))
 	for name := range agents {
 		agentNames = append(agentNames, name)
@@ -276,29 +330,35 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 
 	resp, err := http.Post(agentURL, "application/json", bytes.NewReader(payloadBytes))
 	if err != nil {
-		return &TaskResult{
+		result := &TaskResult{
 			AgentName: agent.Name,
 			Error:     err.Error(),
 			Duration:  time.Since(start),
-		}, nil
+		}
+		os.recordTask(payload, result)
+		return result, nil
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return &TaskResult{
+		result := &TaskResult{
 			AgentName: agent.Name,
 			Error:     fmt.Sprintf("failed to read response: %v", err),
 			Duration:  time.Since(start),
-		}, nil
+		}
+		os.recordTask(payload, result)
+		return result, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return &TaskResult{
+		result := &TaskResult{
 			AgentName: agent.Name,
 			Error:     fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body)),
 			Duration:  time.Since(start),
-		}, nil
+		}
+		os.recordTask(payload, result)
+		return result, nil
 	}
 
 	// Parse OpenAI response
@@ -311,11 +371,13 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 	}
 
 	if err := json.Unmarshal(body, &openaiResp); err != nil {
-		return &TaskResult{
+		result := &TaskResult{
 			AgentName: agent.Name,
 			Response:  string(body),
 			Duration:  time.Since(start),
-		}, nil
+		}
+		os.recordTask(payload, result)
+		return result, nil
 	}
 
 	response := ""
@@ -323,9 +385,233 @@ func (os *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload ma
 		response = openaiResp.Choices[0].Message.Content
 	}
 
-	return &TaskResult{
+	result := &TaskResult{
 		AgentName: agent.Name,
 		Response:  response,
 		Duration:  time.Since(start),
-	}, nil
+	}
+	os.recordTask(payload, result)
+	return result, nil
+}
+
+// selectAgentWithCompetition selects an agent, potentially running a competition
+func (os *OrchestratorServer) selectAgentWithCompetition(query string) *daemon.AgentProcess {
+	// Check if we should run an evaluation competition
+	if os.shouldRunCompetition(query) {
+		result, err := os.runCompetition(query)
+		if err == nil && result.Winner != "" {
+			// Use the winning agent
+			if winnerAgent, exists := os.daemonMgr.GetAgent(result.Winner); exists {
+				return winnerAgent
+			}
+		}
+	}
+
+	// Fall back to regular agent selection
+	return os.selectAgent(query)
+}
+
+// shouldRunCompetition determines if a competition should be run for this query
+func (os *OrchestratorServer) shouldRunCompetition(query string) bool {
+	// Run competitions for:
+	// 1. Important/complex queries (longer than 50 characters)
+	// 2. Queries we haven't seen much data for
+	// 3. Periodically to keep agents competitive
+
+	if len(query) < 50 {
+		return false // Too simple for competition
+	}
+
+	// Check if we have enough agents for a competition
+	agents := os.daemonMgr.ListAgents()
+	if len(agents) < 2 {
+		return false // Need at least 2 agents
+	}
+
+	// Run competition 10% of the time for important queries
+	return time.Now().UnixNano()%10 == 0
+}
+
+// runCompetition executes a competition between agents
+func (os *OrchestratorServer) runCompetition(query string) (*learning.CompetitionResult, error) {
+	agents := os.daemonMgr.ListAgents()
+	if len(agents) < 2 {
+		return nil, fmt.Errorf("not enough agents for competition")
+	}
+
+	// Select 2-3 agents for the competition
+	var competitorNames []string
+	count := 0
+	maxCompetitors := 3
+	if len(agents) < maxCompetitors {
+		maxCompetitors = len(agents)
+	}
+
+	for name := range agents {
+		competitorNames = append(competitorNames, name)
+		count++
+		if count >= maxCompetitors {
+			break
+		}
+	}
+
+	// Build task payload for competition
+	taskPayload := map[string]interface{}{
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": query},
+		},
+		"competition": true, // Mark as competition task
+	}
+
+	// Run tasks on each competitor and collect results
+	results := make(map[string]*TaskResult)
+	for _, agentName := range competitorNames {
+		if agent, exists := os.daemonMgr.GetAgent(agentName); exists {
+			result, err := os.executeTask(agent, taskPayload)
+			if err == nil {
+				results[agentName] = result
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no competition results")
+	}
+
+	// Convert to CompetitionResult format
+	competitionResult := &learning.CompetitionResult{
+		Query:     query,
+		Timestamp: time.Now(),
+		Results:   make(map[string]*learning.TaskRecord),
+	}
+
+	var bestQuality float64
+	var winner string
+
+	for agentName, result := range results {
+		// Assess quality for competition
+		quality := os.learning.AssessQuality(&learning.TaskRecord{
+			Query:     query,
+			Response:  result.Response,
+			Duration:  result.Duration,
+			Success:   result.Error == "",
+			Error:     result.Error,
+			Timestamp: time.Now(),
+		})
+
+		taskRecord := &learning.TaskRecord{
+			TaskID:    fmt.Sprintf("competition-%d", time.Now().UnixNano()),
+			AgentName: agentName,
+			Query:     query,
+			Response:  result.Response,
+			Duration:  result.Duration,
+			Success:   result.Error == "",
+			Error:     result.Error,
+			Quality:   quality,
+			Timestamp: time.Now(),
+		}
+
+		competitionResult.Results[agentName] = taskRecord
+
+		if quality > bestQuality {
+			bestQuality = quality
+			winner = agentName
+		}
+	}
+
+	competitionResult.Winner = winner
+	competitionResult.Reasoning = fmt.Sprintf("Agent %s won with quality score %.2f", winner, bestQuality)
+
+	return competitionResult, nil
+}
+
+// handleInterAgentCommunication handles communication between agents
+func (os *OrchestratorServer) handleInterAgentCommunication(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		FromAgent string `json:"from_agent"`
+		ToAgent   string `json:"to_agent"`
+		Message   string `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.FromAgent == "" || req.ToAgent == "" || req.Message == "" {
+		http.Error(w, "Missing required fields: from_agent, to_agent, message", http.StatusBadRequest)
+		return
+	}
+
+	// Record the communication
+	err := os.learning.RecordInterAgentCommunication(req.FromAgent, req.ToAgent, req.Message)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to record communication: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+}
+
+// handleGetNetworkKnowledge returns network knowledge for an agent
+func (os *OrchestratorServer) handleGetNetworkKnowledge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	agentName := r.URL.Query().Get("agent")
+	if agentName == "" {
+		http.Error(w, "Missing agent parameter", http.StatusBadRequest)
+		return
+	}
+
+	knowledge, err := os.learning.GetNetworkKnowledge(agentName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get network knowledge: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"agent":     agentName,
+		"knowledge": knowledge,
+	})
+}
+
+// TriggerEvolution triggers autonomous evolution of prompts and configurations
+func (os *OrchestratorServer) TriggerEvolution() error {
+	return os.learning.EvolvePrompts()
+}
+
+// recordTask records the task execution for learning
+func (os *OrchestratorServer) recordTask(payload map[string]interface{}, result *TaskResult) {
+	// Extract query from payload
+	query := ""
+	if messages, ok := payload["messages"].([]interface{}); ok && len(messages) > 0 {
+		if msg, ok := messages[len(messages)-1].(map[string]interface{}); ok {
+			if content, ok := msg["content"].(string); ok {
+				query = content
+			}
+		}
+	}
+
+	record := &learning.TaskRecord{
+		TaskID:    fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		AgentName: result.AgentName,
+		Query:     query,
+		Response:  result.Response,
+		Duration:  result.Duration,
+		Success:   result.Error == "",
+		Error:     result.Error,
+		Timestamp: time.Now(),
+	}
+
+	os.learning.RecordTask(record)
 }

@@ -16,11 +16,11 @@ import (
 
 // AgentProcess represents a running agent process
 type AgentProcess struct {
-	Name      string             `json:"name"`
-	PID       int                `json:"pid"`
-	Port      int                `json:"port"`
-	Config    config.AgentConfig `json:"config"`
-	StartTime time.Time          `json:"start_time"`
+	Name      string                     `json:"name"`
+	PID       int                        `json:"pid"`
+	Port      int                        `json:"port"`
+	Config    config.ResolvedAgentConfig `json:"config"`
+	StartTime time.Time                  `json:"start_time"`
 }
 
 // DaemonManager manages agent processes
@@ -89,15 +89,31 @@ func (dm *DaemonManager) SaveAgents() error {
 
 // StartAgent starts a new agent process
 func (dm *DaemonManager) StartAgent(agentConfig config.AgentConfig) error {
+	// Resolve the agent config
+	resolved, err := dm.config.ResolveAgentConfig(&agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to resolve agent config: %v", err)
+	}
+
+	return dm.startResolvedAgent(*resolved)
+}
+
+// StartResolvedAgent starts an agent with fully resolved config
+func (dm *DaemonManager) StartResolvedAgent(resolved config.ResolvedAgentConfig) error {
+	return dm.startResolvedAgent(resolved)
+}
+
+// startResolvedAgent starts an agent with fully resolved config
+func (dm *DaemonManager) startResolvedAgent(resolved config.ResolvedAgentConfig) error {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
-	if _, exists := dm.agents[agentConfig.Name]; exists {
-		return fmt.Errorf("agent %s already running", agentConfig.Name)
+	if _, exists := dm.agents[resolved.Name]; exists {
+		return fmt.Errorf("agent %s already running", resolved.Name)
 	}
 
 	// Find available port
-	port := agentConfig.Port
+	port := resolved.Port
 	if port == 0 {
 		port = dm.findAvailablePort()
 		if port == 0 {
@@ -108,20 +124,33 @@ func (dm *DaemonManager) StartAgent(agentConfig config.AgentConfig) error {
 	// Build MAI command arguments
 	args := []string{
 		"-M", // MCP mode
-		"-p", agentConfig.Provider,
-		"-m", agentConfig.Model,
+		"-p", resolved.Provider,
+		"-m", resolved.Model,
 		"-b", fmt.Sprintf("http://127.0.0.1:%d", port), // Bind to localhost:port
 	}
 
+	// Add base URL if specified
+	if resolved.BaseURL != "" {
+		args = append(args, "-b", resolved.BaseURL)
+	}
+
 	// Add MCP servers
-	for _, mcp := range agentConfig.MCP {
+	for _, mcp := range resolved.MCPs {
 		args = append(args, "-c", fmt.Sprintf("mcp.use=true"))
-		args = append(args, "-c", fmt.Sprintf("mcp.server=%s", mcp))
+		args = append(args, "-c", fmt.Sprintf("mcp.server=%s", mcp.Name))
+		// Add MCP-specific config if available
+		for key, value := range mcp.Config {
+			args = append(args, "-c", fmt.Sprintf("mcp.%s.%s=%v", mcp.Name, key, value))
+		}
 	}
 
 	// Add custom prompts
-	for key, value := range agentConfig.Prompts {
-		args = append(args, "-c", fmt.Sprintf("llm.%s=%s", key, value))
+	for _, prompt := range resolved.Prompts {
+		if prompt.Type == "system" {
+			args = append(args, "-c", fmt.Sprintf("llm.systemprompt=%s", prompt.Content))
+		} else {
+			args = append(args, "-c", fmt.Sprintf("llm.%s=%s", prompt.Type, prompt.Content))
+		}
 	}
 
 	// Start the process
@@ -131,7 +160,7 @@ func (dm *DaemonManager) StartAgent(agentConfig config.AgentConfig) error {
 	}
 
 	// Redirect output to files
-	logFile := filepath.Join(dm.config.WorkDir, "tmp", fmt.Sprintf("%s.log", agentConfig.Name))
+	logFile := filepath.Join(dm.config.WorkDir, "tmp", fmt.Sprintf("%s.log", resolved.Name))
 	log, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %v", err)
@@ -146,14 +175,14 @@ func (dm *DaemonManager) StartAgent(agentConfig config.AgentConfig) error {
 
 	// Create agent process record
 	agent := &AgentProcess{
-		Name:      agentConfig.Name,
+		Name:      resolved.Name,
 		PID:       cmd.Process.Pid,
 		Port:      port,
-		Config:    agentConfig,
+		Config:    resolved,
 		StartTime: time.Now(),
 	}
 
-	dm.agents[agentConfig.Name] = agent
+	dm.agents[resolved.Name] = agent
 
 	// Save state
 	if err := dm.SaveAgents(); err != nil {
@@ -166,7 +195,7 @@ func (dm *DaemonManager) StartAgent(agentConfig config.AgentConfig) error {
 		cmd.Wait()
 		log.Close()
 		dm.mu.Lock()
-		delete(dm.agents, agentConfig.Name)
+		delete(dm.agents, resolved.Name)
 		dm.mu.Unlock()
 		dm.SaveAgents()
 	}()
@@ -278,6 +307,19 @@ func (dm *DaemonManager) StartAllAgents() error {
 		}
 	}
 	return nil
+}
+
+// CreateDynamicAgent creates a new agent with specified provider, MCPs, and prompts
+func (dm *DaemonManager) CreateDynamicAgent(name string, providerName string, mcpNames []string, promptNames []string) error {
+	agentConfig := config.AgentConfig{
+		Name:     name,
+		Provider: providerName,
+		MCPs:     mcpNames,
+		Prompts:  promptNames,
+		Dynamic:  true,
+	}
+
+	return dm.StartAgent(agentConfig)
 }
 
 // StopAllAgents stops all running agents

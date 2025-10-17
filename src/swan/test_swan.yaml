@@ -1,0 +1,48 @@
+# Test SWAN Configuration
+work_dir: "./test_work"
+
+providers:
+  - name: "openai-gpt35"
+    provider: "openai"
+    model: "gpt-3.5-turbo"
+    immutable: true
+  - name: "claude-haiku"
+    provider: "claude"
+    model: "claude-3-haiku-20240307"
+    immutable: true
+
+mcps:
+  - name: "code"
+    type: "code"
+    config:
+      enabled: true
+    immutable: true
+  - name: "shell"
+    type: "shell"
+    config:
+      enabled: true
+    immutable: true
+
+prompts:
+  - name: "default-system"
+    content: "You are a helpful AI assistant for testing."
+    type: "system"
+    immutable: true
+
+agents:
+  - name: "test-agent-1"
+    provider: "openai-gpt35"
+    mcps: ["code"]
+    prompts: ["default-system"]
+    immutable: true
+
+  - name: "test-agent-2"
+    provider: "claude-haiku"
+    mcps: ["shell"]
+    prompts: ["default-system"]
+    immutable: true
+
+orchestrator:
+  port: 8080
+  listen_addr: "0.0.0.0"
+  vdb_path: "./test_work/vdb"
