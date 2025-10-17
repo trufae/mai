@@ -112,6 +112,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (named colors or rgb:RGB)", "")
 	co.RegisterOption("ui.bgline", StringOption, "Background color for the line before the prompt (named colors or rgb:RGB)", "")
 	co.RegisterOption("ui.bold", BooleanOption, "Use bold text for the input line", "false")
+	co.RegisterOption("ui.fgprompt", StringOption, "Foreground color for the prompt text (named colors or rgb:RGB)", "yellow")
+	co.RegisterOption("ui.bgprompt", StringOption, "Background color for the prompt text (named colors or rgb:RGB)", "")
 
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
@@ -665,6 +667,42 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
 			}
 		}
+	case "ui.fgprompt":
+		if value != "" && !strings.HasPrefix(value, "rgb:") {
+			validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			isValid := false
+			for _, c := range validFgColors {
+				if value == c {
+					isValid = true
+					break
+				}
+			}
+			if !isValid {
+				return fmt.Sprintf("Error: invalid color '%s'. Valid named colors: %s or rgb:RGB\r\n", value, strings.Join(validFgColors, ", ")), nil
+			}
+		} else if strings.HasPrefix(value, "rgb:") {
+			if _, ok := parseRGBColor(value); !ok {
+				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
+			}
+		}
+	case "ui.bgprompt":
+		if value != "" && !strings.HasPrefix(value, "rgb:") {
+			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			isValid := false
+			for _, c := range validColors {
+				if value == c {
+					isValid = true
+					break
+				}
+			}
+			if !isValid {
+				return fmt.Sprintf("Error: invalid color '%s'. Valid named colors: %s or rgb:RGB\r\n", value, strings.Join(validColors, ", ")), nil
+			}
+		} else if strings.HasPrefix(value, "rgb:") {
+			if _, ok := parseRGBColor(value); !ok {
+				return fmt.Sprintf("Error: invalid RGB format '%s'. Use rgb:RGB with RGB as 3 hex chars (0-F)\r\n", value), nil
+			}
+		}
 	case "dir.promptfile", "llm.systemprompt":
 		// Already handled above
 		return output.String(), nil
@@ -807,6 +845,10 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Input line background color reverted to default\r\n")
 	case "ui.fgcolor":
 		output.WriteString("Input line foreground color reverted to default\r\n")
+	case "ui.fgprompt":
+		output.WriteString("Prompt foreground color reverted to default\r\n")
+	case "ui.bgprompt":
+		output.WriteString("Prompt background color reverted to default\r\n")
 	case "ui.bold":
 		output.WriteString("Bold text for input line reverted to default\r\n")
 	case "dir.promptfile", "llm.systemprompt":

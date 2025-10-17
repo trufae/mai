@@ -48,6 +48,8 @@ type ReadLine struct {
 	fgColor        string // Foreground color for the input line text
 	bold           bool   // Whether to use bold text for the input line
 	bgLineColor    string // Background color for the line before the prompt
+	fgPromptColor  string // Foreground color for the prompt text
+	bgPromptColor  string // Background color for the prompt text
 }
 
 // NewReadLine creates a new ReadLine instance
@@ -98,6 +100,8 @@ func NewReadLine() (*ReadLine, error) {
 		fgColor:            "",
 		bold:               false,
 		bgLineColor:        "",
+		fgPromptColor:      "",
+		bgPromptColor:      "",
 	}
 	r.Restore()
 	return r, nil
@@ -222,6 +226,44 @@ func (r *ReadLine) getColorCodes() string {
 	return "\x1b[" + strings.Join(codes, ";") + "m"
 }
 
+// getPromptColorCodes returns the ANSI color codes for prompt foreground and background
+func (r *ReadLine) getPromptColorCodes() string {
+	var codes []string
+
+	var fgCode string
+	if r.fgPromptColor != "" {
+		if strings.HasPrefix(r.fgPromptColor, "rgb:") {
+			if code, ok := parseRGB(r.fgPromptColor); ok {
+				fgCode = "38;2;" + code
+			}
+		} else if fg, ok := fgMap[r.fgPromptColor]; ok {
+			fgCode = fg
+		}
+	}
+	if fgCode != "" {
+		codes = append(codes, fgCode)
+	}
+
+	var bgCode string
+	if r.bgPromptColor != "" {
+		if strings.HasPrefix(r.bgPromptColor, "rgb:") {
+			if code, ok := parseRGB(r.bgPromptColor); ok {
+				bgCode = "48;2;" + code
+			}
+		} else if info, ok := colorMap[r.bgPromptColor]; ok {
+			bgCode = info.bg
+		}
+	}
+	if bgCode != "" {
+		codes = append(codes, bgCode)
+	}
+
+	if len(codes) == 0 {
+		return "\x1b[33m" // default yellow foreground
+	}
+	return "\x1b[" + strings.Join(codes, ";") + "m"
+}
+
 // Restore restores the terminal to its original state
 func (r *ReadLine) Restore() {
 	if r.oldState != nil {
@@ -332,10 +374,11 @@ func (r *ReadLine) Read() (string, error) {
 
 	// Show the prompt immediately when starting to read
 	// Choose appropriate prompt based on mode
+	promptColor := r.getPromptColorCodes()
 	if r.isHeredoc || r.isContinuation {
-		fmt.Printf("\r\x1b[33m%s\x1b[0m ", r.readlinePrompt)
+		fmt.Printf("\r%s%s\x1b[0m ", promptColor, r.readlinePrompt)
 	} else {
-		fmt.Printf("\r\x1b[33m%s\x1b[0m ", r.prompt)
+		fmt.Printf("\r%s%s\x1b[0m ", promptColor, r.prompt)
 	}
 	r.refreshLine()
 
@@ -386,7 +429,8 @@ func (r *ReadLine) Read() (string, error) {
 					// Add the line to heredoc buffer
 					r.heredocBuffer = append(r.heredocBuffer, result)
 					// Show the prompt again for next line
-					fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
+					promptColor := r.getPromptColorCodes()
+					fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -402,7 +446,8 @@ func (r *ReadLine) Read() (string, error) {
 					// Add line without the trailing backslash to buffer
 					r.continuationBuffer = append(r.continuationBuffer, result[:len(result)-1])
 					// Show prompt for next line
-					fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
+					promptColor := r.getPromptColorCodes()
+					fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
 					// Clear buffer for next line
 					r.buffer = r.buffer[:0]
 					r.cursorPos = 0
@@ -449,7 +494,8 @@ func (r *ReadLine) Read() (string, error) {
 				}
 
 				// Show the prompt for next line
-				fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
+				promptColor := r.getPromptColorCodes()
+				fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -464,7 +510,8 @@ func (r *ReadLine) Read() (string, error) {
 				r.continuationBuffer = []string{result[:len(result)-1]} // Store line without backslash
 
 				// Show prompt for next line
-				fmt.Printf("\x1b[33m%s\x1b[0m ", r.readlinePrompt)
+				promptColor := r.getPromptColorCodes()
+				fmt.Printf("%s%s\x1b[0m ", promptColor, r.readlinePrompt)
 				// Clear buffer for next line
 				r.buffer = r.buffer[:0]
 				r.cursorPos = 0
@@ -520,7 +567,8 @@ func (r *ReadLine) Read() (string, error) {
 				r.interruptFunc()
 			}
 			// Continue reading input after interruption instead of returning error
-			fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
+			promptColor := r.getPromptColorCodes()
+			fmt.Printf("%s%s\x1b[0m ", promptColor, r.prompt)
 			continue
 
 		case 23: // Ctrl+W (delete word)
@@ -622,8 +670,9 @@ func (r *ReadLine) refreshLine() {
 	// Clear the current line
 	fmt.Print("\r\033[2K")
 
-	// Print prompt with default color
-	fmt.Printf("\x1b[33m%s\x1b[0m", r.prompt)
+	// Print prompt with configured color
+	promptColor := r.getPromptColorCodes()
+	fmt.Printf("%s%s\x1b[0m", promptColor, r.prompt)
 
 	// Print space after prompt with background color if set
 	color := r.getColorCodes()
@@ -814,6 +863,16 @@ func (r *ReadLine) SetBold(b bool) {
 // SetBgLineColor sets the background color for the line before the prompt
 func (r *ReadLine) SetBgLineColor(color string) {
 	r.bgLineColor = color
+}
+
+// SetFgPromptColor sets the foreground color for the prompt text
+func (r *ReadLine) SetFgPromptColor(color string) {
+	r.fgPromptColor = color
+}
+
+// SetBgPromptColor sets the background color for the prompt text
+func (r *ReadLine) SetBgPromptColor(color string) {
+	r.bgPromptColor = color
 }
 
 // handleTabCompletion handles tab completion (kept for reference)
@@ -1052,7 +1111,8 @@ func (r *ReadLine) exitSearchMode() {
 
 	// Clear the search prompt and show normal prompt
 	fmt.Print("\r\033[2K")
-	fmt.Printf("\x1b[33m%s\x1b[0m ", r.prompt)
+	promptColor := r.getPromptColorCodes()
+	fmt.Printf("%s%s\x1b[0m ", promptColor, r.prompt)
 	r.refreshLine()
 }
 

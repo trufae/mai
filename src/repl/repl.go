@@ -228,6 +228,14 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		if repl.configOptions.GetBool("ui.bold") {
 			repl.readline.SetBold(true)
 		}
+
+		if fgprompt := repl.configOptions.Get("ui.fgprompt"); fgprompt != "" {
+			repl.readline.SetFgPromptColor(fgprompt)
+		}
+
+		if bgprompt := repl.configOptions.Get("ui.bgprompt"); bgprompt != "" {
+			repl.readline.SetBgPromptColor(bgprompt)
+		}
 	}
 
 	// Initialize baseurl/useragent options from environment defaults if not set
@@ -322,6 +330,18 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 	repl.configOptions.RegisterOptionListener("ui.bgline", func(value string) {
 		if repl.readline != nil {
 			repl.readline.SetBgLineColor(value)
+		}
+	})
+
+	repl.configOptions.RegisterOptionListener("ui.fgprompt", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetFgPromptColor(value)
+		}
+	})
+
+	repl.configOptions.RegisterOptionListener("ui.bgprompt", func(value string) {
+		if repl.readline != nil {
+			repl.readline.SetBgPromptColor(value)
 		}
 	})
 
