@@ -34,11 +34,14 @@ type TaskResult struct {
 
 // NewOrchestratorServer creates a new orchestrator server
 func NewOrchestratorServer(cfg *config.SwanConfig, daemonMgr *daemon.DaemonManager) *OrchestratorServer {
+	fmt.Printf("DEBUG: Initializing learning engine...\n")
 	learningEngine, err := learning.NewLearningEngine(cfg)
 	if err != nil {
 		// Log error but continue - learning features will be disabled
 		fmt.Printf("Warning: failed to initialize learning engine: %v\n", err)
 		learningEngine = nil
+	} else {
+		fmt.Printf("DEBUG: Learning engine initialized\n")
 	}
 
 	return &OrchestratorServer{
@@ -50,11 +53,21 @@ func NewOrchestratorServer(cfg *config.SwanConfig, daemonMgr *daemon.DaemonManag
 
 // Start starts the orchestrator server
 func (os *OrchestratorServer) Start() error {
+	fmt.Printf("DEBUG: Creating HTTP mux...\n")
 	mux := http.NewServeMux()
+
+	// Root endpoint for status
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("SWAN orchestrator is running"))
+	})
 
 	// OpenAI-compatible endpoints
 	mux.HandleFunc("/v1/chat/completions", os.handleChatCompletions)
 	mux.HandleFunc("/v1/models", os.handleModels)
+
+	// Ollama-compatible endpoints
+	mux.HandleFunc("/api/generate", os.handleGenerate)
+	mux.HandleFunc("/api/tags", os.handleTags)
 
 	// SWAN-specific endpoints
 	mux.HandleFunc("/api/agents", os.handleListAgents)
@@ -64,12 +77,22 @@ func (os *OrchestratorServer) Start() error {
 	mux.HandleFunc("/health", os.handleHealth)
 
 	listenAddr := fmt.Sprintf("%s:%d", os.config.Orchestrator.ListenAddr, os.config.Orchestrator.Port)
+	fmt.Printf("DEBUG: Creating HTTP server on %s...\n", listenAddr)
 	os.server = &http.Server{
 		Addr:    listenAddr,
 		Handler: mux,
 	}
 
-	fmt.Printf("Starting orchestrator on %s\n", listenAddr)
+	fmt.Printf("SWAN Orchestrator starting...\n")
+	fmt.Printf("Main orchestrator listening on: %s\n", listenAddr)
+	fmt.Printf("Port: %d\n", os.config.Orchestrator.Port)
+	fmt.Printf("To connect with MAI: mai -M -b http://%s\n", listenAddr)
+	fmt.Printf("OpenAI-compatible API: http://%s/v1/chat/completions\n", listenAddr)
+	fmt.Printf("Ollama-compatible API: http://%s/api/generate\n", listenAddr)
+	fmt.Printf("Models list: http://%s/api/tags\n", listenAddr)
+	fmt.Printf("Health check: http://%s/health\n", listenAddr)
+	fmt.Printf("Agent list: http://%s/api/agents\n", listenAddr)
+	fmt.Printf("DEBUG: Calling ListenAndServe...\n")
 	return os.server.ListenAndServe()
 }
 
@@ -110,6 +133,17 @@ func (os *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *ht
 			query = req.Messages[i].Content
 			break
 		}
+	}
+
+	// Handle admin queries directly
+	if response := os.handleAdminQuery(query); response != "" {
+		os.recordTask(map[string]interface{}{"messages": req.Messages}, &TaskResult{
+			AgentName: "swan-admin",
+			Response:  response,
+			Duration:  0,
+		})
+		os.sendOpenAIResponse(w, "swan-admin", response, req.Stream)
+		return
 	}
 
 	// Select agent (may involve competition)
@@ -588,6 +622,171 @@ func (os *OrchestratorServer) handleGetNetworkKnowledge(w http.ResponseWriter, r
 // TriggerEvolution triggers autonomous evolution of prompts and configurations
 func (os *OrchestratorServer) TriggerEvolution() error {
 	return os.learning.EvolvePrompts()
+}
+
+// handleAdminQuery handles special administrative queries
+func (os *OrchestratorServer) handleAdminQuery(query string) string {
+	switch query {
+	case "/health", "show health", "health":
+		agents := os.daemonMgr.ListAgents()
+		status := "healthy"
+		if len(agents) == 0 {
+			status = "degraded"
+		}
+		return fmt.Sprintf("SWAN Status: %s\nAgents running: %d\nTimestamp: %d", status, len(agents), time.Now().Unix())
+	case "/agents", "list agents", "agents":
+		agents := os.daemonMgr.ListAgents()
+		if len(agents) == 0 {
+			return "No agents currently running"
+		}
+		response := "Running agents:\n"
+		for name, agent := range agents {
+			response += fmt.Sprintf("- %s (PID: %d, Port: %d, Provider: %s, Model: %s)\n",
+				name, agent.PID, agent.Port, agent.Config.Provider, agent.Config.Model)
+		}
+		return response
+	case "/help", "help":
+		return "Available commands:\n/health - Show system health\n/agents - List running agents\n/help - Show this help"
+	default:
+		return ""
+	}
+}
+
+// sendOpenAIResponse sends a response in OpenAI format
+func (os *OrchestratorServer) sendOpenAIResponse(w http.ResponseWriter, model string, content string, stream bool) {
+	response := map[string]interface{}{
+		"id":      fmt.Sprintf("swan-%d", time.Now().Unix()),
+		"object":  "chat.completion",
+		"created": time.Now().Unix(),
+		"model":   model,
+		"choices": []map[string]interface{}{
+			{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": content,
+				},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]interface{}{
+			"prompt_tokens":     0,
+			"completion_tokens": 0,
+			"total_tokens":      0,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleGenerate handles Ollama /api/generate
+func (os *OrchestratorServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Model  string `json:"model"`
+		Prompt string `json:"prompt"`
+		Stream bool   `json:"stream"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Handle admin queries
+	if response := os.handleAdminQuery(req.Prompt); response != "" {
+		os.recordTask(map[string]interface{}{"prompt": req.Prompt}, &TaskResult{
+			AgentName: "swan-admin",
+			Response:  response,
+			Duration:  0,
+		})
+		os.sendOllamaResponse(w, "swan-admin", response)
+		return
+	}
+
+	// Select agent
+	agent := os.selectAgent(req.Prompt)
+	if agent == nil {
+		http.Error(w, "No agents available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Build task payload
+	taskPayload := map[string]interface{}{
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": req.Prompt},
+		},
+		"model":  req.Model,
+		"stream": req.Stream,
+	}
+
+	// Execute task
+	result, err := os.executeTask(agent, taskPayload)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Task execution failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Return Ollama response
+	os.sendOllamaResponse(w, agent.Name, result.Response)
+}
+
+// handleTags handles Ollama /api/tags
+func (os *OrchestratorServer) handleTags(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	agents := os.daemonMgr.ListAgents()
+	var models []map[string]interface{}
+
+	for name, agent := range agents {
+		models = append(models, map[string]interface{}{
+			"name":   name,
+			"size":   0,
+			"digest": "",
+			"details": map[string]interface{}{
+				"format":             "gguf",
+				"family":             agent.Config.Provider,
+				"families":           []string{agent.Config.Provider},
+				"parameter_size":     "unknown",
+				"quantization_level": "unknown",
+			},
+			"model":       name,
+			"modified_at": agent.StartTime.Format(time.RFC3339),
+		})
+	}
+
+	response := map[string]interface{}{
+		"models": models,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// sendOllamaResponse sends a response in Ollama format
+func (os *OrchestratorServer) sendOllamaResponse(w http.ResponseWriter, model string, content string) {
+	response := map[string]interface{}{
+		"model":             model,
+		"response":          content,
+		"done":              true,
+		"context":           []int{},
+		"total_duration":    0,
+		"load_duration":     0,
+		"prompt_eval_count": 0,
+		"eval_count":        0,
+		"eval_duration":     0,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // recordTask records the task execution for learning

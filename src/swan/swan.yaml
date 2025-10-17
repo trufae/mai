@@ -1,28 +1,80 @@
-# SWAN Configuration Example
+# SWAN Default Configuration for Local Models
 work_dir: "./work"
 
-agents:
-  - name: "agent-claude"
-    provider: "claude"
-    model: "claude-3-5-sonnet-20241022"
-    mcp:
-      - "code"
-      - "shell"
-    prompts:
-      llm.systemprompt: "You are a helpful AI assistant specialized in coding tasks."
+providers:
+  - name: "ollama-gemma3-1b"
+    provider: "openai"
+    model: "gemma3:1b"
+    baseurl: "http://localhost:11434/v1"
+    immutable: true
+  - name: "ollama-gemma3-12b"
+    provider: "openai"
+    model: "gemma3:12b"
+    baseurl: "http://localhost:11434/v1"
+    immutable: true
+  - name: "ollama-gpt-oss-20b"
+    provider: "openai"
+    model: "gpt-oss:20b"
+    baseurl: "http://localhost:11434/v1"
+    immutable: true
 
-  - name: "agent-gemini"
-    provider: "gemini"
-    model: "gemini-1.5-pro"
-    mcp:
-      - "websearch"
-      - "time"
-    prompts:
-      llm.systemprompt: "You are an AI assistant focused on research and information gathering."
+mcps:
+  - name: "wttr"
+    type: "wttr"
+    config:
+      enabled: true
+    immutable: true
+  - name: "pancode"
+    type: "pancode"
+    config:
+      enabled: true
+    immutable: true
+  - name: "time"
+    type: "time"
+    config:
+      enabled: true
+    immutable: true
+  - name: "shell"
+    type: "shell"
+    config:
+      enabled: true
+    immutable: true
+
+
+prompts:
+  - name: "default-system"
+    content: "You are a helpful AI assistant running locally with access to various tools."
+    type: "system"
+    immutable: true
+  - name: "coding-assistant"
+    content: "You are a specialized coding assistant with access to code analysis and shell tools."
+    type: "system"
+    immutable: true
+  - name: "research-assistant"
+    content: "You are a research assistant with access to weather information and time tools."
+    type: "system"
+    immutable: true
+
+agents:
+  - name: "agent-gemma3-1b"
+    provider: "ollama-gemma3-1b"
+    mcps: ["shell", "time"]
+    prompts: ["default-system"]
+    immutable: true
+  - name: "agent-gemma3-12b"
+    provider: "ollama-gemma3-12b"
+    mcps: ["pancode", "shell", "time"]
+    prompts: ["coding-assistant"]
+    immutable: true
+  - name: "agent-gpt-oss-20b"
+    provider: "ollama-gpt-oss-20b"
+    mcps: ["wttr", "time"]
+    prompts: ["research-assistant"]
+    immutable: true
 
 orchestrator:
-  port: 8080
-  listen_addr: "0.0.0.0"
+  port: 9090
+  listen_addr: "127.0.0.1"
   vdb_path: "./work/vdb"
 
 # SWAN's own prompts - can be customized and will evolve over time

@@ -135,8 +135,10 @@ func (dm *DaemonManager) startResolvedAgent(resolved config.ResolvedAgentConfig)
 	}
 
 	// Add MCP servers
+	if len(resolved.MCPs) > 0 {
+		args = append(args, "-c", "mcp.use=true")
+	}
 	for _, mcp := range resolved.MCPs {
-		args = append(args, "-c", fmt.Sprintf("mcp.use=true"))
 		args = append(args, "-c", fmt.Sprintf("mcp.server=%s", mcp.Name))
 		// Add MCP-specific config if available
 		for key, value := range mcp.Config {

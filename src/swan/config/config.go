@@ -92,10 +92,10 @@ func LoadConfig(configPath string) (*SwanConfig, error) {
 
 	// Set defaults
 	if config.WorkDir == "" {
-		config.WorkDir = "./work"
+		config.WorkDir = "/tmp/swandb"
 	}
 	if config.Orchestrator.Port == 0 {
-		config.Orchestrator.Port = 8080
+		config.Orchestrator.Port = 9090
 	}
 	if config.Orchestrator.ListenAddr == "" {
 		config.Orchestrator.ListenAddr = "0.0.0.0"

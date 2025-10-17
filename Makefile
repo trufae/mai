@@ -19,6 +19,7 @@ install:
 	$(MAKE) -C src/wmcp install
 	$(MAKE) -C src/repl install
 	$(MAKE) -C src/tool install
+	$(MAKE) -C src/swan install
 	$(MAKE) -C src/mcps install
 	$(MAKE) -C src/vdb install
 	$(MAKE) -C src/bot install
@@ -28,6 +29,7 @@ uninstall:
 	$(MAKE) -C src/repl uninstall
 	$(MAKE) -C src/tool uninstall
 	$(MAKE) -C src/mcps uninstall
+	$(MAKE) -C src/swan uninstall
 	$(MAKE) -C src/vdb uninstall
 	$(MAKE) -C src/bot uninstall
 
