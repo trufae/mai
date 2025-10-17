@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,30 +15,157 @@ const MaiVersion = "1.2.2"
 
 func showHelp() {
 	fmt.Println(`Usage: mai-wmcp [options] "server1" "server2" ...
-Options:
-   -b URL   Base URL to listen on (default: :8989)
-   -c FILE  Path to config file (default: ~/.mai-wmcp.json)
-   -d       Enable debug logging (shows HTTP requests and JSON payloads)
-   -h       Show this help message
-   -i       Non-interactive mode (return errors instead of prompting)
-   -k       Drunk mode (permissive tool matching and parameter assignment)
-   -n       Skip loading config file
-   -o FILE  Output report to FILE
-   -p       Skip loading prompts (only expose tools)
-   -v       Show version information
-   -y       Yolo mode (skip tool confirmations)
-Example: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
-Example with config: mai-wmcp -c /path/to/config.json`)
+ Options:
+    -b URL   Base URL to listen on (default: :8989)
+    -c FILE  Path to config file (default: ~/.mai-wmcp.json)
+    -d       Enable debug logging (shows HTTP requests and JSON payloads)
+    -h       Show this help message
+    -i       Non-interactive mode (return errors instead of prompting)
+    -j       Print tools, prompts, and resources in JSON format (with -t)
+    -k       Drunk mode (permissive tool matching and parameter assignment)
+    -n       Skip loading config file
+    -o FILE  Output report to FILE
+    -p       Skip loading prompts (only expose tools)
+    -t       Load MCP servers and list tools, prompts, and resources, then quit
+    -v       Show version information
+    -y       Yolo mode (skip tool confirmations)
+ Example: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
+ Example with config: mai-wmcp -c /path/to/config.json
+ Example to list: mai-wmcp -t "r2pm -r r2mcp" "timemcp"`)
 }
 
 func showVersion() {
 	fmt.Printf("mai-wmcp version %s\n", MaiVersion)
 }
 
+func listMCPData(service *MCPService, jsonOutput bool) {
+	service.mutex.RLock()
+	defer service.mutex.RUnlock()
+
+	if jsonOutput {
+		result := make(map[string]interface{})
+		tools := make(map[string][]Tool)
+		prompts := make(map[string][]Prompt)
+		resources := make(map[string][]Resource)
+
+		for serverName, server := range service.servers {
+			server.mutex.RLock()
+			// Tools
+			serverTools := make([]Tool, len(server.Tools))
+			copy(serverTools, server.Tools)
+			for i := range serverTools {
+				if len(serverTools[i].Parameters) == 0 && serverTools[i].InputSchema != nil {
+					serverTools[i].Parameters = extractParametersFromSchema(serverTools[i].InputSchema)
+				}
+			}
+			tools[serverName] = serverTools
+
+			// Prompts
+			serverPrompts := make([]Prompt, len(server.Prompts))
+			copy(serverPrompts, server.Prompts)
+			prompts[serverName] = serverPrompts
+
+			// Resources
+			serverResources := make([]Resource, len(server.Resources))
+			copy(serverResources, server.Resources)
+			resources[serverName] = serverResources
+			server.mutex.RUnlock()
+		}
+
+		result["tools"] = tools
+		result["prompts"] = prompts
+		result["resources"] = resources
+
+		jsonBytes, err := json.Marshal(result)
+		if err != nil {
+			fmt.Printf("Error marshaling JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(jsonBytes))
+	} else {
+		// Text output
+		var output strings.Builder
+		output.WriteString("# MCP Data\n\n")
+
+		// Tools
+		output.WriteString("## Tools\n\n")
+		for _, server := range service.servers {
+			server.mutex.RLock()
+			for _, tool := range server.Tools {
+				output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
+				output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
+				if len(tool.Parameters) > 0 {
+					output.WriteString("Parameters:\n")
+					for _, param := range tool.Parameters {
+						req := ""
+						if param.Required {
+							req = " (required)"
+						}
+						output.WriteString(fmt.Sprintf("  - %s=<value> : %s (%s)%s\n",
+							param.Name, param.Description, param.Type, req))
+					}
+				}
+				output.WriteString("\n")
+			}
+			server.mutex.RUnlock()
+		}
+
+		// Prompts
+		output.WriteString("## Prompts\n\n")
+		for _, server := range service.servers {
+			server.mutex.RLock()
+			for _, prompt := range server.Prompts {
+				output.WriteString(fmt.Sprintf("PromptName: %s\n", prompt.Name))
+				if prompt.Description != "" {
+					output.WriteString(fmt.Sprintf("Description: %s\n", prompt.Description))
+				}
+				if len(prompt.Arguments) > 0 {
+					output.WriteString("Parameters:\n")
+					for _, a := range prompt.Arguments {
+						req := ""
+						if a.Required {
+							req = " [required]"
+						}
+						typ := a.Type
+						if typ == "" {
+							typ = "string"
+						}
+						output.WriteString(fmt.Sprintf("- %s=<%s> : %s%s\n", a.Name, typ, a.Description, req))
+					}
+				}
+				output.WriteString("\n")
+			}
+			server.mutex.RUnlock()
+		}
+
+		// Resources
+		output.WriteString("## Resources\n\n")
+		for _, server := range service.servers {
+			server.mutex.RLock()
+			for _, resource := range server.Resources {
+				output.WriteString(fmt.Sprintf("URI: %s\n", resource.URI))
+				output.WriteString(fmt.Sprintf("Name: %s\n", resource.Name))
+				if resource.Description != "" {
+					output.WriteString(fmt.Sprintf("Description: %s\n", resource.Description))
+				}
+				if resource.MimeType != "" {
+					output.WriteString(fmt.Sprintf("MIME Type: %s\n", resource.MimeType))
+				}
+				output.WriteString("\n")
+			}
+			server.mutex.RUnlock()
+		}
+
+		fmt.Print(output.String())
+	}
+}
+
 func main() {
 	// Parse command line flags
 	configPath := ""
 	skipConfig := false
+	toolsList := false
+	jsonOutput := false
 
 	args := os.Args[1:]
 
@@ -66,27 +194,15 @@ func main() {
 				}
 			case "-n":
 				skipConfig = true
-			}
-		}
-	}
-
-	// First pass: extract config-related flags
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-
-		if len(arg) > 0 && arg[0] == '-' {
-			switch arg {
-			case "-c":
-				if i+1 < len(args) {
-					configPath = args[i+1]
-					i++
-				} else {
-					fmt.Println("Error: -c requires a file path")
+			case "-t":
+				toolsList = true
+			case "-j":
+				if !toolsList {
+					fmt.Println("Error: -j can only be used with -t")
 					showHelp()
 					os.Exit(1)
 				}
-			case "-n":
-				skipConfig = true
+				jsonOutput = true
 			}
 		}
 	}
@@ -142,6 +258,10 @@ func main() {
 				// Already handled in first pass
 				i++ // Skip the value
 			case "-n":
+				// Already handled in first pass
+			case "-t":
+				// Already handled in first pass
+			case "-j":
 				// Already handled in first pass
 			case "-b":
 				if i+1 < len(args) {
@@ -205,8 +325,18 @@ func main() {
 		StartMCPServersFromConfig(service, config)
 	}
 	if len(service.servers) == 0 {
+		if toolsList {
+			fmt.Println("Error: No MCP servers available to list")
+			os.Exit(1)
+		}
 		fmt.Println("Error: No MCP servers available")
 		os.Exit(1)
+	}
+
+	// If -t flag is set, list tools, prompts, and resources and exit
+	if toolsList {
+		listMCPData(service, jsonOutput)
+		os.Exit(0)
 	}
 
 	// Setup HTTP routes
