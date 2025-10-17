@@ -24,6 +24,8 @@ sources = files(
   'src/mcp_client.vala',
   'src/chat_window.vala',
   'src/settings_window.vala',
+  'src/models.vala',
+  'src/tools_view.vala',
 )
 
 executable('mai-gnome', sources, dependencies: dependencies, vala_args: vala_args)

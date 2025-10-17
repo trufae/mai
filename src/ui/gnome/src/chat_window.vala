@@ -253,7 +253,8 @@ public class ChatWindow : Gtk.ApplicationWindow {
         // content_stack.add_named (settings_window, "settings");
 
         // Tools View
-        content_stack.add_named (new Gtk.Label ("Tools"), "tools");
+        var tools_view = new ToolsView ();
+        content_stack.add_named (tools_view, "tools");
 
         // Prompts View
         content_stack.add_named (new Gtk.Label ("Prompts"), "prompts");
