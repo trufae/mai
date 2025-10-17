@@ -127,6 +127,11 @@ var colorMap = map[string]struct{ bg, fg string }{
 	"bright-magenta": {"105", "30"}, // bright magenta bg, black fg
 	"bright-cyan":    {"106", "30"}, // bright cyan bg, black fg
 	"bright-white":   {"107", "30"}, // bright white bg, black fg
+	"orange":         {"103", "30"}, // bright yellow bg, black fg (approximates orange)
+	"violet":         {"105", "30"}, // bright magenta bg, black fg (approximates violet)
+	"pink":           {"105", "30"}, // bright magenta bg, black fg (approximates pink)
+	"purple":         {"45", "37"},  // magenta bg, white fg (alias for magenta)
+	"brown":          {"43", "30"},  // yellow bg, black fg (approximates brown)
 }
 
 // fgMap defines foreground ANSI color codes
@@ -148,6 +153,11 @@ var fgMap = map[string]string{
 	"bright-magenta": "95",
 	"bright-cyan":    "96",
 	"bright-white":   "97",
+	"orange":         "33", // yellow (approximates orange)
+	"violet":         "95", // bright magenta (approximates violet)
+	"pink":           "95", // bright magenta (approximates pink)
+	"purple":         "35", // magenta (alias for magenta)
+	"brown":          "33", // yellow (approximates brown)
 }
 
 // parseRGB parses rgb:RGB format (3 hex chars) and returns ANSI code parameters

@@ -633,7 +633,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		output.WriteString(fmt.Sprintf("Set %s = %s\r\n", key, value))
 	case "ui.bgcolor":
 		if value != "" && !strings.HasPrefix(value, "rgb:") {
-			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white", "orange", "violet", "pink", "purple", "brown"}
 			isValid := false
 			for _, c := range validColors {
 				if value == c {
@@ -651,7 +651,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 	case "ui.fgcolor":
 		if value != "" && !strings.HasPrefix(value, "rgb:") {
-			validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white", "orange", "violet", "pink", "purple", "brown"}
 			isValid := false
 			for _, c := range validFgColors {
 				if value == c {
@@ -669,7 +669,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 	case "ui.fgprompt":
 		if value != "" && !strings.HasPrefix(value, "rgb:") {
-			validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			validFgColors := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white", "orange", "violet", "pink", "purple", "brown"}
 			isValid := false
 			for _, c := range validFgColors {
 				if value == c {
@@ -687,7 +687,7 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		}
 	case "ui.bgprompt":
 		if value != "" && !strings.HasPrefix(value, "rgb:") {
-			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"}
+			validColors := []string{"black", "red", "green", "yellow", "blue", "dark-blue", "magenta", "cyan", "white", "grey", "bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white", "orange", "violet", "pink", "purple", "brown"}
 			isValid := false
 			for _, c := range validColors {
 				if value == c {
