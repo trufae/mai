@@ -1,0 +1,26 @@
+# SWAN Configuration Example
+work_dir: "./work"
+
+agents:
+  - name: "agent-claude"
+    provider: "claude"
+    model: "claude-3-5-sonnet-20241022"
+    mcp:
+      - "code"
+      - "shell"
+    prompts:
+      llm.systemprompt: "You are a helpful AI assistant specialized in coding tasks."
+
+  - name: "agent-gemini"
+    provider: "gemini"
+    model: "gemini-1.5-pro"
+    mcp:
+      - "websearch"
+      - "time"
+    prompts:
+      llm.systemprompt: "You are an AI assistant focused on research and information gathering."
+
+orchestrator:
+  port: 8080
+  listen_addr: "0.0.0.0"
+  vdb_path: "./work/vdb"
