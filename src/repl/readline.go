@@ -704,10 +704,7 @@ func (r *ReadLine) refreshLine() {
 	if padding < 0 {
 		padding = 0
 	}
-	for i := 0; i < padding; i++ {
-		fmt.Print(" ")
-	}
-	fmt.Print("\x1b[0m") // reset color
+	fmt.Printf("%s%s\x1b[0m", color, strings.Repeat(" ", padding)) // pad with color and reset
 
 	// Calculate cursor position on screen
 	promptLen := len(r.prompt) + 1 // +1 for space
