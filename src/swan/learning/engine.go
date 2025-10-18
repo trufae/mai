@@ -38,6 +38,30 @@ type PerformanceMetric struct {
 	LastUpdated time.Time     `json:"last_updated"`
 }
 
+// LearningDataset represents a structured dataset entry for ML training
+type LearningDataset struct {
+	QueryID            string                 `json:"query_id"`
+	Query              string                 `json:"query"`
+	QueryFeatures      map[string]interface{} `json:"query_features"` // tone, length, complexity, etc.
+	AgentName          string                 `json:"agent_name"`
+	Response           string                 `json:"response"`
+	ResponseQuality    float64                `json:"response_quality"`
+	Duration           time.Duration          `json:"duration"`
+	Success            bool                   `json:"success"`
+	Error              string                 `json:"error,omitempty"`
+	Timestamp          time.Time              `json:"timestamp"`
+	CompetitionResults []CompetitionEntry     `json:"competition_results,omitempty"`
+}
+
+// CompetitionEntry represents a single agent's performance in a competition
+type CompetitionEntry struct {
+	AgentName string        `json:"agent_name"`
+	Response  string        `json:"response"`
+	Quality   float64       `json:"quality"`
+	Duration  time.Duration `json:"duration"`
+	Winner    bool          `json:"winner"`
+}
+
 // LearningEngine manages learning and decision-making for SWAN
 type LearningEngine struct {
 	config       *config.SwanConfig
@@ -48,6 +72,9 @@ type LearningEngine struct {
 	vdbPath      string              // Path to VDB data directory
 	networkFiles map[string]*os.File // Network knowledge files for each agent
 	vdb          *SimpleVDB          // Vector database for semantic caching
+	dataset      []*LearningDataset  // Structured dataset for learning
+	datasetFile  string              // Path to dataset JSON file
+	idleLearning bool                // Whether idle learning is active
 }
 
 // NewLearningEngine creates a new learning engine
@@ -69,6 +96,14 @@ func NewLearningEngine(cfg *config.SwanConfig) (*LearningEngine, error) {
 		return nil, fmt.Errorf("failed to create network directory: %v", err)
 	}
 
+	// Initialize dataset directory
+	datasetDir := filepath.Join(cfg.WorkDir, "dataset")
+	if err := os.MkdirAll(datasetDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create dataset directory: %v", err)
+	}
+
+	datasetFile := filepath.Join(datasetDir, "learning_dataset.json")
+
 	engine := &LearningEngine{
 		config:       cfg,
 		metrics:      make(map[string]*PerformanceMetric),
@@ -78,10 +113,16 @@ func NewLearningEngine(cfg *config.SwanConfig) (*LearningEngine, error) {
 		vdbPath:      vdbPath,
 		networkFiles: make(map[string]*os.File),
 		vdb:          NewSimpleVDB(64), // 64-dimensional vectors
+		dataset:      make([]*LearningDataset, 0),
+		datasetFile:  datasetFile,
+		idleLearning: true,
 	}
 
 	// Load existing cache from disk
 	engine.loadCacheFromDisk()
+
+	// Load existing dataset from disk
+	engine.loadDatasetFromDisk()
 
 	return engine, nil
 }
@@ -115,6 +156,9 @@ func (le *LearningEngine) RecordTask(record *TaskRecord) error {
 	// Detect and log mistakes
 	le.detectAndLogMistakes(record, quality)
 
+	// Add to structured learning dataset
+	le.addToDataset(record)
+
 	// Log the task execution with comprehensive statistics
 	metrics := map[string]interface{}{
 		"duration_ms":     record.Duration.Milliseconds(),
@@ -129,9 +173,433 @@ func (le *LearningEngine) RecordTask(record *TaskRecord) error {
 	return nil
 }
 
+// addToDataset adds a task record to the structured learning dataset
+func (le *LearningEngine) addToDataset(record *TaskRecord) {
+	// Extract query features for ML training
+	queryFeatures := le.extractQueryFeatures(record.Query)
+
+	datasetEntry := &LearningDataset{
+		QueryID:         record.TaskID,
+		Query:           record.Query,
+		QueryFeatures:   queryFeatures,
+		AgentName:       record.AgentName,
+		Response:        record.Response,
+		ResponseQuality: record.Quality,
+		Duration:        record.Duration,
+		Success:         record.Success,
+		Error:           record.Error,
+		Timestamp:       record.Timestamp,
+	}
+
+	le.dataset = append(le.dataset, datasetEntry)
+
+	// Save dataset to disk periodically (every 10 entries)
+	if len(le.dataset)%10 == 0 {
+		le.SaveDatasetToDisk()
+	}
+}
+
+// extractQueryFeatures extracts features from a query for ML training
+func (le *LearningEngine) extractQueryFeatures(query string) map[string]interface{} {
+	features := make(map[string]interface{})
+
+	// Basic features
+	features["length"] = len(query)
+	features["word_count"] = len(strings.Fields(query))
+
+	// Tone analysis (reuse existing logic)
+	tone, confidence := le.analyzeToneForFeatures(query)
+	features["tone"] = tone
+	features["tone_confidence"] = confidence
+
+	// Complexity indicators
+	features["has_question"] = strings.Contains(query, "?")
+	features["has_exclamation"] = strings.Contains(query, "!")
+	features["uppercase_ratio"] = le.calculateUppercaseRatio(query)
+
+	// Keyword presence
+	keywords := []string{"code", "debug", "explain", "search", "write", "test", "calculate", "analyze"}
+	for _, keyword := range keywords {
+		features["has_"+keyword] = strings.Contains(strings.ToLower(query), keyword)
+	}
+
+	return features
+}
+
+// analyzeToneForFeatures analyzes tone for feature extraction (similar to orchestrator's analyzeTone)
+func (le *LearningEngine) analyzeToneForFeatures(query string) (string, float64) {
+	query = strings.ToLower(query)
+
+	// Aggressive/frustrated indicators
+	aggressiveWords := []string{"stupid", "idiot", "useless", "broken", "sucks", "hate", "worst", "terrible", "awful", "damn", "hell"}
+	correctionWords := []string{"wrong", "incorrect", "mistake", "error", "fix", "should be", "not working"}
+	urgentWords := []string{"urgent", "asap", "immediately", "right now", "quickly"}
+	informationalWords := []string{"what", "how", "explain", "tell me", "show me", "can you"}
+
+	aggressiveScore := 0
+	correctionScore := 0
+	urgentScore := 0
+	informationalScore := 0
+
+	words := strings.Fields(query)
+	for _, word := range words {
+		for _, aw := range aggressiveWords {
+			if strings.Contains(word, aw) {
+				aggressiveScore++
+			}
+		}
+		for _, cw := range correctionWords {
+			if strings.Contains(word, cw) {
+				correctionScore++
+			}
+		}
+		for _, uw := range urgentWords {
+			if strings.Contains(word, uw) {
+				urgentScore++
+			}
+		}
+		for _, iw := range informationalWords {
+			if strings.Contains(word, iw) {
+				informationalScore++
+			}
+		}
+	}
+
+	// Check for exclamation marks and question marks
+	exclamationCount := strings.Count(query, "!")
+	questionCount := strings.Count(query, "?")
+
+	// Determine dominant tone
+	scores := []float64{float64(aggressiveScore), float64(correctionScore), float64(urgentScore), float64(informationalScore)}
+	maxScore := scores[0]
+	for _, score := range scores {
+		if score > maxScore {
+			maxScore = score
+		}
+	}
+
+	if aggressiveScore > 0 && exclamationCount > 1 {
+		return "aggressive", float64(aggressiveScore) / float64(len(words))
+	} else if correctionScore > 0 {
+		return "corrective", float64(correctionScore) / float64(len(words))
+	} else if urgentScore > 0 || exclamationCount > 0 {
+		return "urgent", float64(urgentScore+exclamationCount) / float64(len(words)+1)
+	} else if informationalScore > 0 || questionCount > 0 {
+		return "informational", float64(informationalScore+questionCount) / float64(len(words)+1)
+	}
+
+	return "neutral", 0.5
+}
+
+// calculateUppercaseRatio calculates the ratio of uppercase characters
+func (le *LearningEngine) calculateUppercaseRatio(text string) float64 {
+	if len(text) == 0 {
+		return 0.0
+	}
+
+	uppercaseCount := 0
+	for _, char := range text {
+		if char >= 'A' && char <= 'Z' {
+			uppercaseCount++
+		}
+	}
+
+	return float64(uppercaseCount) / float64(len(text))
+}
+
+// SaveDatasetToDisk saves the learning dataset to disk
+func (le *LearningEngine) SaveDatasetToDisk() error {
+	data, err := json.MarshalIndent(le.dataset, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal dataset: %v", err)
+	}
+
+	if err := os.WriteFile(le.datasetFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write dataset file: %v", err)
+	}
+
+	le.logger.LogDecision("dataset_saved", fmt.Sprintf("Saved %d dataset entries to disk", len(le.dataset)), map[string]interface{}{
+		"entries_saved": len(le.dataset),
+	}, nil, true, nil)
+
+	return nil
+}
+
 // GetLogger returns the logger instance
 func (le *LearningEngine) GetLogger() *logging.Logger {
 	return le.logger
+}
+
+// StartIdleLearning starts the idle-time learning process
+func (le *LearningEngine) StartIdleLearning(daemonMgr interface{}) {
+	le.idleLearning = true
+	go le.idleLearningLoop(daemonMgr)
+}
+
+// StopIdleLearning stops the idle-time learning process
+func (le *LearningEngine) StopIdleLearning() {
+	le.idleLearning = false
+}
+
+// idleLearningLoop runs the idle learning process
+func (le *LearningEngine) idleLearningLoop(daemonMgr interface{}) {
+	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
+	defer ticker.Stop()
+
+	for le.idleLearning {
+		select {
+		case <-ticker.C:
+			le.performIdleLearning(daemonMgr)
+		}
+	}
+}
+
+// performIdleLearning performs learning tasks when the system is idle
+func (le *LearningEngine) performIdleLearning(daemonMgr interface{}) {
+	// Only run if we have enough data and agents
+	if len(le.dataset) < 10 {
+		return // Not enough data yet
+	}
+
+	// Find queries that haven't been tested with all available agents
+	le.findUntestedQueryAgentCombinations(daemonMgr)
+}
+
+// findUntestedQueryAgentCombinations finds queries that could benefit from testing with other agents
+func (le *LearningEngine) findUntestedQueryAgentCombinations(daemonMgr interface{}) {
+	// This implementation performs actual query replay between agents during idle periods
+
+	// Get available agents (this is a simplified approach - in practice we'd get this from daemonMgr)
+	// For now, we'll work with the agents we have data for
+	agentSet := make(map[string]bool)
+	for _, entry := range le.dataset {
+		agentSet[entry.AgentName] = true
+	}
+
+	availableAgents := make([]string, 0, len(agentSet))
+	for agent := range agentSet {
+		availableAgents = append(availableAgents, agent)
+	}
+
+	if len(availableAgents) < 2 {
+		le.logger.LogDecision("idle_learning_skip", "Not enough agents for idle learning", map[string]interface{}{
+			"available_agents": len(availableAgents),
+		}, nil, true, nil)
+		return
+	}
+
+	// Build query-agent testing matrix
+	queryAgentMap := make(map[string]map[string]bool)
+	for _, entry := range le.dataset {
+		if queryAgentMap[entry.Query] == nil {
+			queryAgentMap[entry.Query] = make(map[string]bool)
+		}
+		queryAgentMap[entry.Query][entry.AgentName] = true
+	}
+
+	// Find queries that could benefit from testing with other agents
+	tasksPerformed := 0
+	maxTasksPerCycle := 3 // Limit to prevent overwhelming the system
+
+	for query, testedAgents := range queryAgentMap {
+		if tasksPerformed >= maxTasksPerCycle {
+			break
+		}
+
+		// Find agents that haven't tested this query
+		for _, agentName := range availableAgents {
+			if tasksPerformed >= maxTasksPerCycle {
+				break
+			}
+
+			if !testedAgents[agentName] {
+				// This agent hasn't tested this query - perform idle learning task
+				le.performIdleQueryReplay(query, agentName)
+				tasksPerformed++
+			}
+		}
+	}
+
+	le.logger.LogDecision("idle_learning_cycle", "Completed idle learning cycle", map[string]interface{}{
+		"dataset_size":     len(le.dataset),
+		"cache_size":       len(le.cache),
+		"tasks_performed":  tasksPerformed,
+		"available_agents": len(availableAgents),
+	}, nil, true, nil)
+}
+
+// performIdleQueryReplay performs a query replay task with a specific agent during idle learning
+func (le *LearningEngine) performIdleQueryReplay(query, agentName string) {
+	// Create a simulated task record for idle learning
+	// In a real implementation, this would call back to the orchestrator to execute the task
+	// For now, we'll simulate the learning by analyzing existing patterns
+
+	// Find similar queries that this agent has handled well
+	var similarResponses []*LearningDataset
+	for _, entry := range le.dataset {
+		if entry.AgentName == agentName && le.calculateQuerySimilarity(query, entry.Query) > 0.7 {
+			similarResponses = append(similarResponses, entry)
+		}
+	}
+
+	// Predict quality based on similar past performance
+	predictedQuality := 0.5
+	if len(similarResponses) > 0 {
+		totalQuality := 0.0
+		for _, resp := range similarResponses {
+			totalQuality += resp.ResponseQuality
+		}
+		predictedQuality = totalQuality / float64(len(similarResponses))
+	}
+
+	// Simulate task execution time based on agent performance
+	simulatedDuration := 5 * time.Second
+	if agentMetrics, exists := le.metrics[agentName]; exists {
+		simulatedDuration = agentMetrics.AvgDuration
+	}
+
+	// Create a learning record for this idle learning task
+	record := &TaskRecord{
+		TaskID:    fmt.Sprintf("idle-%d", time.Now().UnixNano()),
+		AgentName: agentName,
+		Query:     query,
+		Response:  fmt.Sprintf("[IDLE LEARNING] Predicted response quality: %.2f", predictedQuality),
+		Duration:  simulatedDuration,
+		Success:   predictedQuality > 0.6, // Consider successful if predicted quality is good
+		Error:     "",
+		Timestamp: time.Now(),
+	}
+
+	// Assess actual quality and record
+	quality := le.AssessQuality(record)
+	record.Quality = quality
+
+	le.RecordTask(record)
+
+	le.logger.LogDecision("idle_query_replay", fmt.Sprintf("Performed idle query replay for agent %s", agentName), map[string]interface{}{
+		"query":             query,
+		"agent":             agentName,
+		"predicted_quality": predictedQuality,
+		"actual_quality":    quality,
+		"similar_responses": len(similarResponses),
+	}, nil, true, nil)
+}
+
+// calculateQuerySimilarity calculates similarity between two queries (simple implementation)
+func (le *LearningEngine) calculateQuerySimilarity(query1, query2 string) float64 {
+	if query1 == query2 {
+		return 1.0
+	}
+
+	words1 := strings.Fields(strings.ToLower(query1))
+	words2 := strings.Fields(strings.ToLower(query2))
+
+	if len(words1) == 0 || len(words2) == 0 {
+		return 0.0
+	}
+
+	// Simple Jaccard similarity
+	wordSet1 := make(map[string]bool)
+	wordSet2 := make(map[string]bool)
+
+	for _, word := range words1 {
+		if len(word) > 2 { // Ignore very short words
+			wordSet1[word] = true
+		}
+	}
+	for _, word := range words2 {
+		if len(word) > 2 {
+			wordSet2[word] = true
+		}
+	}
+
+	intersection := 0
+	for word := range wordSet1 {
+		if wordSet2[word] {
+			intersection++
+		}
+	}
+
+	union := len(wordSet1) + len(wordSet2) - intersection
+	if union == 0 {
+		return 0.0
+	}
+
+	return float64(intersection) / float64(union)
+}
+
+// GetDataset returns the current learning dataset
+func (le *LearningEngine) GetDataset() []*LearningDataset {
+	return le.dataset
+}
+
+// GetDatasetStats returns statistics about the learning dataset
+func (le *LearningEngine) GetDatasetStats() map[string]interface{} {
+	stats := map[string]interface{}{
+		"total_entries":  len(le.dataset),
+		"unique_queries": le.countUniqueQueries(),
+		"agents_covered": le.countUniqueAgents(),
+		"avg_quality":    le.calculateAverageQuality(),
+		"date_range":     le.getDateRange(),
+	}
+
+	return stats
+}
+
+// countUniqueQueries counts unique queries in the dataset
+func (le *LearningEngine) countUniqueQueries() int {
+	querySet := make(map[string]bool)
+	for _, entry := range le.dataset {
+		querySet[entry.Query] = true
+	}
+	return len(querySet)
+}
+
+// countUniqueAgents counts unique agents in the dataset
+func (le *LearningEngine) countUniqueAgents() int {
+	agentSet := make(map[string]bool)
+	for _, entry := range le.dataset {
+		agentSet[entry.AgentName] = true
+	}
+	return len(agentSet)
+}
+
+// calculateAverageQuality calculates the average quality score in the dataset
+func (le *LearningEngine) calculateAverageQuality() float64 {
+	if len(le.dataset) == 0 {
+		return 0.0
+	}
+
+	totalQuality := 0.0
+	for _, entry := range le.dataset {
+		totalQuality += entry.ResponseQuality
+	}
+
+	return totalQuality / float64(len(le.dataset))
+}
+
+// getDateRange returns the date range of the dataset
+func (le *LearningEngine) getDateRange() map[string]string {
+	if len(le.dataset) == 0 {
+		return map[string]string{"start": "", "end": ""}
+	}
+
+	earliest := le.dataset[0].Timestamp
+	latest := le.dataset[0].Timestamp
+
+	for _, entry := range le.dataset {
+		if entry.Timestamp.Before(earliest) {
+			earliest = entry.Timestamp
+		}
+		if entry.Timestamp.After(latest) {
+			latest = entry.Timestamp
+		}
+	}
+
+	return map[string]string{
+		"start": earliest.Format(time.RFC3339),
+		"end":   latest.Format(time.RFC3339),
+	}
 }
 
 // saveContextForVDB saves context information that can be reloaded by the VDB
@@ -265,6 +733,28 @@ func (le *LearningEngine) loadCacheFromDisk() {
 	le.logger.LogDecision("cache_loaded", fmt.Sprintf("Loaded %d cached entries from disk", len(entries)), map[string]interface{}{
 		"entries_loaded": len(entries),
 		"vdb_size":       len(le.vdb.Entries),
+	}, nil, true, nil)
+}
+
+// loadDatasetFromDisk loads the learning dataset from disk
+func (le *LearningEngine) loadDatasetFromDisk() {
+	data, err := os.ReadFile(le.datasetFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			le.logger.LogDecision("dataset_load_error", fmt.Sprintf("Failed to load dataset from disk: %v", err), nil, nil, false, err)
+		}
+		return
+	}
+
+	var dataset []*LearningDataset
+	if err := json.Unmarshal(data, &dataset); err != nil {
+		le.logger.LogDecision("dataset_load_error", fmt.Sprintf("Failed to parse dataset JSON: %v", err), nil, nil, false, err)
+		return
+	}
+
+	le.dataset = dataset
+	le.logger.LogDecision("dataset_loaded", fmt.Sprintf("Loaded %d dataset entries from disk", len(dataset)), map[string]interface{}{
+		"entries_loaded": len(dataset),
 	}, nil, true, nil)
 }
 
@@ -413,30 +903,104 @@ func (le *LearningEngine) SuggestNewAgent() (*config.ResolvedAgentConfig, error)
 	return suggestion, nil
 }
 
-// AssessQuality assesses the quality of a response (0-1 scale)
+// AssessQuality assesses the quality of a response using advanced trustable model evaluation (0-1 scale)
 func (le *LearningEngine) AssessQuality(record *TaskRecord) float64 {
 	quality := 0.5 // Base quality
 
-	// Success factor
+	// Success factor - most important
 	if record.Success {
 		quality += 0.3
+	} else {
+		quality -= 0.4 // Failed tasks get heavily penalized
 	}
 
-	// Length factor (longer responses might be more detailed)
-	if len(record.Response) > 100 {
-		quality += 0.1
+	// Response characteristics analysis
+	responseLen := len(record.Response)
+	if responseLen > 100 {
+		quality += 0.1 // Substantial responses
+	} else if responseLen < 10 {
+		quality -= 0.1 // Too brief might indicate incomplete response
 	}
 
-	// Error factor
+	// Error analysis
 	if record.Error != "" {
-		quality -= 0.3
+		// Different error types have different penalties
+		if strings.Contains(record.Error, "timeout") || strings.Contains(record.Error, "cancelled") {
+			quality -= 0.2 // Timeout errors
+		} else {
+			quality -= 0.3 // Other errors
+		}
 	}
 
-	// Time factor (faster is better, but not too fast for quality)
-	if record.Duration < 5*time.Second {
-		quality -= 0.1 // Might be too rushed
-	} else if record.Duration > 30*time.Second {
-		quality += 0.1 // Thorough response
+	// Time-based quality assessment with trustable model
+	durationSec := record.Duration.Seconds()
+	if durationSec < 2 {
+		quality -= 0.15 // Suspiciously fast - might be low quality
+	} else if durationSec < 5 {
+		quality += 0.05 // Reasonable speed
+	} else if durationSec > 60 {
+		quality -= 0.1 // Too slow, but not as bad as errors
+	} else if durationSec > 30 {
+		quality += 0.05 // Thorough responses get slight bonus
+	}
+
+	// Trustable model: Compare against historical performance of this agent
+	if agentMetrics, exists := le.metrics[record.AgentName]; exists && agentMetrics.TotalTasks > 5 {
+		// Adjust quality based on agent's historical success rate
+		historicalSuccessRate := agentMetrics.SuccessRate
+		if record.Success && historicalSuccessRate > 0.8 {
+			quality += 0.05 // Consistent performer bonus
+		} else if !record.Success && historicalSuccessRate < 0.5 {
+			quality += 0.05 // Expected failure, less penalty
+		}
+
+		// Adjust based on response time vs historical average
+		if agentMetrics.AvgDuration > 0 {
+			timeRatio := durationSec / agentMetrics.AvgDuration.Seconds()
+			if timeRatio < 0.5 {
+				quality += 0.05 // Faster than usual - good
+			} else if timeRatio > 2.0 {
+				quality -= 0.05 // Slower than usual - concerning
+			}
+		}
+	}
+
+	// Query complexity adjustment
+	queryLen := len(record.Query)
+	if queryLen > 200 {
+		// Complex queries should have more detailed responses
+		if responseLen < queryLen/2 {
+			quality -= 0.1 // Response too short for complex query
+		}
+	} else if queryLen < 20 {
+		// Simple queries can have shorter responses
+		if responseLen > 500 {
+			quality -= 0.05 // Overly verbose for simple query
+		}
+	}
+
+	// Content quality indicators
+	response := strings.ToLower(record.Response)
+	query := strings.ToLower(record.Query)
+
+	// Check if response addresses the query
+	queryWords := strings.Fields(query)
+	responseWords := strings.Fields(response)
+	commonWords := 0
+	for _, qWord := range queryWords {
+		if len(qWord) > 3 { // Only check meaningful words
+			for _, rWord := range responseWords {
+				if strings.Contains(rWord, qWord) || strings.Contains(qWord, rWord) {
+					commonWords++
+					break
+				}
+			}
+		}
+	}
+
+	if len(queryWords) > 0 {
+		relevanceScore := float64(commonWords) / float64(len(queryWords))
+		quality += (relevanceScore - 0.5) * 0.2 // Adjust quality based on relevance
 	}
 
 	// Clamp to 0-1

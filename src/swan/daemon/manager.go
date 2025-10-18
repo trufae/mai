@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -304,17 +305,9 @@ func (dm *DaemonManager) killProcess(pid int) error {
 		return err
 	}
 
-	// Send SIGTERM first
-	if err := process.Signal(syscall.SIGTERM); err != nil {
+	// Force kill with SIGKILL
+	if err := process.Kill(); err != nil {
 		return err
-	}
-
-	// Wait a bit for graceful shutdown
-	time.Sleep(2 * time.Second)
-
-	// If still running, force kill
-	if dm.isProcessRunning(pid) {
-		return process.Kill()
 	}
 
 	return nil
@@ -323,6 +316,14 @@ func (dm *DaemonManager) killProcess(pid int) error {
 // StartAllAgents loads all agents from config (no processes started)
 func (dm *DaemonManager) StartAllAgents() error {
 	for _, agentConfig := range dm.config.Agents {
+		// Validate agent configuration
+		if warnings := dm.ValidateAgentConfig(agentConfig); len(warnings) > 0 {
+			fmt.Printf("Warning: Agent %s configuration issues:\n", agentConfig.Name)
+			for _, warning := range warnings {
+				fmt.Printf("  - %s\n", warning)
+			}
+		}
+
 		resolved, err := dm.config.ResolveAgentConfig(&agentConfig)
 		if err != nil {
 			fmt.Printf("Warning: failed to resolve agent %s: %v\n", agentConfig.Name, err)
@@ -359,11 +360,6 @@ func (dm *DaemonManager) CreateDynamicAgent(name string, providerName string, mc
 func (dm *DaemonManager) StartMCP(mcpConfig config.MCPConfig) error {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
-
-	// Check if already running
-	if _, exists := dm.mcps[mcpConfig.Name]; exists {
-		return fmt.Errorf("MCP %s is already running", mcpConfig.Name)
-	}
 
 	// Find available port
 	port := dm.findAvailablePort()
@@ -477,6 +473,14 @@ func (dm *DaemonManager) ListMCPs() map[string]*MCPProcess {
 // StartAllMCPs starts all MCPs from config
 func (dm *DaemonManager) StartAllMCPs() error {
 	for _, mcpConfig := range dm.config.MCPs {
+		// Validate MCP configuration before starting
+		if warnings := dm.ValidateMCPConfig(mcpConfig); len(warnings) > 0 {
+			fmt.Printf("Warning: MCP %s configuration issues:\n", mcpConfig.Name)
+			for _, warning := range warnings {
+				fmt.Printf("  - %s\n", warning)
+			}
+		}
+
 		if err := dm.StartMCP(mcpConfig); err != nil {
 			fmt.Printf("Warning: failed to start MCP %s: %v\n", mcpConfig.Name, err)
 			continue
@@ -569,6 +573,96 @@ func (dm *DaemonManager) LoadMCPs() error {
 	dm.mu.Unlock()
 
 	return nil
+}
+
+// ValidateMCPConfig validates an MCP configuration and returns warnings
+func (dm *DaemonManager) ValidateMCPConfig(mcpConfig config.MCPConfig) []string {
+	var warnings []string
+
+	// Check if command exists
+	if _, err := exec.LookPath(mcpConfig.Command); err != nil {
+		warnings = append(warnings, fmt.Sprintf("Command '%s' not found in PATH", mcpConfig.Command))
+	}
+
+	// Check for required environment variables
+	for key, value := range mcpConfig.Env {
+		if value == "" {
+			warnings = append(warnings, fmt.Sprintf("Environment variable %s is empty", key))
+		}
+		if strings.Contains(value, "PLACEHOLDER") || strings.Contains(value, "TODO") {
+			warnings = append(warnings, fmt.Sprintf("Environment variable %s contains placeholder value: %s", key, value))
+		}
+	}
+
+	// Check for common configuration issues
+	if mcpConfig.Name == "" {
+		warnings = append(warnings, "MCP name is empty")
+	}
+
+	if len(mcpConfig.Args) == 0 && mcpConfig.Command != "" {
+		// Some MCPs might not need args, but warn if it looks suspicious
+		if !strings.Contains(mcpConfig.Command, "mai-mcp-") {
+			warnings = append(warnings, "MCP command does not appear to be a mai-mcp command and has no arguments")
+		}
+	}
+
+	return warnings
+}
+
+// ValidateAgentConfig validates an agent configuration and returns warnings
+func (dm *DaemonManager) ValidateAgentConfig(agentConfig config.AgentConfig) []string {
+	var warnings []string
+
+	// Check if agent name is valid
+	if agentConfig.Name == "" {
+		warnings = append(warnings, "Agent name is empty")
+	}
+
+	// Check if provider exists in config
+	if agentConfig.Provider == "" {
+		warnings = append(warnings, "Agent provider is not specified")
+	} else {
+		providerExists := false
+		for _, provider := range dm.config.Providers {
+			if provider.Name == agentConfig.Provider {
+				providerExists = true
+				break
+			}
+		}
+		if !providerExists {
+			warnings = append(warnings, fmt.Sprintf("Agent provider '%s' not found in providers list", agentConfig.Provider))
+		}
+	}
+
+	// Check if MCPs exist in config
+	for _, mcpName := range agentConfig.MCPs {
+		mcpExists := false
+		for _, mcp := range dm.config.MCPs {
+			if mcp.Name == mcpName {
+				mcpExists = true
+				break
+			}
+		}
+		if !mcpExists {
+			warnings = append(warnings, fmt.Sprintf("Agent MCP '%s' not found in MCPs list", mcpName))
+		}
+	}
+
+	// Check if prompts exist in config
+	for _, promptName := range agentConfig.Prompts {
+		promptExists := false
+		for _, prompt := range dm.config.Prompts {
+			if prompt.Name == promptName {
+				promptExists = true
+				break
+			}
+		}
+		if !promptExists {
+			warnings = append(warnings, fmt.Sprintf("Agent prompt '%s' not found in prompts list", promptName))
+		}
+	}
+
+	return warnings
 }
 
 // StopAllAgents stops all running agents
