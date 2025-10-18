@@ -354,8 +354,8 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			continue
 		}
 
-		// Handle emphasis markers (*, _) with support for cross-chunk bold pairs
-		if c == '*' || c == '_' {
+		// Handle emphasis markers (*) with support for cross-chunk bold pairs
+		if c == '*' {
 			// Bold pair within the same chunk
 			if i+1 < len(runes) && runes[i+1] == c {
 				if r.collectingBold && c == r.boldMarker {
