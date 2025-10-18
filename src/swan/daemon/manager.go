@@ -179,9 +179,6 @@ func (dm *DaemonManager) startResolvedAgent(resolved config.ResolvedAgentConfig)
 
 	// Start the process
 	cmd := exec.Command("mai-repl", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true, // Create new session
-	}
 
 	// Redirect output to files
 	logFile := filepath.Join(dm.config.WorkDir, "tmp", fmt.Sprintf("%s.log", resolved.Name))
