@@ -404,8 +404,18 @@ func (r *ReadLine) Read() (string, error) {
 
 		switch b {
 		case '\r', '\n': // Enter
-			fmt.Print("\n") // Changed from "\r\n" to "\n" to use terminal's natural translation
 			result := string(r.buffer)
+			// Clear the current line and print the full input with prompt and colors
+			fmt.Print("\r\033[2K")
+			promptColor := r.getPromptColorCodes()
+			fmt.Printf("%s%s\x1b[0m", promptColor, r.prompt)
+			color := r.getColorCodes()
+			if r.bgColor != "" {
+				fmt.Printf("%s \x1b[0m", color)
+			} else {
+				fmt.Print(" ")
+			}
+			fmt.Printf("%s%s\x1b[0m\n", color, result)
 
 			// Check if we're in heredoc mode
 			if r.isHeredoc {
@@ -413,6 +423,9 @@ func (r *ReadLine) Read() (string, error) {
 				if result == r.heredocDelim {
 					// End of heredoc, combine all lines with newlines
 					fullResult := strings.Join(r.heredocBuffer, "\n")
+					// Print the full heredoc content with colors
+					color := r.getColorCodes()
+					fmt.Printf("%s%s\x1b[0m\n", color, fullResult)
 					// Reset heredoc state
 					r.isHeredoc = false
 					r.heredocDelim = ""
@@ -432,6 +445,9 @@ func (r *ReadLine) Read() (string, error) {
 				} else {
 					// Add the line to heredoc buffer
 					r.heredocBuffer = append(r.heredocBuffer, result)
+					// Print the line to show it on screen with colors
+					color := r.getColorCodes()
+					fmt.Printf("%s%s\x1b[0m\n", color, result)
 					// Show the prompt again for next line
 					r.printPrompt()
 					// Clear buffer for next line
@@ -461,6 +477,9 @@ func (r *ReadLine) Read() (string, error) {
 					r.continuationBuffer = append(r.continuationBuffer, result)
 					// Combine all lines
 					fullResult := strings.Join(r.continuationBuffer, "\n")
+					// Print the full continuation content with colors
+					color := r.getColorCodes()
+					fmt.Printf("%s%s\x1b[0m\n", color, fullResult)
 					// Reset continuation state
 					r.isContinuation = false
 					r.continuationBuffer = nil
@@ -493,6 +512,9 @@ func (r *ReadLine) Read() (string, error) {
 				firstLine := strings.TrimSuffix(result, "<<"+delim)
 				if firstLine != result { // If we trimmed something
 					r.heredocBuffer = append(r.heredocBuffer, firstLine)
+					// Print the first line with colors
+					color := r.getColorCodes()
+					fmt.Printf("%s%s\x1b[0m\n", color, firstLine)
 				}
 
 				// Show the prompt for next line
@@ -508,7 +530,11 @@ func (r *ReadLine) Read() (string, error) {
 			if len(result) > 0 && result[len(result)-1] == '\\' {
 				// Enter continuation mode
 				r.isContinuation = true
-				r.continuationBuffer = []string{result[:len(result)-1]} // Store line without backslash
+				lineWithoutBackslash := result[:len(result)-1]
+				r.continuationBuffer = []string{lineWithoutBackslash} // Store line without backslash
+				// Print the line to show it on screen with colors
+				color := r.getColorCodes()
+				fmt.Printf("%s%s\x1b[0m\n", color, lineWithoutBackslash)
 
 				// Show prompt for next line
 				r.printPrompt()
