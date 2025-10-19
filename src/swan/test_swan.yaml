@@ -2,13 +2,20 @@
 work_dir: "./test_work"
 
 providers:
-  - name: "openai-gpt35"
-    provider: "openai"
-    model: "gpt-3.5-turbo"
+  - name: "ollama-smallthinker"
+    provider: "ollama"
+    model: "smallthinker:latest"
+    baseurl: "http://localhost:11434"
     immutable: true
-  - name: "claude-haiku"
-    provider: "claude"
-    model: "claude-3-haiku-20240307"
+  - name: "ollama-mistral"
+    provider: "ollama"
+    model: "mistral:7b-instruct"
+    baseurl: "http://localhost:11434"
+    immutable: true
+  - name: "ollama-llama32"
+    provider: "ollama"
+    model: "llama3.2:3b"
+    baseurl: "http://localhost:11434"
     immutable: true
 
 mcps:
@@ -22,6 +29,11 @@ mcps:
     config:
       enabled: true
     immutable: true
+  - name: "webfetch"
+    type: "webfetch"
+    config:
+      enabled: true
+    immutable: true
 
 prompts:
   - name: "default-system"
@@ -30,15 +42,21 @@ prompts:
     immutable: true
 
 agents:
-  - name: "test-agent-1"
-    provider: "openai-gpt35"
+  - name: "ollama-agent-1"
+    provider: "ollama-smallthinker"
     mcps: ["code"]
     prompts: ["default-system"]
     immutable: true
 
-  - name: "test-agent-2"
-    provider: "claude-haiku"
-    mcps: ["shell"]
+  - name: "ollama-agent-2"
+    provider: "ollama-mistral"
+    mcps: ["shell", "webfetch"]
+    prompts: ["default-system"]
+    immutable: true
+
+  - name: "ollama-agent-3"
+    provider: "ollama-llama32"
+    mcps: ["webfetch"]
     prompts: ["default-system"]
     immutable: true
 

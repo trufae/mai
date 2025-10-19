@@ -2,10 +2,14 @@
 work_dir: "./work"
 
 providers:
-#  - name: "openai-gpt-4o"
-#    provider: "openai"
-#    model: "gpt-4o"
-#    immutable: true
+  - name: "gpt-oss:20b"
+    provider: "ollama"
+    model: "gpt-oss:20b"
+    immutable: true
+  - name: "llama3.2"
+    provider: "ollama"
+    model: "llama3.2"
+    immutable: false
   - name: "ollama-gemma3-1b"
     provider: "ollama"
     model: "gemma3:1b"

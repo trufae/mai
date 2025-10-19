@@ -124,6 +124,9 @@ func NewLearningEngine(cfg *config.SwanConfig) (*LearningEngine, error) {
 	// Load existing dataset from disk
 	engine.loadDatasetFromDisk()
 
+	// Load .txt dataset into VDB
+	engine.loadTxtDataset()
+
 	return engine, nil
 }
 
@@ -328,6 +331,11 @@ func (le *LearningEngine) SaveDatasetToDisk() error {
 // GetLogger returns the logger instance
 func (le *LearningEngine) GetLogger() *logging.Logger {
 	return le.logger
+}
+
+// GetCache returns the in-memory cache for external access
+func (le *LearningEngine) GetCache() map[string]*TaskRecord {
+	return le.cache
 }
 
 // StartIdleLearning starts the idle-time learning process
@@ -602,7 +610,7 @@ func (le *LearningEngine) getDateRange() map[string]string {
 	}
 }
 
-// saveContextForVDB saves context information that can be reloaded by the VDB
+// saveContextForVDB saves detailed context information and notes for VDB reloading
 func (le *LearningEngine) saveContextForVDB(record *TaskRecord) {
 	contextDir := filepath.Join(le.vdbPath, "context")
 	if err := os.MkdirAll(contextDir, 0755); err != nil {
@@ -610,14 +618,102 @@ func (le *LearningEngine) saveContextForVDB(record *TaskRecord) {
 		return
 	}
 
-	// Create context file with query-response pair and metadata
+	// Extract query features for context
+	queryFeatures := le.extractQueryFeatures(record.Query)
+
+	// Generate learning notes based on the task execution
+	learningNotes := le.generateLearningNotes(record, queryFeatures)
+
+	// Create detailed context file with query-response pair, metadata, and learning notes
 	contextFile := filepath.Join(contextDir, fmt.Sprintf("task_%s.txt", record.TaskID))
-	context := fmt.Sprintf("Query: %s\nResponse: %s\nAgent: %s\nQuality: %.2f\nDuration: %v\nTimestamp: %s\nSuccess: %t\n",
-		record.Query, record.Response, record.AgentName, record.Quality, record.Duration, record.Timestamp.Format(time.RFC3339), record.Success)
+	context := fmt.Sprintf("=== SWAN LEARNING CONTEXT ===\n\n")
+	context += fmt.Sprintf("Task ID: %s\n", record.TaskID)
+	context += fmt.Sprintf("Timestamp: %s\n", record.Timestamp.Format(time.RFC3339))
+	context += fmt.Sprintf("Agent: %s\n", record.AgentName)
+	context += fmt.Sprintf("Quality Score: %.3f/1.0\n", record.Quality)
+	context += fmt.Sprintf("Duration: %v\n", record.Duration)
+	context += fmt.Sprintf("Success: %t\n", record.Success)
+	if record.Error != "" {
+		context += fmt.Sprintf("Error: %s\n", record.Error)
+	}
+	context += fmt.Sprintf("\n=== QUERY ANALYSIS ===\n")
+	context += fmt.Sprintf("Query: %s\n", record.Query)
+	context += fmt.Sprintf("Query Length: %d characters\n", len(record.Query))
+	context += fmt.Sprintf("Query Features: %v\n", queryFeatures)
+	context += fmt.Sprintf("\n=== RESPONSE ANALYSIS ===\n")
+	context += fmt.Sprintf("Response: %s\n", record.Response)
+	context += fmt.Sprintf("Response Length: %d characters\n", len(record.Response))
+	previewLen := 100
+	if len(record.Response) < previewLen {
+		previewLen = len(record.Response)
+	}
+	context += fmt.Sprintf("Response Preview: %s...\n", record.Response[:previewLen])
+	context += fmt.Sprintf("\n=== LEARNING NOTES ===\n")
+	context += learningNotes
+	context += fmt.Sprintf("\n=== VDB CONTEXT END ===\n")
 
 	if err := os.WriteFile(contextFile, []byte(context), 0644); err != nil {
 		le.logger.LogDecision("context_save_error", fmt.Sprintf("Failed to save context file: %v", err), nil, nil, false, err)
+	} else {
+		le.logger.LogDecision("context_saved", fmt.Sprintf("Saved detailed context for task %s", record.TaskID), map[string]interface{}{
+			"task_id": record.TaskID,
+			"agent":   record.AgentName,
+			"quality": record.Quality,
+		}, nil, true, nil)
 	}
+}
+
+// generateLearningNotes creates detailed notes about what was learned from this task
+func (le *LearningEngine) generateLearningNotes(record *TaskRecord, queryFeatures map[string]interface{}) string {
+	notes := ""
+
+	// Performance analysis
+	if record.Quality > 0.8 {
+		notes += fmt.Sprintf("• High-quality response (%.2f) - good pattern for similar queries\n", record.Quality)
+	} else if record.Quality < 0.5 {
+		notes += fmt.Sprintf("• Low-quality response (%.2f) - avoid similar approaches\n", record.Quality)
+	}
+
+	// Time analysis
+	if record.Duration > 30*time.Second {
+		notes += "• Slow response - consider faster agents for similar queries\n"
+	} else if record.Duration < 5*time.Second {
+		notes += "• Fast response - good for time-sensitive queries\n"
+	}
+
+	// Success/failure analysis
+	if !record.Success {
+		notes += fmt.Sprintf("• Task failed with error: %s\n", record.Error)
+		notes += "• Agent may need reconfiguration or replacement\n"
+	}
+
+	// Query pattern analysis
+	if hasCode, ok := queryFeatures["has_code"].(bool); ok && hasCode {
+		notes += "• Code-related query - prefer agents with code MCP tools\n"
+	}
+	if hasDebug, ok := queryFeatures["has_debug"].(bool); ok && hasDebug {
+		notes += "• Debugging query - ensure agent has appropriate tools\n"
+	}
+	if tone, ok := queryFeatures["tone"].(string); ok {
+		notes += fmt.Sprintf("• Query tone: %s - adjust response style accordingly\n", tone)
+	}
+
+	// Agent performance context
+	if metrics, exists := le.metrics[record.AgentName]; exists {
+		notes += fmt.Sprintf("• Agent %s performance: %.1f%% success rate, avg %.1fs duration\n",
+			record.AgentName, metrics.SuccessRate*100, metrics.AvgDuration.Seconds())
+	}
+
+	// Recommendations for future queries
+	notes += "• Future recommendations:\n"
+	if record.Quality > 0.7 {
+		notes += fmt.Sprintf("  - Prefer agent %s for similar queries\n", record.AgentName)
+	}
+	if record.Duration < 10*time.Second && record.Quality > 0.6 {
+		notes += "  - Cache this response pattern for faster future responses\n"
+	}
+
+	return notes
 }
 
 // QuerySimilarTasks finds similar past tasks for a given query
@@ -901,6 +997,117 @@ func (le *LearningEngine) SuggestNewAgent() (*config.ResolvedAgentConfig, error)
 	le.logger.LogDecision("agent_suggested", fmt.Sprintf("Suggested new agent %s for patterns: %v", suggestion.Name, patterns), nil, nil, true, nil)
 
 	return suggestion, nil
+}
+
+// EvaluateAndCleanResponse uses SWAN's quality evaluation prompt to assess and clean responses
+func (le *LearningEngine) EvaluateAndCleanResponse(query, response string) (string, string) {
+	fmt.Printf("   🔍 SWAN QUALITY EVALUATION: Analyzing response quality and validity\n")
+
+	cleaned := response
+	discarded := ""
+
+	// Use SWAN's configured quality evaluation criteria
+	qualityPrompt := le.config.SwanPrompts.QualityEval
+	if qualityPrompt == "" {
+		// Fallback to default criteria
+		qualityPrompt = `Evaluate response quality based on:
+- Accuracy and correctness (0.4 weight)
+- Completeness and comprehensiveness (0.3 weight)
+- Clarity and readability (0.2 weight)
+- Efficiency and conciseness (0.1 weight)
+- Score from 0.0 to 1.0, where 0.8+ is high quality`
+	}
+
+	fmt.Printf("   📋 Using quality criteria: %s\n", qualityPrompt)
+
+	// Apply quality-based cleanup rules based on the prompt
+	// This is a rule-based implementation that follows the prompt guidelines
+
+	// 1. Check for accuracy and correctness issues
+	invalidIndicators := []string{
+		"I'm sorry, but I cannot assist with that request",
+		"I cannot provide information on that topic",
+		"This content is not available",
+		"Error: Access denied",
+		"403 Forbidden",
+		"404 Not Found",
+		"I don't have access to that information",
+		"This is classified information",
+		"I cannot discuss that topic",
+	}
+
+	for _, indicator := range invalidIndicators {
+		if strings.Contains(strings.ToLower(cleaned), strings.ToLower(indicator)) {
+			discarded += fmt.Sprintf("invalid_content(%s); ", indicator)
+			// Remove the invalid content
+			cleaned = strings.ReplaceAll(cleaned, indicator, "[CONTENT REMOVED - INVALID]")
+			fmt.Printf("   🗑️  Discarded invalid content: %s\n", indicator)
+		}
+	}
+
+	// 2. Check for completeness issues
+	if len(strings.TrimSpace(cleaned)) < 10 {
+		discarded += "incomplete_response; "
+		cleaned = "[RESPONSE CLEANED - INCOMPLETE] " + cleaned
+		fmt.Printf("   ⚠️  Response marked as incomplete\n")
+	}
+
+	// 3. Check for clarity issues (very long responses might be unclear)
+	if len(cleaned) > 5000 {
+		discarded += "excessively_long; "
+		// Truncate very long responses
+		cleaned = cleaned[:4950] + "... [RESPONSE TRUNCATED - TOO LONG]"
+		fmt.Printf("   ✂️  Response truncated due to excessive length\n")
+	}
+
+	// 4. Check for relevance to query
+	queryWords := strings.Fields(strings.ToLower(query))
+	responseWords := strings.Fields(strings.ToLower(cleaned))
+	relevantWords := 0
+
+	for _, qWord := range queryWords {
+		if len(qWord) > 3 { // Only check meaningful words
+			for _, rWord := range responseWords {
+				if strings.Contains(rWord, qWord) || strings.Contains(qWord, rWord) {
+					relevantWords++
+					break
+				}
+			}
+		}
+	}
+
+	relevanceScore := 0.0
+	if len(queryWords) > 0 {
+		relevanceScore = float64(relevantWords) / float64(len(queryWords))
+	}
+
+	if relevanceScore < 0.1 && len(queryWords) > 2 {
+		discarded += fmt.Sprintf("low_relevance(%.2f); ", relevanceScore)
+		cleaned = "[RESPONSE CLEANED - LOW RELEVANCE] " + cleaned
+		fmt.Printf("   🎯 Low relevance score: %.2f\n", relevanceScore)
+	} else {
+		fmt.Printf("   ✅ Relevance score: %.2f\n", relevanceScore)
+	}
+
+	// 5. Check for efficiency (responses that are too verbose for simple queries)
+	if len(query) < 50 && len(cleaned) > 1000 {
+		discarded += "overly_verbose_for_simple_query; "
+		fmt.Printf("   📝 Response too verbose for simple query\n")
+	}
+
+	// Remove trailing discarded marker
+	if strings.HasSuffix(discarded, "; ") {
+		discarded = discarded[:len(discarded)-2]
+	}
+
+	if discarded != "" {
+		fmt.Printf("   🧹 SWAN CLEANUP: Applied quality-based cleanup\n")
+		fmt.Printf("   📊 Discarded elements: %s\n", discarded)
+	} else {
+		fmt.Printf("   ✅ SWAN QUALITY: Response passed all quality checks\n")
+	}
+
+	return cleaned, discarded
 }
 
 // AssessQuality assesses the quality of a response using advanced trustable model evaluation (0-1 scale)
@@ -1642,4 +1849,48 @@ func (db *SimpleVDB) Query(query string, k int) []*CacheEntry {
 		}
 	}
 	return entries
+}
+
+// GetVDB returns the vector database instance
+func (le *LearningEngine) GetVDB() *SimpleVDB {
+	return le.vdb
+}
+
+// loadTxtDataset loads .txt files from dataset directory into VDB
+func (le *LearningEngine) loadTxtDataset() {
+	datasetPath := filepath.Join(le.vdbPath, "dataset")
+	if _, err := os.Stat(datasetPath); os.IsNotExist(err) {
+		return // no dataset directory
+	}
+
+	filepath.Walk(datasetPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(path), ".txt") {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				le.logger.LogDecision("dataset_load_error", fmt.Sprintf("Failed to read %s: %v", path, err), nil, nil, false, err)
+				return nil // continue with other files
+			}
+			// Split content into lines and insert each non-empty line
+			lines := strings.Split(string(content), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" && len(line) > 10 { // minimum length
+					entry := CacheEntry{
+						Query:     line, // use the line as query for better matching
+						Response:  line,
+						AgentName: "dataset",
+						Quality:   1.0,
+						Duration:  0,
+						Timestamp: time.Now(),
+					}
+					le.vdb.Insert(entry)
+				}
+			}
+			le.logger.LogDecision("dataset_loaded", fmt.Sprintf("Loaded %s (%d lines)", path, len(lines)), nil, nil, true, nil)
+		}
+		return nil
+	})
 }

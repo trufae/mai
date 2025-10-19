@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,6 +20,15 @@ import (
 	"mai/src/swan/learning"
 )
 
+// AnalysisResult represents the result of LLM analysis
+type AnalysisResult struct {
+	Intent     string              `json:"intent"`
+	Confidence float64             `json:"confidence"`
+	KeyInfo    []string            `json:"key_info"`
+	StoreFlag  bool                `json:"store_flag"`
+	Insights   map[string][]string `json:"insights,omitempty"` // Different types of insights
+}
+
 // OrchestratorServer manages task routing to agents
 type OrchestratorServer struct {
 	config         *config.SwanConfig
@@ -30,6 +40,7 @@ type OrchestratorServer struct {
 	idleLearning   bool
 	evolutionTimer *time.Ticker
 	requestLogger  *os.File
+	lastAnalysis   *AnalysisResult
 }
 
 // TaskResult represents the result of a task execution
@@ -225,11 +236,25 @@ func (s *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Get VDB context for logging
+	// Get VDB context for both logging and agent context
 	vdbContext := "none"
+	correctiveContext := ""
+
+	// Retrieve corrective context from VDB
+	correctiveContext = s.retrieveCorrectiveContext(query)
+	if correctiveContext != "" {
+		fmt.Printf("   📚 SWAN VDB: Found relevant corrective context (%d chars)\n", len(correctiveContext))
+		vdbContext = "corrective_context_available"
+	}
+
+	// Get similar tasks for logging
 	if s.learning != nil {
 		if similar, err := s.learning.QuerySimilarTasks(query, 1); err == nil && len(similar) > 0 {
-			vdbContext = fmt.Sprintf("similar_task (agent: %s, quality: %.2f)", similar[0].AgentName, similar[0].Quality)
+			if vdbContext == "none" {
+				vdbContext = fmt.Sprintf("similar_task (agent: %s, quality: %.2f)", similar[0].AgentName, similar[0].Quality)
+			} else {
+				vdbContext += fmt.Sprintf(" + similar_task (agent: %s, quality: %.2f)", similar[0].AgentName, similar[0].Quality)
+			}
 		}
 	}
 
@@ -238,11 +263,33 @@ func (s *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *htt
 	fmt.Printf("   📊 Agent: %s (Provider: %s, Model: %s)\n", agent.Name, agent.Config.Provider, agent.Config.Model)
 	fmt.Printf("   🧠 VDB Context: %s\n", vdbContext)
 
-	// Build task payload
+	// Build task payload with corrective context if available
 	taskPayload := map[string]interface{}{
 		"messages": req.Messages,
 		"model":    req.Model,
 		"stream":   req.Stream,
+	}
+
+	// Include corrective context in the system message if available
+	if correctiveContext != "" {
+		// Convert req.Messages to the expected format and prepend system message
+		messages := []map[string]interface{}{
+			{
+				"role":    "system",
+				"content": correctiveContext,
+			},
+		}
+
+		// Add original messages
+		for _, msg := range req.Messages {
+			messages = append(messages, map[string]interface{}{
+				"role":    msg.Role,
+				"content": msg.Content,
+			})
+		}
+
+		taskPayload["messages"] = messages
+		fmt.Printf("   📋 SWAN CONTEXT: Included corrective context in task payload\n")
 	}
 
 	// Execute task
@@ -253,8 +300,10 @@ func (s *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Calculate quality and log results
+	// Calculate quality and perform learning on EVERY query
 	quality := 0.5
+	var cleanedResponse string
+	var discardedInfo string
 	if s.learning != nil {
 		record := &learning.TaskRecord{
 			Query:     query,
@@ -265,6 +314,19 @@ func (s *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *htt
 			Timestamp: time.Now(),
 		}
 		quality = s.learning.AssessQuality(record)
+
+		// Perform prompt-based quality evaluation and cleanup
+		cleanedResponse, discardedInfo = s.learning.EvaluateAndCleanResponse(query, result.Response)
+		if cleanedResponse != result.Response {
+			fmt.Printf("🧹 SWAN CLEANUP: Response cleaned - discarded %d chars of invalid information\n", len(result.Response)-len(cleanedResponse))
+			result.Response = cleanedResponse
+		}
+
+		// Ensure learning happens on EVERY query - record the task
+		fmt.Printf("📚 SWAN LEARNING: Processing query for learning and improvement\n")
+		s.learning.RecordTask(record)
+		fmt.Printf("   ✅ Task recorded in learning dataset\n")
+		fmt.Printf("   📊 Quality assessment completed: %.2f/1.0\n", quality)
 	}
 
 	fmt.Printf("✅ SWAN RESULT: Response generated (%.2f%% quality, %v duration)\n", quality*100, result.Duration)
@@ -280,6 +342,15 @@ func (s *OrchestratorServer) handleChatCompletions(w http.ResponseWriter, r *htt
 	} else {
 		fmt.Printf("\n")
 	}
+
+	// Log learning details
+	fmt.Printf("📚 SWAN LEARNING: Recording task for future improvement\n")
+	if discardedInfo != "" {
+		fmt.Printf("   🗑️  Discarded info: %s\n", discardedInfo)
+	}
+	fmt.Printf("   📊 Quality assessment: %.2f/1.0\n", quality)
+	fmt.Printf("   ⏱️  Duration: %v\n", result.Duration)
+	fmt.Printf("   🤖 Agent: %s\n", agent.Name)
 
 	// Log to request file
 	reasoning := fmt.Sprintf("Selected %s based on performance metrics and VDB context", agent.Name)
@@ -543,69 +614,376 @@ func (s *OrchestratorServer) handleHealth(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(response)
 }
 
-// analyzeTone analyzes the tone of a user query
+// analyzeTone analyzes the tone of a user query using LLM analysis
 func (s *OrchestratorServer) analyzeTone(query string) (tone string, confidence float64) {
+	fmt.Printf("   🤖 SWAN LLM ANALYSIS: Analyzing query intent with model\n")
+
+	// Use an available agent to analyze the query intent
+	agents := s.daemonMgr.ListAgents()
+	if len(agents) == 0 {
+		fmt.Printf("   ⚠️  SWAN LLM ANALYSIS: No agents available, falling back to enhanced pattern analysis\n")
+		return s.enhancedPatternAnalysis(query)
+	}
+
+	// Select the first available agent for analysis
+	var analyzer *daemon.AgentProcess
+	for _, agent := range agents {
+		analyzer = agent
+		break
+	}
+
+	// Create analysis prompt with clearer instructions
+	analysisPrompt := `You are an expert at analyzing user queries and extracting insights. For the following query, determine:
+
+INTENT: The primary intention (must be exactly one of: corrective, informational, aggressive, urgent, neutral)
+CONFIDENCE: Your confidence in this classification (0.0 to 1.0)
+KEY_INFO: If corrective, list the key statements that should be remembered (as an array)
+STORE_FLAG: Whether this should be stored as corrective knowledge (true/false)
+INSIGHTS: Extract any useful insights from this query categorized by type:
+  - user_preferences: User preferences, coding styles, tool preferences
+  - technical_insights: Technical knowledge, best practices, code patterns
+  - error_patterns: Common errors, debugging tips, solutions
+  - learning_points: General learning insights, concepts explained
+  - conversation_notes: Important conversation points, context
+
+Query: "` + query + `"
+
+Format your response as valid JSON:
+{
+  "intent": "corrective",
+  "confidence": 0.95,
+  "key_info": ["The function should return null instead of undefined"],
+  "store_flag": true,
+  "insights": {
+    "technical_insights": ["Use null instead of undefined for intentional empty values"],
+    "user_preferences": ["Prefers explicit error handling"],
+    "learning_points": ["Understanding difference between null and undefined"]
+  }
+}
+
+ Do not include any other text or explanation.`
+
+	fmt.Printf("   📝 ANALYSIS PROMPT: %s\n", analysisPrompt)
+
+	// Build analysis task
+	analysisPayload := map[string]interface{}{
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": analysisPrompt},
+		},
+		"model":  analyzer.Config.Model,
+		"stream": false,
+	}
+
+	// Execute analysis with timeout
+	result, err := s.executeTask(analyzer, analysisPayload)
+	if err != nil {
+		fmt.Printf("   ❌ SWAN LLM ANALYSIS: Failed to analyze query: %v\n", err)
+		return s.enhancedPatternAnalysis(query)
+	}
+
+	// Parse the JSON response
+	var analysis AnalysisResult
+
+	// Try to extract JSON from response - look for JSON patterns
+	response := strings.TrimSpace(result.Response)
+
+	// Remove any markdown code blocks if present
+	response = strings.TrimPrefix(response, "```json")
+	response = strings.TrimPrefix(response, "```")
+	response = strings.TrimSuffix(response, "```")
+	response = strings.TrimSpace(response)
+
+	jsonStart := strings.Index(response, "{")
+	jsonEnd := strings.LastIndex(response, "}")
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		jsonStr := response[jsonStart : jsonEnd+1]
+		if err := json.Unmarshal([]byte(jsonStr), &analysis); err != nil {
+			fmt.Printf("   ⚠️  SWAN LLM ANALYSIS: Failed to parse JSON response: %v\n", err)
+			truncated := result.Response
+			if len(truncated) > 200 {
+				truncated = truncated[:200]
+			}
+			fmt.Printf("   📄 Raw response: %s\n", truncated)
+			return s.enhancedPatternAnalysis(query)
+		}
+	} else {
+		fmt.Printf("   ⚠️  SWAN LLM ANALYSIS: No JSON found in response\n")
+		truncated := result.Response
+		if len(truncated) > 200 {
+			truncated = truncated[:200]
+		}
+		fmt.Printf("   📄 Raw response: %s\n", truncated)
+		return s.enhancedPatternAnalysis(query)
+	}
+
+	// Validate the analysis results
+	if analysis.Intent == "" {
+		fmt.Printf("   ⚠️  SWAN LLM ANALYSIS: Empty intent, using fallback\n")
+		return s.enhancedPatternAnalysis(query)
+	}
+
+	fmt.Printf("   ✅ SWAN LLM ANALYSIS: Intent=%s, Confidence=%.2f, Store=%t\n", analysis.Intent, analysis.Confidence, analysis.StoreFlag)
+	if len(analysis.KeyInfo) > 0 {
+		fmt.Printf("   📝 Key info extracted: %d statements\n", len(analysis.KeyInfo))
+		for i, stmt := range analysis.KeyInfo {
+			fmt.Printf("      %d: %s\n", i+1, stmt)
+		}
+	}
+
+	// Store analysis results for later use
+	s.lastAnalysis = &analysis
+
+	return analysis.Intent, analysis.Confidence
+}
+
+// enhancedPatternAnalysis provides enhanced pattern-based tone analysis
+func (s *OrchestratorServer) enhancedPatternAnalysis(query string) (tone string, confidence float64) {
 	query = strings.ToLower(query)
 
-	// Aggressive/frustrated indicators
-	aggressiveWords := []string{"stupid", "idiot", "useless", "broken", "sucks", "hate", "worst", "terrible", "awful", "damn", "hell"}
+	// Basic pattern matching as fallback
 	correctionWords := []string{"wrong", "incorrect", "mistake", "error", "fix", "should be", "not working"}
-	urgentWords := []string{"urgent", "asap", "immediately", "right now", "quickly"}
-	informationalWords := []string{"what", "how", "explain", "tell me", "show me", "can you"}
+	correctivePhrases := []string{"that's not", "you're wrong", "correction:", "actually,", "no,", "wait,"}
 
-	aggressiveScore := 0
 	correctionScore := 0
-	urgentScore := 0
-	informationalScore := 0
-
 	words := strings.Fields(query)
+
 	for _, word := range words {
-		for _, aw := range aggressiveWords {
-			if strings.Contains(word, aw) {
-				aggressiveScore++
-			}
-		}
 		for _, cw := range correctionWords {
 			if strings.Contains(word, cw) {
 				correctionScore++
 			}
 		}
-		for _, uw := range urgentWords {
-			if strings.Contains(word, uw) {
-				urgentScore++
-			}
-		}
-		for _, iw := range informationalWords {
-			if strings.Contains(word, iw) {
-				informationalScore++
-			}
+	}
+
+	for _, phrase := range correctivePhrases {
+		if strings.Contains(query, phrase) {
+			correctionScore += 2
 		}
 	}
 
-	// Check for exclamation marks and question marks
-	exclamationCount := strings.Count(query, "!")
-	questionCount := strings.Count(query, "?")
-
-	// Determine dominant tone
-	scores := []float64{float64(aggressiveScore), float64(correctionScore), float64(urgentScore), float64(informationalScore)}
-	maxScore := scores[0]
-	for _, score := range scores {
-		if score > maxScore {
-			maxScore = score
-		}
-	}
-
-	if aggressiveScore > 0 && exclamationCount > 1 {
-		return "aggressive", float64(aggressiveScore) / float64(len(words))
-	} else if correctionScore > 0 {
-		return "corrective", float64(correctionScore) / float64(len(words))
-	} else if urgentScore > 0 || exclamationCount > 0 {
-		return "urgent", float64(urgentScore+exclamationCount) / float64(len(words)+1)
-	} else if informationalScore > 0 || questionCount > 0 {
-		return "informational", float64(informationalScore+questionCount) / float64(len(words)+1)
+	if correctionScore > 0 {
+		return "corrective", math.Min(float64(correctionScore)/float64(len(words)+1), 1.0)
 	}
 
 	return "neutral", 0.5
+}
+
+// extractCorrectiveStatements extracts key statements from LLM analysis results
+func (s *OrchestratorServer) extractCorrectiveStatements(query string) []string {
+	// Use LLM analysis results if available
+	if s.lastAnalysis != nil && len(s.lastAnalysis.KeyInfo) > 0 {
+		return s.lastAnalysis.KeyInfo
+	}
+
+	// Fallback to basic extraction if no LLM analysis available
+	var statements []string
+	sentences := strings.Split(query, ".")
+	for _, sentence := range sentences {
+		sentence = strings.TrimSpace(sentence)
+		if sentence == "" {
+			continue
+		}
+
+		// Basic corrective pattern matching as fallback
+		correctiveIndicators := []string{
+			"wrong", "incorrect", "mistake", "error", "fix", "should be", "not working",
+			"that's not", "you're wrong", "correction", "actually",
+		}
+
+		for _, indicator := range correctiveIndicators {
+			if strings.Contains(strings.ToLower(sentence), indicator) {
+				cleanSentence := strings.TrimSpace(sentence)
+				if !strings.HasSuffix(cleanSentence, ".") {
+					cleanSentence += "."
+				}
+				statements = append(statements, cleanSentence)
+				break
+			}
+		}
+	}
+
+	return statements
+}
+
+// storeCorrectiveStatements stores corrective statements in VDB as plaintext
+func (s *OrchestratorServer) storeCorrectiveStatements(statements []string, query string) error {
+	if len(statements) == 0 {
+		return nil
+	}
+
+	vdbDir := filepath.Join(s.config.WorkDir, "vdb")
+	if err := os.MkdirAll(vdbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create VDB directory: %v", err)
+	}
+
+	// Create a statements file for corrective knowledge
+	statementsFile := filepath.Join(vdbDir, "corrective_statements.txt")
+
+	// Read existing content
+	existingContent := ""
+	if data, err := os.ReadFile(statementsFile); err == nil {
+		existingContent = string(data)
+	}
+
+	// Add new statements
+	newContent := existingContent
+	if existingContent != "" && !strings.HasSuffix(existingContent, "\n") {
+		newContent += "\n"
+	}
+
+	timestamp := time.Now().Format(time.RFC3339)
+	newContent += fmt.Sprintf("=== CORRECTIVE STATEMENTS [%s] ===\n", timestamp)
+	newContent += fmt.Sprintf("Original Query: %s\n", query)
+	newContent += "Statements:\n"
+
+	for i, statement := range statements {
+		newContent += fmt.Sprintf("%d. %s\n", i+1, statement)
+	}
+	newContent += "\n"
+
+	// Write back to file
+	if err := os.WriteFile(statementsFile, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to write corrective statements: %v", err)
+	}
+
+	fmt.Printf("   💾 SWAN VDB: Stored %d corrective statements\n", len(statements))
+	return nil
+}
+
+// storeInsights stores different types of insights in separate VDB files
+func (s *OrchestratorServer) storeInsights(insights map[string][]string, query string) error {
+	if len(insights) == 0 {
+		return nil
+	}
+
+	vdbDir := filepath.Join(s.config.WorkDir, "vdb")
+	if err := os.MkdirAll(vdbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create VDB directory: %v", err)
+	}
+
+	timestamp := time.Now().Format(time.RFC3339)
+
+	// Define the insight file mappings
+	insightFiles := map[string]string{
+		"user_preferences":   "user_preferences.txt",
+		"technical_insights": "technical_insights.txt",
+		"error_patterns":     "error_patterns.txt",
+		"learning_points":    "learning_points.txt",
+		"conversation_notes": "conversation_notes.txt",
+	}
+
+	storedCount := 0
+
+	for insightType, statements := range insights {
+		if len(statements) == 0 {
+			continue
+		}
+
+		filename, exists := insightFiles[insightType]
+		if !exists {
+			continue // Skip unknown insight types
+		}
+
+		filePath := filepath.Join(vdbDir, filename)
+
+		// Read existing content
+		existingContent := ""
+		if data, err := os.ReadFile(filePath); err == nil {
+			existingContent = string(data)
+		}
+
+		// Add new insights
+		newContent := existingContent
+		if existingContent != "" && !strings.HasSuffix(existingContent, "\n") {
+			newContent += "\n"
+		}
+
+		newContent += fmt.Sprintf("=== %s [%s] ===\n", strings.ToUpper(strings.ReplaceAll(insightType, "_", " ")), timestamp)
+		newContent += fmt.Sprintf("Source Query: %s\n", query)
+		newContent += "Insights:\n"
+
+		for i, statement := range statements {
+			newContent += fmt.Sprintf("%d. %s\n", i+1, statement)
+		}
+		newContent += "\n"
+
+		// Write back to file
+		if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+			fmt.Printf("   ⚠️  SWAN VDB: Failed to store %s: %v\n", insightType, err)
+			continue
+		}
+
+		fmt.Printf("   💾 SWAN VDB: Stored %d %s\n", len(statements), insightType)
+		storedCount += len(statements)
+	}
+
+	if storedCount > 0 {
+		fmt.Printf("   ✅ SWAN VDB: Total insights stored: %d across %d categories\n", storedCount, len(insights))
+	}
+
+	return nil
+}
+
+// retrieveCorrectiveContext retrieves relevant corrective statements from VDB
+func (s *OrchestratorServer) retrieveCorrectiveContext(query string) string {
+	vdbDir := filepath.Join(s.config.WorkDir, "vdb")
+	statementsFile := filepath.Join(vdbDir, "corrective_statements.txt")
+
+	// Read the corrective statements file
+	data, err := os.ReadFile(statementsFile)
+	if err != nil {
+		return "" // No corrective context available
+	}
+
+	content := string(data)
+	if content == "" {
+		return ""
+	}
+
+	// Simple relevance matching - look for keywords from query in corrective statements
+	queryWords := strings.Fields(strings.ToLower(query))
+	var relevantStatements []string
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "1. ") || strings.HasPrefix(line, "2. ") || strings.HasPrefix(line, "3. ") {
+			// This is a statement line
+			statement := strings.TrimPrefix(line, "1. ")
+			statement = strings.TrimPrefix(statement, "2. ")
+			statement = strings.TrimPrefix(statement, "3. ")
+
+			// Check if statement is relevant to current query
+			statementLower := strings.ToLower(statement)
+			relevanceScore := 0
+
+			for _, qWord := range queryWords {
+				if len(qWord) > 3 && strings.Contains(statementLower, qWord) {
+					relevanceScore++
+				}
+			}
+
+			// If statement shares keywords with query, include it
+			if relevanceScore > 0 {
+				relevantStatements = append(relevantStatements, statement)
+			}
+		}
+	}
+
+	if len(relevantStatements) == 0 {
+		return ""
+	}
+
+	// Return up to 3 most relevant statements
+	context := "Previous corrections and important statements:\n"
+	for i, stmt := range relevantStatements {
+		if i >= 3 {
+			break
+		}
+		context += fmt.Sprintf("- %s\n", stmt)
+	}
+
+	return context
 }
 
 // selectAgent selects an agent for task execution using learning engine and tone analysis
@@ -615,14 +993,50 @@ func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 
 	agents := s.daemonMgr.ListAgents()
 	if len(agents) == 0 {
+		fmt.Printf("   ❌ SWAN DECISION: No agents available\n")
 		return nil
 	}
 
-	fmt.Printf("   🤔 SWAN REASONING: Analyzing %d available agents...\n", len(agents))
+	fmt.Printf("   🤔 SWAN REASONING: Analyzing %d available agents for query\n", len(agents))
 
 	// Analyze query tone for intelligent routing
 	tone, confidence := s.analyzeTone(query)
 	fmt.Printf("   🎭 Query tone: %s (confidence: %.2f)\n", tone, confidence)
+
+	// Store insights from LLM analysis
+	if s.lastAnalysis != nil && len(s.lastAnalysis.Insights) > 0 {
+		fmt.Printf("   📊 SWAN INSIGHTS: Processing %d insight categories\n", len(s.lastAnalysis.Insights))
+		totalInsights := 0
+		for category, insights := range s.lastAnalysis.Insights {
+			if len(insights) > 0 {
+				fmt.Printf("   📝 %s: %d insights\n", category, len(insights))
+				totalInsights += len(insights)
+			}
+		}
+
+		if totalInsights > 0 {
+			if err := s.storeInsights(s.lastAnalysis.Insights, query); err != nil {
+				fmt.Printf("   ❌ SWAN INSIGHTS: Failed to store insights: %v\n", err)
+			}
+		}
+	}
+
+	// Handle corrective tones specially - store statements in VDB
+	if tone == "corrective" && confidence > 0.05 && s.lastAnalysis != nil && s.lastAnalysis.StoreFlag {
+		fmt.Printf("   📝 SWAN CORRECTIVE: Detected corrective tone - storing key information\n")
+		correctiveStatements := s.lastAnalysis.KeyInfo
+		fmt.Printf("   🔍 Extracted %d corrective statements\n", len(correctiveStatements))
+		for i, stmt := range correctiveStatements {
+			fmt.Printf("      %d: %s\n", i+1, stmt)
+		}
+		if len(correctiveStatements) > 0 {
+			if err := s.storeCorrectiveStatements(correctiveStatements, query); err != nil {
+				fmt.Printf("   ❌ SWAN CORRECTIVE: Failed to store statements: %v\n", err)
+			} else {
+				fmt.Printf("   ✅ SWAN CORRECTIVE: Stored %d corrective statements in VDB\n", len(correctiveStatements))
+			}
+		}
+	}
 
 	// Log tone analysis
 	if s.learning != nil {
@@ -632,7 +1046,7 @@ func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 
 	// For aggressive tones, prefer more experienced/stable agents
 	if tone == "aggressive" && confidence > 0.1 {
-		fmt.Printf("   ⚠️  Aggressive tone detected - prioritizing experienced agents\n")
+		fmt.Printf("   ⚠️  SWAN DECISION: Aggressive tone detected - prioritizing experienced agents\n")
 		// Try to find an agent with good performance history
 		if s.learning != nil {
 			stats := s.learning.GetStatistics()
@@ -640,22 +1054,41 @@ func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 				// Pick the highest ranked agent
 				bestAgentName := agentRankings[0]["agent"].(string)
 				if agent, exists := agents[bestAgentName]; exists {
-					fmt.Printf("   🏆 Selected top-ranked agent: %s\n", bestAgentName)
+					fmt.Printf("   🏆 SWAN DECISION: Selected top-ranked agent '%s' based on performance history\n", bestAgentName)
+					fmt.Printf("   📊 Agent stats: %.1f%% success rate\n", agentRankings[0]["success_rate"].(float64)*100)
 					return agent
 				}
 			}
 		}
+		fmt.Printf("   ⚠️  SWAN DECISION: No high-performing agents found for aggressive query\n")
 	}
 
 	// Try to get best agent from learning engine based on time/quality metrics
 	if s.learning != nil {
+		fmt.Printf("   🔍 SWAN DECISION: Consulting learning engine for agent recommendation\n")
 		if bestAgent, err := s.learning.GetBestAgent(query); err == nil {
 			if agent, exists := agents[bestAgent]; exists {
-				fmt.Printf("   📈 Learning engine recommends: %s (based on historical performance)\n", bestAgent)
+				fmt.Printf("   📈 SWAN DECISION: Learning engine recommends agent '%s'\n", bestAgent)
+				fmt.Printf("   🎯 Reasoning: Based on historical performance for similar queries\n")
 				return agent
+			} else {
+				fmt.Printf("   ⚠️  SWAN DECISION: Recommended agent '%s' not available\n", bestAgent)
 			}
 		} else {
-			fmt.Printf("   📊 Learning engine: No recommendation available (%v)\n", err)
+			fmt.Printf("   📊 SWAN DECISION: Learning engine has no recommendation (%v)\n", err)
+		}
+	} else {
+		fmt.Printf("   ⚠️  SWAN DECISION: Learning engine not available\n")
+	}
+
+	// Check for cached responses
+	if s.learning != nil {
+		if cached, exists := s.learning.GetCache()[query]; exists {
+			fmt.Printf("   💾 SWAN DECISION: Found cached response from agent '%s'\n", cached.AgentName)
+			if agent, exists := agents[cached.AgentName]; exists {
+				fmt.Printf("   🚀 SWAN DECISION: Using cached agent '%s' for instant response\n", cached.AgentName)
+				return agent
+			}
 		}
 	}
 
@@ -668,12 +1101,14 @@ func (s *OrchestratorServer) selectAgent(query string) *daemon.AgentProcess {
 	selected := agentNames[s.agentIndex%len(agentNames)]
 	s.agentIndex++
 
-	fmt.Printf("   🔄 Fallback selection: %s (round-robin)\n", selected)
+	fmt.Printf("   🔄 SWAN DECISION: Using fallback round-robin selection\n")
+	fmt.Printf("   🎲 Selected agent: '%s' (agent %d of %d)\n", selected, s.agentIndex%len(agentNames)+1, len(agentNames))
 	return agents[selected]
 }
 
 // executeTask executes a task on the specified agent
 func (s *OrchestratorServer) executeTask(agent *daemon.AgentProcess, payload map[string]interface{}) (*TaskResult, error) {
+	fmt.Printf("   🤖 EXECUTING TASK on agent '%s' with payload: %+v\n", agent.Name, payload)
 	start := time.Now()
 
 	// Build request to the provider endpoint using agent's model
@@ -1258,20 +1693,24 @@ func (s *OrchestratorServer) runCompetition(query string) (*learning.Competition
 	var bestQuality float64
 	var winner string
 
-	fmt.Printf("   📊 SWAN COMPETITION: Evaluating results...\n")
+	fmt.Printf("   📊 SWAN COMPETITION: Evaluating %d competition results...\n", len(results))
 
 	for agentName, result := range results {
+		fmt.Printf("   🔍 SWAN COMPETITION: Analyzing response from %s\n", agentName)
+
 		// Assess quality for competition
 		quality := 0.5 // Default quality if learning engine is disabled
 		if s.learning != nil {
-			quality = s.learning.AssessQuality(&learning.TaskRecord{
+			record := &learning.TaskRecord{
 				Query:     query,
 				Response:  result.Response,
 				Duration:  result.Duration,
 				Success:   result.Error == "",
 				Error:     result.Error,
 				Timestamp: time.Now(),
-			})
+			}
+			quality = s.learning.AssessQuality(record)
+			fmt.Printf("      📈 Quality assessment: %.2f/1.0\n", quality)
 		}
 
 		taskRecord := &learning.TaskRecord{
@@ -1288,11 +1727,13 @@ func (s *OrchestratorServer) runCompetition(query string) (*learning.Competition
 
 		competitionResult.Results[agentName] = taskRecord
 
-		fmt.Printf("      🎖️  %s: %.2f%% quality (%v)\n", agentName, quality*100, result.Duration)
+		fmt.Printf("      🎖️  %s: %.2f%% quality (%v duration)\n", agentName, quality*100, result.Duration)
+		fmt.Printf("      📝 Competition result logged for learning\n")
 
 		if quality > bestQuality {
 			bestQuality = quality
 			winner = agentName
+			fmt.Printf("      🏆 New winner: %s with %.2f%% quality\n", agentName, quality*100)
 		}
 	}
 
@@ -1333,6 +1774,7 @@ func (s *OrchestratorServer) handleChat(w http.ResponseWriter, r *http.Request) 
 			break
 		}
 	}
+	fmt.Printf("   📥 USER QUERY: %s\n", query)
 
 	// Handle admin queries
 	if response := s.handleAdminQuery(query); response != "" {
@@ -1342,6 +1784,18 @@ func (s *OrchestratorServer) handleChat(w http.ResponseWriter, r *http.Request) 
 			Duration:  0,
 		})
 		s.sendOllamaChatResponse(w, "swan-admin", response, req.Stream)
+		return
+	}
+
+	// Analyze query tone for informational handling
+	tone, confidence := s.analyzeTone(query)
+	if tone == "informational" && confidence > 0.5 {
+		// Convert messages
+		messages := make([]map[string]interface{}, len(req.Messages))
+		for i, m := range req.Messages {
+			messages[i] = map[string]interface{}{"role": m.Role, "content": m.Content}
+		}
+		s.handleInformationalQuery(w, messages, req.Model, req.Stream)
 		return
 	}
 
@@ -1378,6 +1832,102 @@ func (s *OrchestratorServer) handleChat(w http.ResponseWriter, r *http.Request) 
 		// Return Ollama chat response
 		s.sendOllamaChatResponse(w, agent.Name, result.Response, req.Stream)
 	}
+}
+
+// handleInformationalQuery handles informational queries by querying all agents and VDB
+func (s *OrchestratorServer) handleInformationalQuery(w http.ResponseWriter, messages []map[string]interface{}, reqModel string, stream bool) {
+	// Extract query
+	query := ""
+	for _, msg := range messages {
+		if msg["role"] == "user" {
+			query = msg["content"].(string)
+			break
+		}
+	}
+	fmt.Printf("   🤖 SWAN INFORMATIONAL: Handling informational query '%s' with all agents\n", query)
+
+	agents := s.daemonMgr.ListAgents()
+	if len(agents) == 0 {
+		s.sendOllamaError(w, "No agents available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Query all agents
+	var responses []string
+	var agentNames []string
+	for name, agent := range agents {
+		fmt.Printf("   📡 Querying agent '%s'\n", name)
+		taskPayload := map[string]interface{}{
+			"messages": messages,
+			"model":    agent.Config.Model,
+			"stream":   false,
+		}
+		result, err := s.executeTask(agent, taskPayload)
+		if err != nil {
+			fmt.Printf("   ❌ Failed to query agent '%s': %v\n", name, err)
+			continue
+		}
+		responses = append(responses, result.Response)
+		agentNames = append(agentNames, name)
+	}
+
+	if len(responses) == 0 {
+		s.sendOllamaError(w, "All agent queries failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Query VDB for relevant information
+	var vdbInfo []string
+	var correctiveInfo []string
+	if s.learning != nil && s.learning.GetVDB() != nil {
+		vdbResults := s.learning.GetVDB().Query(query, 5) // get top 5
+		for _, entry := range vdbResults {
+			if entry.Query == "corrective_statements.txt" {
+				correctiveInfo = append(correctiveInfo, entry.Response)
+			} else {
+				vdbInfo = append(vdbInfo, entry.Response)
+			}
+		}
+		fmt.Printf("   📚 Retrieved %d general items and %d corrective items from VDB\n", len(vdbInfo), len(correctiveInfo))
+	}
+
+	// Synthesize response using the first agent
+	synthesizer := agents[agentNames[0]]
+	synthesisPrompt := fmt.Sprintf(`You are an AI assistant. Answer the user's query using the provided information.
+
+User Query: %s
+
+Responses from other agents:
+%s
+
+Relevant information from knowledge base:
+%s
+
+Important corrections (use these to fix any errors):
+%s
+
+Provide a clear and accurate answer to the query. If there are corrections, apply them to ensure accuracy.`, query, strings.Join(responses, "\n\n"), strings.Join(vdbInfo, "\n\n"), strings.Join(correctiveInfo, "\n\n"))
+
+	fmt.Printf("   🔧 SYNTHESIS PROMPT: %s\n", synthesisPrompt)
+
+	synthesisPayload := map[string]interface{}{
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": synthesisPrompt},
+		},
+		"model":  synthesizer.Config.Model,
+		"stream": false,
+	}
+
+	result, err := s.executeTask(synthesizer, synthesisPayload)
+	if err != nil {
+		fmt.Printf("   ❌ Failed to synthesize response: %v\n", err)
+		// Fallback to first response
+		s.sendOllamaChatResponse(w, agentNames[0], responses[0], stream)
+		return
+	}
+
+	fmt.Printf("   ✅ SWAN INFORMATIONAL: Synthesized response from %d agents and %d VDB items\n", len(responses), len(vdbInfo))
+	s.sendOllamaChatResponse(w, "swan-synthesis", result.Response, stream)
 }
 
 // handleGenerate handles Ollama /api/generate
