@@ -56,6 +56,7 @@ type REPL struct {
 	messages         []llm.Message
 	pendingFiles     []pendingFile      // Files and images to include in the next message
 	commands         map[string]Command // Registry of available commands
+	skillRegistry    *SkillRegistry     // Registry of available skills
 	currentSession   string             // Name of the active chat session
 	unsavedTopic     string             // Topic for unsaved session before saving to disk
 	initialCommand   string             // Command to execute on startup
@@ -2043,6 +2044,15 @@ func (r *REPL) initCommands() {
 				return "Usage: /script <path>\n\r", nil
 			}
 			return "", r.handleScriptCommand(args[1])
+		},
+	}
+
+	// Skills command: manage Claude Skills
+	r.commands["/skills"] = Command{
+		Name:        "/skills",
+		Description: "Manage Claude Skills",
+		Handler: func(r *REPL, args []string) (string, error) {
+			return r.handleSkillsCommand(args)
 		},
 	}
 
