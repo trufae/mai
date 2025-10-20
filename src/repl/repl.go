@@ -256,6 +256,22 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
+	// Load Claude Skills
+	repl.skillRegistry = NewSkillRegistry()
+	skillsDir, err := getSkillsDirForConfig(repl.configOptions)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to determine skills directory: %v\n", err)
+	} else {
+		if err := repl.skillRegistry.LoadSkills(skillsDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to load skills: %v\n", err)
+		} else {
+			skills := repl.skillRegistry.ListSkills()
+			if len(skills) > 0 {
+				fmt.Fprintf(os.Stderr, "Loaded %d Claude Skills\n", len(skills))
+			}
+		}
+	}
+
 	// Set the stop demo callback to transition out of the "thinking" action
 	// when the first token is received. Previously this stopped the demo loop
 	// entirely which caused subsequent streaming tokens to be buffered but
@@ -774,6 +790,10 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 			case "dir.prompt":
 				// Complete directory paths for dir.prompt
 				r.handleDirectoryCompletion(line, "/set dir.prompt", setParts[2])
+				return
+			case "repl.skillsdir":
+				// Complete directory paths for repl.skillsdir
+				r.handleDirectoryCompletion(line, "/set repl.skillsdir", setParts[2])
 				return
 			}
 		}
@@ -1514,6 +1534,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	messages := []llm.Message{}
 	if sp := r.currentSystemPrompt(); sp != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: sp})
+	}
+
+	// Add Claude Skills metadata if available
+	if skillsPrompt := r.buildSkillsPrompt(); skillsPrompt != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: skillsPrompt})
 	}
 
 	// Add user details if enabled

@@ -30,16 +30,22 @@ func NewSkillRegistry() *SkillRegistry {
 	}
 }
 
-// LoadSkills discovers and loads all skills from the skills directory
-func (sr *SkillRegistry) LoadSkills() error {
-	// Find the skills directory
-	skillsDir, err := sr.getSkillsDir()
-	if err != nil {
-		return fmt.Errorf("failed to find skills directory: %v", err)
+// LoadSkills discovers and loads all skills from the specified skills directory
+func (sr *SkillRegistry) LoadSkills(skillsDir string) error {
+	// Use default directory if none specified
+	if skillsDir == "" {
+		var err error
+		skillsDir, err = getDefaultSkillsDir()
+		if err != nil {
+			return fmt.Errorf("failed to find default skills directory: %v", err)
+		}
 	}
+
+	fmt.Printf("DEBUG: Looking for skills in: %s\n", skillsDir)
 
 	// Check if directory exists
 	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "DEBUG: Skills directory does not exist: %s\n", skillsDir)
 		// Create the directory if it doesn't exist
 		if err := os.MkdirAll(skillsDir, 0755); err != nil {
 			return fmt.Errorf("failed to create skills directory: %v", err)
@@ -68,6 +74,7 @@ func (sr *SkillRegistry) LoadSkills() error {
 
 		if skill != nil {
 			sr.skills[skill.Name] = skill
+			fmt.Fprintf(os.Stderr, "DEBUG: Loaded skill: %s\n", skill.Name)
 		}
 	}
 
@@ -109,7 +116,7 @@ func (sr *SkillRegistry) parseSkillFile(content string) (*Skill, error) {
 
 	frontmatter := parts[1]
 
-	// Simple key-value parsing for frontmatter
+	// Simple key-value parsing for frontmatter (supports basic YAML)
 	metadata := make(map[string]string)
 	lines := strings.Split(frontmatter, "\n")
 	for _, line := range lines {
@@ -117,6 +124,7 @@ func (sr *SkillRegistry) parseSkillFile(content string) (*Skill, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		// Handle basic key: value format
 		if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
 			key := strings.TrimSpace(line[:colonIdx])
 			value := strings.TrimSpace(line[colonIdx+1:])
@@ -133,16 +141,13 @@ func (sr *SkillRegistry) parseSkillFile(content string) (*Skill, error) {
 		Metadata: metadata,
 	}
 
-	// Extract name and description
-	if name, ok := metadata["name"]; ok && name != "" {
-		skill.Name = name
-	} else {
+	// Extract required fields
+	var ok bool
+	if skill.Name, ok = metadata["name"]; !ok || skill.Name == "" {
 		return nil, fmt.Errorf("missing 'name' field in frontmatter")
 	}
 
-	if desc, ok := metadata["description"]; ok && desc != "" {
-		skill.Description = desc
-	} else {
+	if skill.Description, ok = metadata["description"]; !ok || skill.Description == "" {
 		return nil, fmt.Errorf("missing 'description' field in frontmatter")
 	}
 
@@ -170,15 +175,32 @@ func (sr *SkillRegistry) ListSkills() []*Skill {
 	return skills
 }
 
-// getSkillsDir returns the path to the skills directory
-func (sr *SkillRegistry) getSkillsDir() (string, error) {
-	// Use .config/mai/skills as specified in the requirements
+// getDefaultSkillsDir returns the default skills directory path
+func getDefaultSkillsDir() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-
 	return filepath.Join(configDir, "mai", "skills"), nil
+}
+
+// getSkillsDirForConfig returns the path to the skills directory for given config options
+func getSkillsDirForConfig(configOptions ConfigOptions) (string, error) {
+	// Check for custom skills directory configuration
+	if skillsDir := configOptions.Get("repl.skillsdir"); skillsDir != "" {
+		// Expand ~ to home directory if present
+		if strings.HasPrefix(skillsDir, "~") {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			skillsDir = filepath.Join(homeDir, skillsDir[1:])
+		}
+		return skillsDir, nil
+	}
+
+	// Use default
+	return getDefaultSkillsDir()
 }
 
 // ExecuteSkill executes a skill by running its instructions
@@ -252,11 +274,45 @@ func (r *SkillRegistry) findExecutableScripts(skillPath string) ([]string, error
 	return scripts, err
 }
 
+// buildSkillsPrompt builds the skills metadata for inclusion in the system prompt
+func (r *REPL) buildSkillsPrompt() string {
+	if r.skillRegistry == nil {
+		return ""
+	}
+
+	skills := r.skillRegistry.ListSkills()
+	if len(skills) == 0 {
+		return ""
+	}
+
+	var prompt strings.Builder
+	prompt.WriteString("AVAILABLE CLAUDE SKILLS:\n")
+	prompt.WriteString("You have access to the following skills. Each skill contains instructions and resources in its directory.\n")
+	prompt.WriteString("When a user request matches a skill's description, you should use that skill by reading its SKILL.md file and following its instructions.\n\n")
+
+	for _, skill := range skills {
+		prompt.WriteString(fmt.Sprintf("- %s: %s\n", skill.Name, skill.Description))
+		prompt.WriteString(fmt.Sprintf("  Location: %s\n", skill.Path))
+	}
+
+	prompt.WriteString("\nTo use a skill:\n")
+	prompt.WriteString("1. Read the SKILL.md file from the skill's directory\n")
+	prompt.WriteString("2. Follow the instructions in the SKILL.md file\n")
+	prompt.WriteString("3. Use any additional files or scripts referenced in the skill\n")
+	prompt.WriteString("4. Execute any scripts or commands as needed using available tools\n")
+
+	return prompt.String()
+}
+
 // handleSkillsCommand handles the /skills command
 func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 	if r.skillRegistry == nil {
 		r.skillRegistry = NewSkillRegistry()
-		if err := r.skillRegistry.LoadSkills(); err != nil {
+		skillsDir, err := getSkillsDirForConfig(r.configOptions)
+		if err != nil {
+			return fmt.Sprintf("Error determining skills directory: %v\r\n", err), nil
+		}
+		if err := r.skillRegistry.LoadSkills(skillsDir); err != nil {
 			return fmt.Sprintf("Error loading skills: %v\r\n", err), nil
 		}
 	}
@@ -334,7 +390,11 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 
 	case "reload":
 		r.skillRegistry = NewSkillRegistry()
-		if err := r.skillRegistry.LoadSkills(); err != nil {
+		skillsDir, err := getSkillsDirForConfig(r.configOptions)
+		if err != nil {
+			return fmt.Sprintf("Error determining skills directory: %v\r\n", err), nil
+		}
+		if err := r.skillRegistry.LoadSkills(skillsDir); err != nil {
 			return fmt.Sprintf("Error reloading skills: %v\r\n", err), nil
 		}
 		return "Skills reloaded successfully\r\n", nil
