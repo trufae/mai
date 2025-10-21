@@ -19,7 +19,7 @@ func NewBedrockProvider(config *Config, ctx context.Context) *BedrockProvider {
 	return &BedrockProvider{
 		BaseProvider: BaseProvider{
 			config: config,
-			apiKey: GetAPIKey("AWS_ACCESS_KEY_ID", "~/.r2ai.bedrock-key"),
+			apiKey: GetAPIKey("bedrock"),
 			ctx:    ctx,
 		},
 	}

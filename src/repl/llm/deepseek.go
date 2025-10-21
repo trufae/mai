@@ -18,7 +18,7 @@ func NewDeepSeekProvider(config *Config, ctx context.Context) *DeepSeekProvider 
 	return &DeepSeekProvider{
 		BaseProvider: BaseProvider{
 			config: config,
-			apiKey: GetAPIKey("DEEPSEEK_API_KEY", "~/.r2ai.deepseek-key"),
+			apiKey: GetAPIKey("deepseek"),
 			ctx:    ctx,
 		},
 	}

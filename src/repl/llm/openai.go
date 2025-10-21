@@ -33,9 +33,9 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 	var apiKey string
 	switch strings.ToLower(config.PROVIDER) {
 	case "openai":
-		apiKey = GetAPIKey("OPENAI_API_KEY", "~/.r2ai.openai-key")
+		apiKey = GetAPIKey("openai")
 	case "ollamacloud":
-		apiKey = GetAPIKey("OLLAMA_API_KEY", "~/.r2ai.ollama-key")
+		apiKey = GetAPIKey("ollama")
 	}
 
 	// Local OpenAI-compatible servers (LM Studio, shimmy) do not require auth.

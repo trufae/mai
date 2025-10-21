@@ -31,7 +31,7 @@ func NewClaudeProvider(config *Config, ctx context.Context) *ClaudeProvider {
 	return &ClaudeProvider{
 		BaseProvider: BaseProvider{
 			config: config,
-			apiKey: GetAPIKey("CLAUDE_API_KEY", "~/.r2ai.anthropic-key"),
+			apiKey: GetAPIKey("claude"),
 			ctx:    ctx,
 		},
 	}

@@ -19,7 +19,7 @@ func NewGeminiProvider(config *Config, ctx context.Context) *GeminiProvider {
 	return &GeminiProvider{
 		BaseProvider: BaseProvider{
 			config: config,
-			apiKey: GetAPIKey("GEMINI_API_KEY", "~/.r2ai.gemini-key"),
+			apiKey: GetAPIKey("gemini"),
 			ctx:    ctx,
 		},
 	}

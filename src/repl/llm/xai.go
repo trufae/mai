@@ -31,7 +31,7 @@ func NewXAIProvider(config *Config, ctx context.Context) *XAIProvider {
 	return &XAIProvider{
 		BaseProvider: BaseProvider{
 			config: config,
-			apiKey: GetAPIKey("XAI_API_KEY", "~/.r2ai.xai-key"),
+			apiKey: GetAPIKey("xai"),
 			ctx:    ctx,
 		},
 	}

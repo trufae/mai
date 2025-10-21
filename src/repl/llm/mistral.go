@@ -19,7 +19,7 @@ func NewMistralProvider(config *Config, ctx context.Context) *MistralProvider {
 	return &MistralProvider{
 		BaseProvider: BaseProvider{
 			config: config,
-			apiKey: GetAPIKey("MISTRAL_API_KEY", "~/.r2ai.mistral-key"),
+			apiKey: GetAPIKey("mistral"),
 			ctx:    ctx,
 		},
 	}

@@ -1,11 +1,5 @@
 package llm
 
-import (
-	"os"
-	"path/filepath"
-	"strings"
-)
-
 // Message represents a chat message with a role and content.
 type Message struct {
 	Role    string      `json:"role"`
@@ -82,56 +76,4 @@ type Config struct {
 	// ShowTPS enables displaying time statistics (time to first token,
 	// generation time, tokens/second, chars/second) after LLM responses.
 	ShowTPS bool
-}
-
-// GetAPIKey resolves an API key by checking an environment variable first,
-// then falling back to reading the first available file from the provided list.
-// Filenames may include a leading '~' which will be expanded to the user home.
-// Supports both old ~/.r2ai.*-key and new ~/.config/mai/keys/* formats.
-func GetAPIKey(envVar string, filenames ...string) string {
-	if v := os.Getenv(envVar); v != "" {
-		return strings.TrimSpace(v)
-	}
-	for _, fn := range filenames {
-		if fn == "" {
-			continue
-		}
-		// Expand ~ to home directory
-		if strings.HasPrefix(fn, "~") {
-			if home, err := os.UserHomeDir(); err == nil {
-				fn = filepath.Join(home, fn[1:])
-			}
-		}
-		data, err := os.ReadFile(fn)
-		if err != nil {
-			continue
-		}
-		s := strings.TrimSpace(string(data))
-		if s != "" {
-			return s
-		}
-	}
-
-	// Check new config directory format
-	// Map old ~/.r2ai.provider-key to ~/.config/mai/keys/provider
-	for _, fn := range filenames {
-		if strings.Contains(fn, ".r2ai.") && strings.HasSuffix(fn, "-key") {
-			// Extract provider from ~/.r2ai.provider-key
-			base := filepath.Base(fn)
-			if strings.HasPrefix(base, ".r2ai.") && strings.HasSuffix(base, "-key") {
-				provider := strings.TrimSuffix(strings.TrimPrefix(base, ".r2ai."), "-key")
-				if home, err := os.UserHomeDir(); err == nil {
-					newPath := filepath.Join(home, ".config", "mai", "keys", provider)
-					data, err := os.ReadFile(newPath)
-					if err == nil {
-						s := strings.TrimSpace(string(data))
-						if s != "" {
-							return s
-						}
-					}
-				}
-			}
-		}
-	}
-	return ""
 }
