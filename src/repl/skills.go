@@ -41,11 +41,8 @@ func (sr *SkillRegistry) LoadSkills(skillsDir string) error {
 		}
 	}
 
-	fmt.Printf("DEBUG: Looking for skills in: %s\n", skillsDir)
-
 	// Check if directory exists
 	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "DEBUG: Skills directory does not exist: %s\n", skillsDir)
 		// Create the directory if it doesn't exist
 		if err := os.MkdirAll(skillsDir, 0755); err != nil {
 			return fmt.Errorf("failed to create skills directory: %v", err)
@@ -74,7 +71,6 @@ func (sr *SkillRegistry) LoadSkills(skillsDir string) error {
 
 		if skill != nil {
 			sr.skills[skill.Name] = skill
-			fmt.Fprintf(os.Stderr, "DEBUG: Loaded skill: %s\n", skill.Name)
 		}
 	}
 
