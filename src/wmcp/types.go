@@ -215,6 +215,7 @@ type MCPServer struct {
 	Tools         []Tool
 	Prompts       []Prompt
 	Resources     []Resource
+	EnabledTools  map[string]bool // Tool name -> enabled status (nil means all enabled)
 	mutex         sync.RWMutex
 	stderrDone    chan struct{}
 	stderrActive  bool

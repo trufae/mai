@@ -34,11 +34,16 @@ func GetServerNameFromCommand(command string) string {
 
 // StartServer starts an MCP server process or connects to HTTP endpoint
 func (s *MCPService) StartServer(name, command string) error {
-	return s.StartServerWithEnv(name, command, nil)
+	return s.StartServerWithEnvAndTools(name, command, nil, nil)
 }
 
 // StartServerWithEnv starts an MCP server process with custom environment variables or connects to HTTP endpoint
 func (s *MCPService) StartServerWithEnv(name, command string, env map[string]string) error {
+	return s.StartServerWithEnvAndTools(name, command, env, nil)
+}
+
+// StartServerWithEnvAndTools starts an MCP server process with custom environment variables and tool filtering
+func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[string]string, enabledTools map[string]bool) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -57,6 +62,7 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 			Tools:         []Tool{},
 			Prompts:       []Prompt{},
 			Resources:     []Resource{},
+			EnabledTools:  enabledTools,
 			stderrDone:    make(chan struct{}),
 			stderrActive:  false, // no stderr for HTTP/SSE
 			monitorDone:   make(chan struct{}),
@@ -159,6 +165,7 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 		Stdout:        stdout,
 		Stderr:        stderr,
 		Tools:         []Tool{},
+		EnabledTools:  enabledTools,
 		stderrDone:    make(chan struct{}),
 		stderrActive:  true,
 		monitorDone:   make(chan struct{}),
@@ -276,11 +283,25 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 		tool.Parameters = extractParametersFromSchema(tool.InputSchema)
 	}
 
+	// Filter tools based on enabled list
+	var filteredTools []Tool
+	if server.EnabledTools == nil || len(server.EnabledTools) == 0 {
+		// All tools enabled
+		filteredTools = toolsResult.Tools
+	} else {
+		// Filter to only enabled tools
+		for _, tool := range toolsResult.Tools {
+			if enabled, exists := server.EnabledTools[tool.Name]; exists && enabled {
+				filteredTools = append(filteredTools, tool)
+			}
+		}
+	}
+
 	server.mutex.Lock()
-	server.Tools = toolsResult.Tools
+	server.Tools = filteredTools
 	server.mutex.Unlock()
 
-	log.Printf("Loaded %d tools for server %s", len(toolsResult.Tools), server.Name)
+	log.Printf("Loaded %d tools for server %s", len(filteredTools), server.Name)
 	return nil
 }
 

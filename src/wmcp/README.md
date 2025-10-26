@@ -80,11 +80,35 @@ You can also configure servers in a JSON config file:
   "mcpServers": {
     "local-r2": {
       "type": "stdio",
-      "command": "r2pm -r r2mcp"
+      "command": "r2pm -r r2mcp",
+      "tools": {
+        "openFile": true,
+        "listFunctions": true,
+        "decompileFunction": false
+      }
     },
     "remote-api": {
       "type": "http",
       "url": "https://api.example.com/mcp"
+    }
+  }
+}
+```
+
+The `tools` field is optional and allows you to enable/disable specific tools from a server. If omitted, all tools from the server are enabled. Set a tool name to `true` to enable it, `false` to disable it.
+
+For MAI-compatible config files (used with `-c ~/.config/mai/mcps.json`), use the same `tools` field under each server:
+
+```json
+{
+  "servers": {
+    "my-server": {
+      "command": "mcp-server",
+      "enabled": true,
+      "tools": {
+        "tool1": true,
+        "tool2": false
+      }
     }
   }
 }

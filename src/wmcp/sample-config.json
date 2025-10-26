@@ -31,6 +31,10 @@
       "args": [],
       "env": {
         "SHELL_DEBUG": "true"
+      },
+      "tools": {
+        "run_command": true,
+        "list_directory": true
       }
     }
   }

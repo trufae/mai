@@ -31,6 +31,7 @@ type MCPServerConfig struct {
 	Args    []string          `json:"args,omitempty"`    // for stdio type
 	URL     string            `json:"url,omitempty"`     // for http or sse type
 	Env     map[string]string `json:"env,omitempty"`
+	Tools   map[string]bool   `json:"tools,omitempty"` // Tool name -> enabled status
 }
 
 // LoadConfig loads the configuration from a file
@@ -141,6 +142,7 @@ type MAIServer struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Enabled bool              `json:"enabled"`
+	Tools   map[string]bool   `json:"tools,omitempty"` // Tool name -> enabled status
 }
 
 // LoadMAIConfig loads configuration from MAI's mcps.json format
@@ -175,6 +177,7 @@ func LoadMAIConfig(configPath string) (*Config, error) {
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,
+			Tools:   server.Tools,
 		}
 	}
 
@@ -190,17 +193,9 @@ func StartMCPServersFromConfig(service *MCPService, config *Config) {
 	for name, cmdStr := range commands {
 		serverConfig := config.MCPServers[name]
 
-		// Set environment variables for this server
-		if serverConfig.Env != nil && len(serverConfig.Env) > 0 {
-			// Create a new command with environment variables
-			if err := service.StartServerWithEnv(name, cmdStr, serverConfig.Env); err != nil {
-				fmt.Printf("Failed to start server %s: %v\n", name, err)
-			}
-		} else {
-			// Use the standard start method
-			if err := service.StartServer(name, cmdStr); err != nil {
-				fmt.Printf("Failed to start server %s: %v\n", name, err)
-			}
+		// Start server with environment variables and tool filtering
+		if err := service.StartServerWithEnvAndTools(name, cmdStr, serverConfig.Env, serverConfig.Tools); err != nil {
+			fmt.Printf("Failed to start server %s: %v\n", name, err)
 		}
 	}
 }
