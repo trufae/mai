@@ -61,6 +61,9 @@ type MCPServer struct {
 	logFile           io.Writer
 	bufr              *bufio.Reader
 	useHeaders        bool
+	authEnabled       bool
+	authFile          string
+	authTokens        map[string]bool
 }
 
 // ToolHandler is a function that handles a tool call
@@ -129,6 +132,179 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		}
 	}
 	return s
+}
+
+// processPromptsList handles prompts/list
+func (s *MCPServer) processPromptsList(req JSONRPCRequest) JSONRPCResponse {
+	type promptMeta struct {
+		Name        string           `json:"name"`
+		Description string           `json:"description,omitempty"`
+		Arguments   []PromptArgument `json:"arguments,omitempty"`
+	}
+	list := make([]promptMeta, 0, len(s.prompts))
+	for _, p := range s.prompts {
+		list = append(list, promptMeta{Name: p.Name, Description: p.Description, Arguments: p.Arguments})
+	}
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  map[string]interface{}{"prompts": list},
+	}
+}
+
+// processPromptsGet handles prompts/get
+func (s *MCPServer) processPromptsGet(req JSONRPCRequest) JSONRPCResponse {
+	var params struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32602, Message: "Invalid params"},
+		}
+	}
+	for _, p := range s.prompts {
+		if p.Name == params.Name {
+			messages, err := ApplyPromptDefinition(p, params.Arguments)
+			if err != nil {
+				return JSONRPCResponse{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error:   &RPCError{Code: -32603, Message: "failed to render prompt: " + err.Error()},
+				}
+			}
+			return JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]interface{}{
+					"description": p.Description,
+					"messages":    messages,
+				},
+			}
+		}
+	}
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Error:   &RPCError{Code: -32601, Message: "Prompt not found: " + params.Name},
+	}
+}
+
+// processPromptsApply handles prompts/apply
+func (s *MCPServer) processPromptsApply(req JSONRPCRequest) JSONRPCResponse {
+	var params struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments,omitempty"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.Name == "" {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32602, Message: "Invalid params"},
+		}
+	}
+	for _, p := range s.prompts {
+		if p.Name == params.Name {
+			messages, err := ApplyPromptDefinition(p, params.Arguments)
+			if err != nil {
+				return JSONRPCResponse{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error:   &RPCError{Code: -32603, Message: "failed to render prompt: " + err.Error()},
+				}
+			}
+			return JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]interface{}{
+					"description": p.Description,
+					"messages":    messages,
+				},
+			}
+		}
+	}
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Error:   &RPCError{Code: -32601, Message: "Prompt not found: " + params.Name},
+	}
+}
+
+// processResourcesList handles resources/list
+func (s *MCPServer) processResourcesList(req JSONRPCRequest) JSONRPCResponse {
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"resources": s.resources,
+		},
+	}
+}
+
+// processResourcesRead handles resources/read
+func (s *MCPServer) processResourcesRead(req JSONRPCRequest) JSONRPCResponse {
+	var params ResourceReadParams
+	if err := json.Unmarshal(req.Params, &params); err != nil || params.URI == "" {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32602, Message: "Invalid params"},
+		}
+	}
+	handler, exists := s.resourceHandlers[params.URI]
+	if !exists {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32601, Message: "Resource not found: " + params.URI},
+		}
+	}
+	content, err := handler(params.URI)
+	if err != nil {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32000, Message: err.Error()},
+		}
+	}
+	var contents []interface{}
+	switch v := content.(type) {
+	case string:
+		contents = []interface{}{map[string]interface{}{
+			"uri":      params.URI,
+			"mimeType": "text/plain",
+			"text":     v,
+		}}
+	case []byte:
+		contents = []interface{}{map[string]interface{}{
+			"uri":      params.URI,
+			"mimeType": "application/octet-stream",
+			"blob":     string(v),
+		}}
+	default:
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			contents = []interface{}{map[string]interface{}{
+				"uri":      params.URI,
+				"mimeType": "application/json",
+				"text":     string(b),
+			}}
+		} else {
+			contents = []interface{}{map[string]interface{}{
+				"uri":      params.URI,
+				"mimeType": "text/plain",
+				"text":     fmt.Sprintf("%v", v),
+			}}
+		}
+	}
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: map[string]interface{}{
+			"contents": contents,
+		},
+	}
 }
 
 // SetIO allows overriding the server's input/output streams.
@@ -254,62 +430,9 @@ func (s *MCPServer) Start() {
 			continue
 		}
 
-		switch req.Method {
-		case "initialize":
-			// Try to echo client's protocolVersion if provided
-			var initParams struct {
-				ProtocolVersion string `json:"protocolVersion"`
-			}
-			_ = json.Unmarshal(req.Params, &initParams)
-			proto := initParams.ProtocolVersion
-			if proto == "" {
-				proto = "2024-11-05"
-			}
-			// Advertise capabilities for tools, prompts, and resources
-			caps := map[string]interface{}{"tools": map[string]interface{}{}}
-			if len(s.prompts) > 0 {
-				caps["prompts"] = map[string]interface{}{}
-			} else {
-				// Many clients still tolerate declaring prompts capability even if empty
-				caps["prompts"] = map[string]interface{}{}
-			}
-			if len(s.resources) > 0 {
-				caps["resources"] = map[string]interface{}{}
-			} else {
-				// Many clients still tolerate declaring resources capability even if empty
-				caps["resources"] = map[string]interface{}{}
-			}
-			s.sendResult(req.ID, map[string]interface{}{
-				"protocolVersion": proto,
-				"capabilities":    caps,
-				// Some clients expect serverInfo; include for compatibility
-				"serverInfo": map[string]interface{}{
-					"name":    "nsmcp",
-					"version": "0.1.0",
-				},
-			})
-		case "notifications/initialized":
-			// This is a notification, no response needed
-			continue
-		case "tools/list":
-			// Return tools wrapped in proper MCP format
-			s.sendResult(req.ID, map[string]interface{}{
-				"tools": s.tools,
-			})
-		case "tools/call":
-			s.handleCall(req)
-		case "prompts/list":
-			s.handlePromptsList(req)
-		case "prompts/get":
-			s.handlePromptsGet(req)
-		case "prompts/apply":
-			s.handlePromptsApply(req)
-		case "resources/list":
-			s.handleResourcesList(req)
-		case "resources/read":
-			s.handleResourcesRead(req)
-		default:
-			s.sendError(req.ID, -32601, "Method not found: "+req.Method)
+		resp := s.processRequest(req)
+		if resp.ID != nil {
+			s.sendResponse(resp)
 		}
 	}
 }
@@ -496,6 +619,21 @@ func (s *MCPServer) writeFramed(data []byte) {
 	}
 	// newline-delimited fallback
 	fmt.Fprintln(s.writer, string(data))
+}
+
+// sendResponse sends a JSON-RPC response
+func (s *MCPServer) sendResponse(resp JSONRPCResponse) {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		// Fallback
+		s.sendError(nil, -32700, "Failed to marshal response")
+		return
+	}
+	if s.logFile != nil {
+		s.logFile.Write(data)
+		s.logFile.Write([]byte("\n"))
+	}
+	s.writeFramed(data)
 }
 
 // -------------------- MCP Client support --------------------
@@ -1046,4 +1184,178 @@ func (s *MCPServer) handleResourcesRead(req JSONRPCRequest) {
 	s.sendResult(req.ID, map[string]interface{}{
 		"contents": contents,
 	})
+}
+
+// processRequest processes a JSON-RPC request and returns the response
+func (s *MCPServer) processRequest(req JSONRPCRequest) JSONRPCResponse {
+	switch req.Method {
+	case "initialize":
+		var initParams struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		_ = json.Unmarshal(req.Params, &initParams)
+		proto := initParams.ProtocolVersion
+		if proto == "" {
+			proto = "2024-11-05"
+		}
+		caps := map[string]interface{}{"tools": map[string]interface{}{}}
+		if len(s.prompts) > 0 {
+			caps["prompts"] = map[string]interface{}{}
+		} else {
+			caps["prompts"] = map[string]interface{}{}
+		}
+		if len(s.resources) > 0 {
+			caps["resources"] = map[string]interface{}{}
+		} else {
+			caps["resources"] = map[string]interface{}{}
+		}
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]interface{}{
+				"protocolVersion": proto,
+				"capabilities":    caps,
+				"serverInfo": map[string]interface{}{
+					"name":    "nsmcp",
+					"version": "0.1.0",
+				},
+			},
+		}
+	case "notifications/initialized":
+		return JSONRPCResponse{JSONRPC: "2.0"} // No ID, no response
+	case "tools/list":
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]interface{}{
+				"tools": s.tools,
+			},
+		}
+	case "tools/call":
+		return s.processCall(req)
+	case "prompts/list":
+		return s.processPromptsList(req)
+	case "prompts/get":
+		return s.processPromptsGet(req)
+	case "prompts/apply":
+		return s.processPromptsApply(req)
+	case "resources/list":
+		return s.processResourcesList(req)
+	case "resources/read":
+		return s.processResourcesRead(req)
+	default:
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: &RPCError{
+				Code:    -32601,
+				Message: "Method not found: " + req.Method,
+			},
+		}
+	}
+}
+
+// processCall handles a tools/call request
+func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
+	var params ToolCallParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32602, Message: "Invalid params"},
+		}
+	}
+	if _, exists := s.streamingHandlers[params.Name]; exists {
+		// Streaming not supported over HTTP
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32000, Message: "Streaming not supported over HTTP"},
+		}
+	}
+	handler, exists := s.toolHandlers[params.Name]
+	if !exists {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32601, Message: "Tool not found: " + params.Name},
+		}
+	}
+	result, err := handler(params.Arguments)
+	if err != nil {
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   &RPCError{Code: -32000, Message: err.Error()},
+		}
+	}
+	switch v := result.(type) {
+	case string:
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]interface{}{
+				"content": []interface{}{map[string]interface{}{"type": "text", "text": v}},
+				"isError": false,
+			},
+		}
+	case ToolCallResult:
+		out := map[string]interface{}{"isError": v.IsError}
+		if v.Content != nil {
+			out["content"] = v.Content
+		}
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  out,
+		}
+	case map[string]interface{}:
+		if _, ok := v["content"]; ok {
+			if _, eok := v["isError"]; !eok {
+				v["isError"] = false
+			}
+			return JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  v,
+			}
+		}
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			return JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]interface{}{
+					"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
+					"isError": false,
+				},
+			}
+		}
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]interface{}{
+				"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
+				"isError": false,
+			},
+		}
+	default:
+		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
+			return JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]interface{}{
+					"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
+					"isError": false,
+				},
+			}
+		}
+		return JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]interface{}{
+				"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
+				"isError": false,
+			},
+		}
+	}
 }
