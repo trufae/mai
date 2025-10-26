@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -217,8 +218,21 @@ func main() {
 	if !skipConfig {
 		config, configErr = LoadConfig(configPath)
 		if configErr != nil {
-			log.Printf("Warning: Failed to load config: %v", configErr)
-			config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+			// Try loading from ~/.config/mai/mcps.json as fallback
+			home, err := os.UserHomeDir()
+			if err == nil {
+				maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
+				if _, err := os.Stat(maiConfigPath); err == nil {
+					config, configErr = LoadMAIConfig(maiConfigPath)
+					if configErr == nil {
+						log.Printf("Loaded config from %s", maiConfigPath)
+					}
+				}
+			}
+			if configErr != nil {
+				log.Printf("Warning: Failed to load config: %v", configErr)
+				config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+			}
 		}
 	} else {
 		config = &Config{MCPServers: make(map[string]MCPServerConfig)}

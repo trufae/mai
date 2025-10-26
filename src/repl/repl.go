@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -67,6 +68,8 @@ type REPL struct {
 	stopDemoCallback func()
 	wmcpProcess      *exec.Cmd
 	wmcpPort         int
+	mcpProcesses     map[string]*MCPProcess // Track individual MCP processes
+	mcpConfig        *MCPConfig             // Current MCP configuration
 }
 
 // parseShellArgs parses a string into shell-like arguments, handling quotes
@@ -100,6 +103,103 @@ func parseShellArgs(s string) []string {
 	return args
 }
 
+// getMCPSConfigPath returns the path to the MCP servers configuration file
+func getMCPSConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %v", err)
+	}
+	configDir := filepath.Join(home, ".config", "mai")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create config directory: %v", err)
+	}
+	return filepath.Join(configDir, "mcps.json"), nil
+}
+
+// loadMCPConfig loads the MCP configuration from the config file
+func (r *REPL) loadMCPConfig() error {
+	configPath, err := getMCPSConfigPath()
+	if err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Create default config if it doesn't exist
+		r.mcpConfig = &MCPConfig{
+			Servers: make(map[string]MCPServer),
+		}
+		return r.saveMCPConfig()
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read MCP config: %v", err)
+	}
+
+	r.mcpConfig = &MCPConfig{}
+	if err := json.Unmarshal(data, r.mcpConfig); err != nil {
+		return fmt.Errorf("failed to parse MCP config: %v", err)
+	}
+
+	return nil
+}
+
+// saveMCPConfig saves the MCP configuration to the config file
+func (r *REPL) saveMCPConfig() error {
+	configPath, err := getMCPSConfigPath()
+	if err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(r.mcpConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal MCP config: %v", err)
+	}
+
+	return os.WriteFile(configPath, data, 0644)
+}
+
+// findAvailablePort finds an available port starting from the given port
+func findAvailablePort(startPort int) (int, error) {
+	for port := startPort; port < startPort+100; port++ {
+		listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+		if err == nil {
+			listener.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available ports found")
+}
+
+// formatCommandString formats a command and its arguments as a single string
+func formatCommandString(parts []string) string {
+	var result string
+
+	for i, part := range parts {
+		if i > 0 {
+			result += " "
+		}
+		// Quote arguments with spaces
+		if containsSpace(part) {
+			result += fmt.Sprintf("\"%s\"", part)
+		} else {
+			result += part
+		}
+	}
+
+	return result
+}
+
+// containsSpace checks if a string contains any space characters
+func containsSpace(s string) bool {
+	for _, c := range s {
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			return true
+		}
+	}
+	return false
+}
+
 // buildLLMConfig constructs a provider config from environment defaults and current options.
 // This avoids storing a persistent config in the REPL and ensures providers
 // always receive up-to-date settings (provider, model, schema, headers, etc.).
@@ -119,6 +219,26 @@ type pendingFile struct {
 	content  string
 	isImage  bool
 	imageB64 string // Base64 encoded image data
+}
+
+// MCPConfig represents the MCP servers configuration
+type MCPConfig struct {
+	Servers map[string]MCPServer `json:"servers"`
+}
+
+// MCPServer represents a single MCP server configuration
+type MCPServer struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
+// MCPProcess represents a running MCP process
+type MCPProcess struct {
+	Name    string
+	Process *exec.Cmd
+	Port    int
 }
 
 type StreamingClient interface {
@@ -203,6 +323,7 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		configOptions:    configOptions,
 		initialCommand:   initialCommand,
 		quitAfterActions: quitAfterActions,
+		mcpProcesses:     make(map[string]*MCPProcess), // Initialize MCP processes map
 	}
 
 	// Create chat directory and history file
@@ -383,6 +504,24 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 
 	repl.loadAgentsFile()
 
+	// Load MCP configuration
+	if err := repl.loadMCPConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load MCP config: %v\n", err)
+	}
+
+	// Auto-start enabled MCP servers only if not running a single command
+	if repl.initialCommand == "" {
+		for name, server := range repl.mcpConfig.Servers {
+			if server.Enabled {
+				if err := repl.startMCPServer(name); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to start MCP server %s: %v\n", name, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "Started MCP server: %s\n", name)
+				}
+			}
+		}
+	}
+
 	// Spawn mai-wmcp if mcp.config or mcp.args is set
 	var wmcpArgs []string
 	if v := repl.configOptions.Get("mcp.config"); v != "" {
@@ -559,6 +698,9 @@ func (r *REPL) cleanup() {
 		r.wmcpProcess.Process.Kill()
 		r.wmcpProcess.Wait()
 	}
+
+	// Note: MCP processes are designed to run independently of REPL sessions
+	// They are not killed on REPL exit so they can persist across sessions
 }
 
 // interruptResponse interrupts the current LLM response if one is being generated
@@ -1173,6 +1315,365 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 	default:
 		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: save, load, sessions, clear, list, log, undo, compact\r\n", action), nil
 	}
+}
+
+// handleMCPCommand handles the /mcp command and its subcommands
+func (r *REPL) handleMCPCommand(args []string) (string, error) {
+	// Load MCP config if not loaded
+	if r.mcpConfig == nil {
+		if err := r.loadMCPConfig(); err != nil {
+			return fmt.Sprintf("Failed to load MCP config: %v\r\n", err), nil
+		}
+	}
+
+	// Show help if no arguments provided
+	if len(args) < 2 {
+		var output strings.Builder
+		output.WriteString("MCP server management commands:\r\n")
+		output.WriteString("  /mcp start [server]   - Start MCP server(s) (all enabled if no server specified)\r\n")
+		output.WriteString("  /mcp stop [server]    - Stop MCP server(s) (all if no server specified)\r\n")
+		output.WriteString("  /mcp restart [server] - Restart MCP server(s)\r\n")
+		output.WriteString("  /mcp enable <server>  - Enable MCP server\r\n")
+		output.WriteString("  /mcp disable <server> - Disable MCP server\r\n")
+		output.WriteString("  /mcp status           - Show status of MCP servers\r\n")
+		output.WriteString("  /mcp edit             - Edit MCP configuration file\r\n")
+		return output.String(), nil
+	}
+
+	action := args[1]
+	switch action {
+	case "start":
+		return r.handleMCPStart(args[2:])
+	case "stop":
+		return r.handleMCPStop(args[2:])
+	case "restart":
+		return r.handleMCPRestart(args[2:])
+	case "enable":
+		return r.handleMCPEnable(args[2:])
+	case "disable":
+		return r.handleMCPDisable(args[2:])
+	case "status":
+		return r.handleMCPStatus()
+	case "edit":
+		return r.handleMCPEdit()
+	default:
+		return fmt.Sprintf("Unknown MCP action: %s\r\n", action), nil
+	}
+}
+
+// handleMCPStart starts MCP servers
+func (r *REPL) handleMCPStart(servers []string) (string, error) {
+	var output strings.Builder
+
+	if len(servers) == 0 {
+		// Start all enabled servers
+		for name, server := range r.mcpConfig.Servers {
+			if server.Enabled {
+				if err := r.startMCPServer(name); err != nil {
+					output.WriteString(fmt.Sprintf("Failed to start %s: %v\r\n", name, err))
+				} else {
+					output.WriteString(fmt.Sprintf("Started %s\r\n", name))
+				}
+			}
+		}
+	} else {
+		// Start specific servers
+		for _, name := range servers {
+			if _, exists := r.mcpConfig.Servers[name]; !exists {
+				output.WriteString(fmt.Sprintf("Server %s not found\r\n", name))
+				continue
+			}
+			if err := r.startMCPServer(name); err != nil {
+				output.WriteString(fmt.Sprintf("Failed to start %s: %v\r\n", name, err))
+			} else {
+				output.WriteString(fmt.Sprintf("Started %s\r\n", name))
+			}
+		}
+	}
+
+	if output.Len() == 0 {
+		return "No servers to start\r\n", nil
+	}
+	return output.String(), nil
+}
+
+// handleMCPStop stops MCP servers
+func (r *REPL) handleMCPStop(servers []string) (string, error) {
+	var output strings.Builder
+
+	if len(servers) == 0 {
+		// Stop all mai-wmcp processes (since they persist across sessions)
+		if err := exec.Command("pkill", "-f", "mai-wmcp").Run(); err != nil {
+			output.WriteString(fmt.Sprintf("Failed to stop mai-wmcp processes: %v\r\n", err))
+		} else {
+			output.WriteString("Stopped all MCP servers\r\n")
+		}
+		// Clear process records
+		r.mcpProcesses = make(map[string]*MCPProcess)
+	} else {
+		// For specific servers, we can't easily identify which mai-wmcp process serves which server
+		// So we'll stop all and let the user restart specific ones
+		output.WriteString("Stopping specific servers not yet implemented. Use '/mcp stop' to stop all.\r\n")
+	}
+
+	return output.String(), nil
+}
+
+// handleMCPRestart restarts MCP servers
+func (r *REPL) handleMCPRestart(servers []string) (string, error) {
+	var output strings.Builder
+
+	if len(servers) == 0 {
+		// Restart all running servers
+		for name := range r.mcpProcesses {
+			if err := r.restartMCPServer(name); err != nil {
+				output.WriteString(fmt.Sprintf("Failed to restart %s: %v\r\n", name, err))
+			} else {
+				output.WriteString(fmt.Sprintf("Restarted %s\r\n", name))
+			}
+		}
+	} else {
+		// Restart specific servers
+		for _, name := range servers {
+			if err := r.restartMCPServer(name); err != nil {
+				output.WriteString(fmt.Sprintf("Failed to restart %s: %v\r\n", name, err))
+			} else {
+				output.WriteString(fmt.Sprintf("Restarted %s\r\n", name))
+			}
+		}
+	}
+
+	if output.Len() == 0 {
+		return "No servers to restart\r\n", nil
+	}
+	return output.String(), nil
+}
+
+// handleMCPEnable enables MCP servers
+func (r *REPL) handleMCPEnable(servers []string) (string, error) {
+	if len(servers) == 0 {
+		return "Usage: /mcp enable <server>\r\n", nil
+	}
+
+	var output strings.Builder
+	for _, name := range servers {
+		if server, exists := r.mcpConfig.Servers[name]; exists {
+			server.Enabled = true
+			r.mcpConfig.Servers[name] = server
+			output.WriteString(fmt.Sprintf("Enabled %s\r\n", name))
+		} else {
+			output.WriteString(fmt.Sprintf("Server %s not found\r\n", name))
+		}
+	}
+
+	if err := r.saveMCPConfig(); err != nil {
+		return fmt.Sprintf("Failed to save config: %v\r\n", err), nil
+	}
+
+	return output.String(), nil
+}
+
+// handleMCPDisable disables MCP servers
+func (r *REPL) handleMCPDisable(servers []string) (string, error) {
+	if len(servers) == 0 {
+		return "Usage: /mcp disable <server>\r\n", nil
+	}
+
+	var output strings.Builder
+	for _, name := range servers {
+		if server, exists := r.mcpConfig.Servers[name]; exists {
+			server.Enabled = false
+			r.mcpConfig.Servers[name] = server
+			// Also stop if running
+			r.stopMCPServer(name)
+			output.WriteString(fmt.Sprintf("Disabled %s\r\n", name))
+		} else {
+			output.WriteString(fmt.Sprintf("Server %s not found\r\n", name))
+		}
+	}
+
+	if err := r.saveMCPConfig(); err != nil {
+		return fmt.Sprintf("Failed to save config: %v\r\n", err), nil
+	}
+
+	return output.String(), nil
+}
+
+// handleMCPStatus shows MCP server status
+func (r *REPL) handleMCPStatus() (string, error) {
+	var output strings.Builder
+	output.WriteString("MCP Servers Status:\r\n")
+	output.WriteString("==================\r\n")
+
+	if len(r.mcpConfig.Servers) == 0 {
+		output.WriteString("No MCP servers configured\r\n")
+		return output.String(), nil
+	}
+
+	// Check if there are any mai-wmcp processes running
+	hasRunningProcesses := false
+	if output2, err := exec.Command("pgrep", "-f", "mai-wmcp").Output(); err == nil && len(output2) > 0 {
+		hasRunningProcesses = true
+	}
+
+	for name, server := range r.mcpConfig.Servers {
+		status := "stopped"
+		port := ""
+
+		// Check if we have a process record and it's still running
+		if process, exists := r.mcpProcesses[name]; exists && process.Process != nil {
+			if process.Process.ProcessState == nil || !process.Process.ProcessState.Exited() {
+				status = "running"
+				port = fmt.Sprintf(" (port %d)", process.Port)
+			}
+		} else if server.Enabled && hasRunningProcesses {
+			// Assume enabled servers are running if we have mai-wmcp processes
+			status = "running"
+		}
+
+		enabled := "disabled"
+		if server.Enabled {
+			enabled = "enabled"
+		}
+
+		output.WriteString(fmt.Sprintf("%s: %s, %s%s\r\n", name, status, enabled, port))
+	}
+
+	return output.String(), nil
+}
+
+// handleMCPEdit opens the MCP config file for editing
+func (r *REPL) handleMCPEdit() (string, error) {
+	configPath, err := getMCPSConfigPath()
+	if err != nil {
+		return fmt.Sprintf("Failed to get config path: %v\r\n", err), nil
+	}
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "nano" // fallback editor
+	}
+
+	cmd := exec.Command(editor, configPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Sprintf("Failed to open editor: %v\r\n", err), nil
+	}
+
+	// Reload config after editing
+	if err := r.loadMCPConfig(); err != nil {
+		return fmt.Sprintf("Failed to reload config: %v\r\n", err), nil
+	}
+
+	return "Config updated\r\n", nil
+}
+
+// startMCPServer starts a single MCP server
+func (r *REPL) startMCPServer(name string) error {
+	server, exists := r.mcpConfig.Servers[name]
+	if !exists {
+		return fmt.Errorf("server %s not found", name)
+	}
+
+	// Check if we already have a process record for this server
+	// Since MCP servers persist across sessions, we allow "restarting" them
+	// but we'll use a different port if needed
+	if process, exists := r.mcpProcesses[name]; exists && process.Process != nil {
+		// Check if the process is still running
+		if process.Process.ProcessState == nil || !process.Process.ProcessState.Exited() {
+			return fmt.Errorf("server %s already running on port %d", name, process.Port)
+		}
+		// Process has exited, clean up the record
+		delete(r.mcpProcesses, name)
+	}
+
+	// Find available port
+	port, err := findAvailablePort(8989)
+	if err != nil {
+		return fmt.Errorf("failed to find available port: %v", err)
+	}
+
+	// Build the full command string for the MCP server
+	cmdParts := []string{server.Command}
+	cmdParts = append(cmdParts, server.Args...)
+	cmdStr := formatCommandString(cmdParts)
+
+	// Build mai-wmcp arguments
+	args := []string{"-b", fmt.Sprintf("localhost:%d", port), "-i", cmdStr}
+
+	// Create environment
+	env := os.Environ()
+	for key, value := range server.Env {
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	// Start the process
+	cmd := exec.Command("/Users/pancake/prg/mai/src/wmcp/mai-wmcp", args...)
+	// Set working directory to the project root
+	cmd.Dir = "/Users/pancake/prg/mai"
+
+	// Capture output for debugging
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start process: %v", err)
+	}
+
+	// Give the process a moment to start up
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if process is still running
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		return fmt.Errorf("process exited immediately")
+	}
+
+	// Check if the process is actually running by trying to find it
+	if cmd.Process == nil {
+		return fmt.Errorf("process not started")
+	}
+
+	// Store process info (even though the process will persist independently)
+	r.mcpProcesses[name] = &MCPProcess{
+		Name:    name,
+		Process: cmd,
+		Port:    port,
+	}
+
+	return nil
+}
+
+// stopMCPServer stops a single MCP server
+func (r *REPL) stopMCPServer(name string) error {
+	process, exists := r.mcpProcesses[name]
+	if !exists || process.Process == nil {
+		return fmt.Errorf("server %s not running", name)
+	}
+
+	if process.Process.Process != nil {
+		if err := process.Process.Process.Kill(); err != nil {
+			return fmt.Errorf("failed to kill process: %v", err)
+		}
+		process.Process.Wait()
+	}
+
+	delete(r.mcpProcesses, name)
+	return nil
+}
+
+// restartMCPServer restarts a single MCP server
+func (r *REPL) restartMCPServer(name string) error {
+	if err := r.stopMCPServer(name); err != nil {
+		// If it wasn't running, that's ok
+		if !strings.Contains(err.Error(), "not running") {
+			return err
+		}
+	}
+
+	return r.startMCPServer(name)
 }
 
 // generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to ~/.mai/memory.txt
@@ -2078,6 +2579,15 @@ func (r *REPL) initCommands() {
 		Description: "Manage Claude Skills",
 		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleSkillsCommand(args)
+		},
+	}
+
+	// MCP command: manage MCP servers
+	r.commands["/mcp"] = Command{
+		Name:        "/mcp",
+		Description: "Manage MCP servers (start, stop, restart, enable, disable, edit, status)",
+		Handler: func(r *REPL, args []string) (string, error) {
+			return r.handleMCPCommand(args)
 		},
 	}
 

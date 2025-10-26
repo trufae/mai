@@ -130,6 +130,57 @@ func containsSpace(s string) bool {
 	return false
 }
 
+// MAIConfig represents the MAI-specific MCP configuration format
+type MAIConfig struct {
+	Servers map[string]MAIServer `json:"servers"`
+}
+
+// MAIServer represents a server in the MAI config format
+type MAIServer struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
+// LoadMAIConfig loads configuration from MAI's mcps.json format
+func LoadMAIConfig(configPath string) (*Config, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MAI config file: %v", err)
+	}
+
+	var maiConfig MAIConfig
+	if err := json.Unmarshal(data, &maiConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse MAI config file: %v", err)
+	}
+
+	// Convert to wmcp Config format
+	config := &Config{
+		MCPServers: make(map[string]MCPServerConfig),
+		MaiOptions: MaiOptions{
+			BaseURL:        ":8989",
+			YoloMode:       false,
+			NonInteractive: true, // Default to non-interactive for MAI integration
+		},
+	}
+
+	for name, server := range maiConfig.Servers {
+		if !server.Enabled {
+			continue // Skip disabled servers
+		}
+
+		config.MCPServers[name] = MCPServerConfig{
+			Type:    "stdio",
+			Command: server.Command,
+			Args:    server.Args,
+			Env:     server.Env,
+		}
+	}
+
+	return config, nil
+}
+
 // StartMCPServersFromConfig starts MCP servers from the given config
 func StartMCPServersFromConfig(service *MCPService, config *Config) {
 	// Build the commands map
