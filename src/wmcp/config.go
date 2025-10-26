@@ -26,10 +26,10 @@ type Config struct {
 
 // MCPServerConfig represents the configuration for a single MCP server
 type MCPServerConfig struct {
-	Type    string            `json:"type"`              // "stdio" or "http"
+	Type    string            `json:"type"`              // "stdio", "http", or "sse"
 	Command string            `json:"command,omitempty"` // for stdio type
 	Args    []string          `json:"args,omitempty"`    // for stdio type
-	URL     string            `json:"url,omitempty"`     // for http type
+	URL     string            `json:"url,omitempty"`     // for http or sse type
 	Env     map[string]string `json:"env,omitempty"`
 }
 
@@ -68,14 +68,14 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// Validate the config
 	for name, server := range config.MCPServers {
-		if server.Type != "stdio" && server.Type != "http" {
-			return nil, fmt.Errorf("server %s: type must be 'stdio' or 'http'", name)
+		if server.Type != "stdio" && server.Type != "http" && server.Type != "sse" {
+			return nil, fmt.Errorf("server %s: type must be 'stdio', 'http', or 'sse'", name)
 		}
 		if server.Type == "stdio" && server.Command == "" {
 			return nil, fmt.Errorf("server %s: command cannot be empty for stdio type", name)
 		}
-		if server.Type == "http" && server.URL == "" {
-			return nil, fmt.Errorf("server %s: url cannot be empty for http type", name)
+		if (server.Type == "http" || server.Type == "sse") && server.URL == "" {
+			return nil, fmt.Errorf("server %s: url cannot be empty for %s type", name, server.Type)
 		}
 	}
 
@@ -87,7 +87,7 @@ func (c *Config) BuildServerCommands() map[string]string {
 	commands := make(map[string]string)
 
 	for name, server := range c.MCPServers {
-		if server.Type == "http" {
+		if server.Type == "http" || server.Type == "sse" {
 			commands[name] = server.URL
 		} else {
 			// Build the command string

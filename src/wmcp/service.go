@@ -60,26 +60,40 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Check if this is an HTTP server
+	// Check if this is an HTTP or SSE server
 	isHTTP := strings.HasPrefix(command, "http://") || strings.HasPrefix(command, "https://")
+	isSSE := strings.HasPrefix(command, "sse://") || strings.HasPrefix(command, "sses://")
 
-	if isHTTP {
-		// HTTP server
+	if isHTTP || isSSE {
+		// HTTP or SSE server
 		server := &MCPServer{
 			Name:          name,
 			Command:       command,
 			URL:           command,
-			IsHTTP:        true,
+			IsHTTP:        isHTTP,
+			IsSSE:         isSSE,
 			Tools:         []Tool{},
 			Prompts:       []Prompt{},
 			Resources:     []Resource{},
 			stderrDone:    make(chan struct{}),
-			stderrActive:  false, // no stderr for HTTP
+			stderrActive:  false, // no stderr for HTTP/SSE
 			monitorDone:   make(chan struct{}),
-			monitorActive: false, // no monitoring for HTTP
+			monitorActive: false, // no monitoring for HTTP/SSE
 		}
 
 		s.servers[name] = server
+
+		// For SSE servers, first establish SSE connection to get endpoint URL
+		if isSSE {
+			endpointURL, err := s.connectSSE(server)
+			if err != nil {
+				delete(s.servers, name)
+				return fmt.Errorf("failed to connect to SSE server: %v", err)
+			}
+			server.URL = endpointURL
+			server.IsHTTP = true // Now treat as HTTP server
+			server.IsSSE = false
+		}
 
 		// Initialize the server (handshake)
 		if err := s.initializeServer(server); err != nil {
@@ -104,7 +118,11 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 			log.Printf("Warning: failed to load resources for server %s: %v", name, err)
 		}
 
-		log.Printf("Connected to HTTP MCP server: %s", name)
+		if isSSE {
+			log.Printf("Connected to SSE MCP server: %s", name)
+		} else {
+			log.Printf("Connected to HTTP MCP server: %s", name)
+		}
 		return nil
 	}
 
@@ -1093,6 +1111,68 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 	}
 
 	return &response, nil
+}
+
+// connectSSE establishes an SSE connection and returns the endpoint URL
+func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
+	// Convert sse:// to http:// for the connection
+	sseURL := strings.Replace(server.URL, "sse://", "http://", 1)
+	sseURL = strings.Replace(sseURL, "sses://", "https://", 1)
+
+	debugLog(s.debugMode, "Connecting to SSE endpoint: %s", sseURL)
+
+	req, err := http.NewRequest("GET", sseURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create SSE request: %v", err)
+	}
+
+	// Add bearer token if available
+	if token := s.getBearerToken(server); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+		debugLog(s.debugMode, "Using bearer token for SSE connection")
+	}
+
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("SSE connection failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("SSE connection failed with status %d", resp.StatusCode)
+	}
+
+	// Read SSE events to find the endpoint
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		debugLog(s.debugMode, "SSE line: %s", line)
+
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			if strings.HasPrefix(data, "{\"endpoint\":\"") {
+				// Parse the endpoint from the JSON data
+				var eventData map[string]string
+				if err := json.Unmarshal([]byte(data), &eventData); err != nil {
+					return "", fmt.Errorf("failed to parse SSE endpoint data: %v", err)
+				}
+				if endpoint, ok := eventData["endpoint"]; ok {
+					debugLog(s.debugMode, "Received SSE endpoint: %s", endpoint)
+					return endpoint, nil
+				}
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading SSE stream: %v", err)
+	}
+
+	return "", fmt.Errorf("no endpoint received from SSE server")
 }
 
 // sendHTTPRequest sends a JSONRPC request to an HTTP MCP server

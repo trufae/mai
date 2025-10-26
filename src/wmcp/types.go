@@ -205,8 +205,9 @@ type ResourceContent struct {
 type MCPServer struct {
 	Name          string
 	Command       string
-	URL           string // for HTTP servers
+	URL           string // for HTTP/SSE servers
 	IsHTTP        bool
+	IsSSE         bool
 	Process       *exec.Cmd
 	Stdin         io.WriteCloser
 	Stdout        io.ReadCloser

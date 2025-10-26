@@ -31,10 +31,11 @@ func showHelp() {
      -y       Yolo mode (skip tool confirmations)
   Examples:
     Local servers: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
-    HTTP servers: mai-wmcp "https://api.example.com/mcp"
+     HTTP servers: mai-wmcp "https://api.example.com/mcp"
+     SSE servers: mai-wmcp "sse://api.example.com/mcp"
     Config file: mai-wmcp -c /path/to/config.json
     List mode: mai-wmcp -t "r2pm -r r2mcp" "timemcp"
-  HTTP servers use bearer auth from MAI_MCP_AUTH_<DOMAIN> env vars (domain sanitized)`)
+     HTTP/SSE servers use bearer auth from MAI_MCP_AUTH_<DOMAIN> env vars (domain sanitized)`)
 }
 
 func showVersion() {
