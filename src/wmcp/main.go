@@ -316,7 +316,7 @@ func main() {
 	// Start MCP servers from command line arguments
 	if len(cmdArgs) > 0 {
 		for _, command := range cmdArgs {
-			serverName := getServerNameFromCommand(command)
+			serverName := GetServerNameFromCommand(command)
 			if err := service.StartServer(serverName, command); err != nil {
 				log.Printf("Failed to start server %s: %v", serverName, err)
 				continue
