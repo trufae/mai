@@ -217,15 +217,26 @@ func main() {
 	var configErr error
 	if !skipConfig {
 		config, configErr = LoadConfig(configPath)
-		if configErr != nil {
-			// Try loading from ~/.config/mai/mcps.json as fallback
-			home, err := os.UserHomeDir()
-			if err == nil {
-				maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
-				if _, err := os.Stat(maiConfigPath); err == nil {
-					config, configErr = LoadMAIConfig(maiConfigPath)
+		if configErr != nil || len(config.MCPServers) == 0 {
+			// Try loading as MAI config format from the specified path
+			if configPath != "" {
+				if _, err := os.Stat(configPath); err == nil {
+					config, configErr = LoadMAIConfig(configPath)
 					if configErr == nil {
-						log.Printf("Loaded config from %s", maiConfigPath)
+						log.Printf("Loaded MAI config from %s", configPath)
+					}
+				}
+			}
+			// If still failed, try loading from ~/.config/mai/mcps.json as fallback
+			if configErr != nil || len(config.MCPServers) == 0 {
+				home, err := os.UserHomeDir()
+				if err == nil {
+					maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
+					if _, err := os.Stat(maiConfigPath); err == nil {
+						config, configErr = LoadMAIConfig(maiConfigPath)
+						if configErr == nil {
+							log.Printf("Loaded config from %s", maiConfigPath)
+						}
 					}
 				}
 			}
