@@ -103,6 +103,12 @@ func debugLog(debug bool, format string, args ...interface{}) {
 	}
 }
 
+// writeTextResponse writes a text response
+func writeTextResponse(w http.ResponseWriter, content string) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(content))
+}
+
 // HTTP Handlers
 
 // listToolsHandler returns all tools from all servers
@@ -110,70 +116,36 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	w.Header().Set("Content-Type", "text/plain")
-
 	var output strings.Builder
 	output.WriteString("# Tools Catalog\n\n")
 
-	for _ /*serverName */, server := range s.servers {
-		// output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
+	for _, server := range s.servers {
 		server.mutex.RLock()
-		// output.WriteString(fmt.Sprintf("Executable: `%s`\n", server.Command))
-		// output.WriteString(fmt.Sprintf("Tools: %d\n\n", len(server.Tools)))
-
 		for _, tool := range server.Tools {
-			// output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
-			// output.WriteString(fmt.Sprintf("ToolName: %s/%s\n", serverName, tool.Name))
 			output.WriteString(fmt.Sprintf("- ToolName: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("  Description: %s\n", tool.Description))
-			if tool.InputSchema != nil {
-				// schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
-				// output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
-
-				// Print CLI-style arguments list
-				// Use the prepared Parameters array if available
-				if len(tool.Parameters) > 0 {
-					output.WriteString("  Parameters:\n")
-					for _, param := range tool.Parameters {
-						// Format: name=<value> : description (type) [required]
-						reqText := ""
-						if param.Required {
-							reqText = " (required)"
-						}
-						output.WriteString(fmt.Sprintf("  - %s=<value> : %s (%s)%s\n",
-							param.Name, param.Description, param.Type, reqText))
+			if len(tool.Parameters) > 0 {
+				output.WriteString("  Parameters:\n")
+				for _, param := range tool.Parameters {
+					req := ""
+					if param.Required {
+						req = " (required)"
 					}
+					output.WriteString(fmt.Sprintf("  - %s=<value> : %s (%s)%s\n",
+						param.Name, param.Description, param.Type, req))
 				}
 			}
-			/*
-				// Construct usage example with parameters if available
-				if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok && len(properties) > 0 {
-					// Build URL with query parameters
-					var params []string
-					for key, _ := range properties {
-						params = append(params, fmt.Sprintf("%s=value", key))
-					}
-					paramString := strings.Join(params, " ")
-					output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s/%s %s`\n\n", serverName, tool.Name, paramString))
-					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s?%s`\n\n", serverName, tool.Name, paramString))
-				} else {
-					output.WriteString(fmt.Sprintf("Usage: `mai-tool call %s %s`\n\n", serverName, tool.Name))
-					// output.WriteString(fmt.Sprintf("**Usage:** `GET /call/%s/%s`\n\n", serverName, tool.Name))
-				}
-			*/
 		}
 		server.mutex.RUnlock()
 	}
 
-	w.Write([]byte(output.String()))
+	writeTextResponse(w, output.String())
 }
 
 // listPromptsHandler returns all prompts from all servers
 func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-
-	w.Header().Set("Content-Type", "text/plain")
 
 	var output strings.Builder
 	output.WriteString("# Prompts Catalog\n\n")
@@ -204,7 +176,7 @@ func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) 
 		server.mutex.RUnlock()
 	}
 
-	w.Write([]byte(output.String()))
+	writeTextResponse(w, output.String())
 }
 
 // jsonPromptsHandler returns all prompts in JSON grouped by server
@@ -383,8 +355,6 @@ func (s *MCPService) listResourcesHandler(w http.ResponseWriter, r *http.Request
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	w.Header().Set("Content-Type", "text/plain")
-
 	var output strings.Builder
 	output.WriteString("# Resources Catalog\n\n")
 
@@ -407,7 +377,7 @@ func (s *MCPService) listResourcesHandler(w http.ResponseWriter, r *http.Request
 		server.mutex.RUnlock()
 	}
 
-	w.Write([]byte(output.String()))
+	writeTextResponse(w, output.String())
 }
 
 // jsonResourcesHandler returns all resources in JSON format
@@ -523,33 +493,24 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	w.Header().Set("Content-Type", "text/plain")
-
 	var output strings.Builder
 
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
-		var notFirst = false
+		notFirst := false
 		for _, tool := range server.Tools {
 			if notFirst {
 				output.WriteString("--\n")
-			} else {
-				notFirst = true
 			}
-			// Simple format: TOOLNAME: description
+			notFirst = true
 			output.WriteString(fmt.Sprintf("TOOLNAME: %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
 
-			// Add usage example if tool has parameters
 			if len(tool.Parameters) > 0 {
-				var mandatory []string
-				var optional []string
-				var paramExamples []string
+				var mandatory, optional, paramExamples []string
 
 				for _, param := range tool.Parameters {
-					paramExample := fmt.Sprintf("%s=<value>", param.Name)
-					paramExamples = append(paramExamples, paramExample)
-
+					paramExamples = append(paramExamples, fmt.Sprintf("%s=<value>", param.Name))
 					paramDesc := fmt.Sprintf("%s (%s)", param.Name, param.Type)
 
 					if param.Required {
@@ -559,11 +520,8 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 					}
 				}
 
-				// Add usage example
-				paramString := strings.Join(paramExamples, " ")
-				output.WriteString(fmt.Sprintf("USAGE: %s %s %s\n", serverName, tool.Name, paramString))
+				output.WriteString(fmt.Sprintf("USAGE: %s %s %s\n", serverName, tool.Name, strings.Join(paramExamples, " ")))
 
-				// Add mandatory parameters
 				if len(mandatory) > 0 {
 					output.WriteString("MANDATORY PARAMS:")
 					for _, param := range mandatory {
@@ -572,7 +530,6 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 					output.WriteString("\n")
 				}
 
-				// Add optional parameters
 				if len(optional) > 0 {
 					output.WriteString("OPTIONAL PARAMS:")
 					for _, param := range optional {
@@ -585,14 +542,12 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 		server.mutex.RUnlock()
 	}
 
-	w.Write([]byte(output.String()))
+	writeTextResponse(w, output.String())
 }
 
 func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-
-	w.Header().Set("Content-Type", "text/plain")
 
 	categoryOrder := []string{"File", "Analysis", "Inspection", "Metadata", "Editing"}
 	toolsByCategory := make(map[string][]quietToolEntry)
@@ -607,17 +562,17 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
 			entry := buildQuietToolEntry(serverName, tool)
-			category := entry.Category
-			if category == "" {
-				category = "Analysis"
+			cat := entry.Category
+			if cat == "" {
+				cat = "Analysis"
 			}
-			toolsByCategory[category] = append(toolsByCategory[category], entry)
+			toolsByCategory[cat] = append(toolsByCategory[cat], entry)
 		}
 		server.mutex.RUnlock()
 	}
 
 	var output strings.Builder
-	firstCategory := true
+	first := true
 	for _, category := range categoryOrder {
 		entries := toolsByCategory[category]
 		if len(entries) == 0 {
@@ -632,10 +587,7 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 		var section strings.Builder
-		//	section.WriteString(fmt.Sprintf("## %s\n\n", category))
-
 		for _, entry := range entries {
-			// section.WriteString(fmt.Sprintf("ToolName: %s/%s\n", entry.Server, entry.Name))
 			section.WriteString(fmt.Sprintf("- ToolName: %s\n", entry.Name))
 			if entry.Purpose != "" {
 				section.WriteString(fmt.Sprintf("  Description: %s", entry.Purpose))
@@ -648,7 +600,7 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				section.WriteString("  Purpose: (no description provided)\n")
 			}
-			if len(entry.Args) != 0 {
+			if len(entry.Args) > 0 {
 				section.WriteString("  Parameters:\n")
 				for _, arg := range entry.Args {
 					section.WriteString(formatQuietArgument(arg))
@@ -658,16 +610,14 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 			section.WriteByte('\n')
 		}
 
-		sectionStr := strings.TrimRight(section.String(), "\n")
-		if !firstCategory {
+		if !first {
 			output.WriteByte('\n')
 		}
-		output.WriteString(sectionStr)
-		firstCategory = false
+		output.WriteString(strings.TrimRight(section.String(), "\n"))
+		first = false
 	}
 
-	result := strings.TrimRight(output.String(), "\n")
-	w.Write([]byte(result))
+	writeTextResponse(w, strings.TrimRight(output.String(), "\n"))
 }
 
 func buildQuietToolEntry(serverName string, tool Tool) quietToolEntry {
@@ -830,41 +780,37 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 			output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
 			output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
 
-			// Add parameters section with type and required information
 			if len(tool.Parameters) > 0 || tool.InputSchema != nil {
 				output.WriteString("**Parameters:**\n\n")
 				output.WriteString("| Name | Type | Required | Description |\n")
 				output.WriteString("|------|------|----------|-------------|\n")
 
-				// Use Parameters array if available
 				if len(tool.Parameters) > 0 {
 					for _, param := range tool.Parameters {
-						required := "No"
+						req := "No"
 						if param.Required {
-							required = "Yes"
+							req = "Yes"
 						}
 						output.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
-							param.Name, param.Type, required, param.Description))
+							param.Name, param.Type, req, param.Description))
 					}
-				} else if properties, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
-					// Extract required fields
-					requiredFields := make(map[string]bool)
-					if required, ok := tool.InputSchema["required"].([]interface{}); ok {
-						for _, field := range required {
-							if fieldName, ok := field.(string); ok {
-								requiredFields[fieldName] = true
+				} else if props, ok := tool.InputSchema["properties"].(map[string]interface{}); ok {
+					reqFields := make(map[string]bool)
+					if req, ok := tool.InputSchema["required"].([]interface{}); ok {
+						for _, f := range req {
+							if fn, ok := f.(string); ok {
+								reqFields[fn] = true
 							}
 						}
 					}
 
-					// Display properties from schema
-					for key, val := range properties {
-						propInfo, _ := val.(map[string]interface{})
+					for key, val := range props {
+						propInfo := val.(map[string]interface{})
 						desc := ""
-						propType := "string" // Default type
+						propType := "string"
 						req := "No"
 
-						if requiredFields[key] {
+						if reqFields[key] {
 							req = "Yes"
 						}
 
@@ -884,7 +830,6 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 				output.WriteString("\n")
 			}
 
-			// Keep the schema output for reference
 			if tool.InputSchema != nil {
 				schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
 				output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
@@ -1235,8 +1180,6 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	w.Header().Set("Content-Type", "text/plain")
-
 	var output strings.Builder
 	output.WriteString("# MCP Service Status\n\n")
 
@@ -1244,12 +1187,12 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 		server.mutex.RLock()
 		output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
 		output.WriteString(fmt.Sprintf("Command: `%s`\n", server.Command))
-		output.WriteString(fmt.Sprintf("Status: Running\n"))
+		output.WriteString("Status: Running\n")
 		output.WriteString(fmt.Sprintf("Tools: %d\n", len(server.Tools)))
 		output.WriteString(fmt.Sprintf("Prompts: %d\n", len(server.Prompts)))
 		output.WriteString(fmt.Sprintf("Resources: %d\n\n", len(server.Resources)))
 		server.mutex.RUnlock()
 	}
 
-	w.Write([]byte(output.String()))
+	writeTextResponse(w, output.String())
 }
