@@ -402,8 +402,8 @@ func (r *REPL) handleMCPDisable(servers []string) (string, error) {
 // handleMCPStatus shows MCP server status
 func (r *REPL) handleMCPStatus() (string, error) {
 	var output strings.Builder
-	output.WriteString("MCP Servers Status:\r\n")
-	output.WriteString("==================\r\n")
+	// output.WriteString("MCP Servers Status:\r\n")
+	// output.WriteString("==================\r\n")
 
 	if len(r.mcpConfig.Servers) == 0 {
 		output.WriteString("No MCP servers configured\r\n")
@@ -447,6 +447,11 @@ func (r *REPL) handleMCPEdit() (string, error) {
 	configPath, err := getMCPSConfigPath()
 	if err != nil {
 		return fmt.Sprintf("Failed to get config path: %v\r\n", err), nil
+	}
+
+	// Ensure the config file is indented before editing
+	if err := r.saveMCPConfig(); err != nil {
+		return fmt.Sprintf("Failed to indent config: %v\r\n", err), nil
 	}
 
 	editor := os.Getenv("EDITOR")
@@ -502,7 +507,10 @@ func (r *REPL) startMCPServer(name string) error {
 	cmdStr := formatCommandString(cmdParts)
 
 	// Build mai-wmcp arguments
-	args := []string{"-b", fmt.Sprintf("localhost:%d", port), "-i", cmdStr}
+
+	// YOLO
+	args := []string{"-b", fmt.Sprintf(":%d", port), "-i", "-y", cmdStr}
+	// args := []string{"-b", fmt.Sprintf(":%d", port), cmdStr}
 
 	// Create environment
 	env := os.Environ()
@@ -510,10 +518,7 @@ func (r *REPL) startMCPServer(name string) error {
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	// Start the process
-	cmd := exec.Command("/Users/pancake/prg/mai/src/wmcp/mai-wmcp", args...)
-	// Set working directory to the project root
-	cmd.Dir = "/Users/pancake/prg/mai"
+	cmd := exec.Command("mai-wmcp", args...)
 
 	// Capture output for debugging
 	var stderr bytes.Buffer
