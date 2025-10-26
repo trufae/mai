@@ -201,10 +201,12 @@ type ResourceContent struct {
 	Blob     string `json:"blob,omitempty"`
 }
 
-// MCP Server represents a running MCP server process
+// MCP Server represents a running MCP server process or HTTP endpoint
 type MCPServer struct {
 	Name          string
 	Command       string
+	URL           string // for HTTP servers
+	IsHTTP        bool
 	Process       *exec.Cmd
 	Stdin         io.WriteCloser
 	Stdout        io.ReadCloser

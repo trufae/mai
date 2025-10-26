@@ -3,6 +3,7 @@
 ## Environment Variables
 
 - `PORT`: HTTP server port (default: 8989)
+- `MAI_MCP_AUTH_<DOMAIN>`: Bearer token for HTTP MCP servers (domain sanitized, e.g., MAI_MCP_AUTH_API_EXAMPLE_COM)
 
 ## API Endpoints
 
@@ -53,6 +54,41 @@ POST /prompts/{server}/{prompt}
 POST /prompts/{prompt}
 ```
 Retrieves a prompt’s rendered messages from a specific server, or uses auto-discovery when only the prompt name is specified. Arguments can be passed via query string or JSON body.
+
+## HTTP MCP Servers
+
+The proxy supports connecting to remote MCP servers via HTTP/HTTPS. To use an HTTP server, specify the URL as the server argument:
+
+```bash
+mai-wmcp "https://api.example.com/mcp"
+```
+
+Authentication is handled via bearer tokens from environment variables. The variable name is constructed as `MAI_MCP_AUTH_<DOMAIN>`, where the domain is sanitized by replacing dots and hyphens with underscores and converting to uppercase.
+
+For example, for `https://api.example.com/mcp`, set:
+
+```bash
+export MAI_MCP_AUTH_API_EXAMPLE_COM="your-bearer-token"
+```
+
+## Configuration File
+
+You can also configure servers in a JSON config file:
+
+```json
+{
+  "mcpServers": {
+    "local-r2": {
+      "type": "stdio",
+      "command": "r2pm -r r2mcp"
+    },
+    "remote-api": {
+      "type": "http",
+      "url": "https://api.example.com/mcp"
+    }
+  }
+}
+```
 
 ## Examples
 

@@ -15,23 +15,26 @@ const MaiVersion = "1.2.4"
 
 func showHelp() {
 	fmt.Println(`Usage: mai-wmcp [options] "server1" "server2" ...
- Options:
-    -b URL   Base URL to listen on (default: :8989)
-    -c FILE  Path to config file (default: ~/.mai-wmcp.json)
-    -d       Enable debug logging (shows HTTP requests and JSON payloads)
-    -h       Show this help message
-    -i       Non-interactive mode (return errors instead of prompting)
-    -j       Print tools, prompts, and resources in JSON format (with -t)
-    -k       Drunk mode (permissive tool matching and parameter assignment)
-    -n       Skip loading config file
-    -o FILE  Output report to FILE
-    -p       Skip loading prompts (only expose tools)
-    -t       Load MCP servers and list tools, prompts, and resources, then quit
-    -v       Show version information
-    -y       Yolo mode (skip tool confirmations)
- Example: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
- Example with config: mai-wmcp -c /path/to/config.json
- Example to list: mai-wmcp -t "r2pm -r r2mcp" "timemcp"`)
+  Options:
+     -b URL   Base URL to listen on (default: :8989)
+     -c FILE  Path to config file (default: ~/.mai-wmcp.json)
+     -d       Enable debug logging (shows HTTP requests and JSON payloads)
+     -h       Show this help message
+     -i       Non-interactive mode (return errors instead of prompting)
+     -j       Print tools, prompts, and resources in JSON format (with -t)
+     -k       Drunk mode (permissive tool matching and parameter assignment)
+     -n       Skip loading config file
+     -o FILE  Output report to FILE
+     -p       Skip loading prompts (only expose tools)
+     -t       Load MCP servers and list tools, prompts, and resources, then quit
+     -v       Show version information
+     -y       Yolo mode (skip tool confirmations)
+  Examples:
+    Local servers: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
+    HTTP servers: mai-wmcp "https://api.example.com/mcp"
+    Config file: mai-wmcp -c /path/to/config.json
+    List mode: mai-wmcp -t "r2pm -r r2mcp" "timemcp"
+  HTTP servers use bearer auth from MAI_MCP_AUTH_<DOMAIN> env vars (domain sanitized)`)
 }
 
 func showVersion() {

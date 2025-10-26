@@ -26,9 +26,10 @@ type Config struct {
 
 // MCPServerConfig represents the configuration for a single MCP server
 type MCPServerConfig struct {
-	Type    string            `json:"type"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
+	Type    string            `json:"type"`              // "stdio" or "http"
+	Command string            `json:"command,omitempty"` // for stdio type
+	Args    []string          `json:"args,omitempty"`    // for stdio type
+	URL     string            `json:"url,omitempty"`     // for http type
 	Env     map[string]string `json:"env,omitempty"`
 }
 
@@ -67,28 +68,34 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// Validate the config
 	for name, server := range config.MCPServers {
-		if server.Type != "stdio" {
-			return nil, fmt.Errorf("server %s: only 'stdio' type is supported", name)
+		if server.Type != "stdio" && server.Type != "http" {
+			return nil, fmt.Errorf("server %s: type must be 'stdio' or 'http'", name)
 		}
-		if server.Command == "" {
-			return nil, fmt.Errorf("server %s: command cannot be empty", name)
+		if server.Type == "stdio" && server.Command == "" {
+			return nil, fmt.Errorf("server %s: command cannot be empty for stdio type", name)
+		}
+		if server.Type == "http" && server.URL == "" {
+			return nil, fmt.Errorf("server %s: url cannot be empty for http type", name)
 		}
 	}
 
 	return &config, nil
 }
 
-// BuildServerCommands converts the config into command strings to start MCP servers
+// BuildServerCommands converts the config into command strings or URLs to start MCP servers
 func (c *Config) BuildServerCommands() map[string]string {
 	commands := make(map[string]string)
 
 	for name, server := range c.MCPServers {
-		// Build the command string
-		cmdParts := []string{server.Command}
-		cmdParts = append(cmdParts, server.Args...)
-		cmdStr := formatCommandString(cmdParts)
-
-		commands[name] = cmdStr
+		if server.Type == "http" {
+			commands[name] = server.URL
+		} else {
+			// Build the command string
+			cmdParts := []string{server.Command}
+			cmdParts = append(cmdParts, server.Args...)
+			cmdStr := formatCommandString(cmdParts)
+			commands[name] = cmdStr
+		}
 	}
 
 	return commands

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -48,16 +50,65 @@ func getServerNameFromCommand(command string) string {
 	return serverName
 }
 
-// StartServer starts an MCP server process
+// StartServer starts an MCP server process or connects to HTTP endpoint
 func (s *MCPService) StartServer(name, command string) error {
 	return s.StartServerWithEnv(name, command, nil)
 }
 
-// StartServerWithEnv starts an MCP server process with custom environment variables
+// StartServerWithEnv starts an MCP server process with custom environment variables or connects to HTTP endpoint
 func (s *MCPService) StartServerWithEnv(name, command string, env map[string]string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	// Check if this is an HTTP server
+	isHTTP := strings.HasPrefix(command, "http://") || strings.HasPrefix(command, "https://")
+
+	if isHTTP {
+		// HTTP server
+		server := &MCPServer{
+			Name:          name,
+			Command:       command,
+			URL:           command,
+			IsHTTP:        true,
+			Tools:         []Tool{},
+			Prompts:       []Prompt{},
+			Resources:     []Resource{},
+			stderrDone:    make(chan struct{}),
+			stderrActive:  false, // no stderr for HTTP
+			monitorDone:   make(chan struct{}),
+			monitorActive: false, // no monitoring for HTTP
+		}
+
+		s.servers[name] = server
+
+		// Initialize the server (handshake)
+		if err := s.initializeServer(server); err != nil {
+			delete(s.servers, name)
+			return fmt.Errorf("failed to initialize server: %v", err)
+		}
+
+		// Load tools
+		if err := s.loadTools(server); err != nil {
+			log.Printf("Warning: failed to load tools for server %s: %v", name, err)
+		}
+
+		// Load prompts (best-effort) unless disabled
+		if !s.noPrompts {
+			if err := s.loadPrompts(server); err != nil {
+				log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
+			}
+		}
+
+		// Load resources (best-effort)
+		if err := s.loadResources(server); err != nil {
+			log.Printf("Warning: failed to load resources for server %s: %v", name, err)
+		}
+
+		log.Printf("Connected to HTTP MCP server: %s", name)
+		return nil
+	}
+
+	// Stdio server
 	// Parse command string
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
@@ -102,6 +153,7 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 	server := &MCPServer{
 		Name:          name,
 		Command:       command,
+		IsHTTP:        false,
 		Process:       cmd,
 		Stdin:         stdin,
 		Stdout:        stdout,
@@ -113,13 +165,13 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 		monitorActive: true,
 	}
 
+	s.servers[name] = server
+
 	// Start a goroutine to handle stderr output
 	go s.handleStderr(server)
 
 	// Start a goroutine to monitor the server process
 	go s.monitorServer(server)
-
-	s.servers[name] = server
 
 	// Initialize the server (handshake)
 	if err := s.initializeServer(server); err != nil {
@@ -672,8 +724,33 @@ func (s *MCPService) addReportEntry(server string, tool string, params interface
 	ioutil.WriteFile(s.reportFile, reportJSON, 0644)
 }
 
+// getBearerToken gets the bearer token for an HTTP server from environment variables
+func (s *MCPService) getBearerToken(server *MCPServer) string {
+	if !server.IsHTTP {
+		return ""
+	}
+
+	// Parse the URL to get the domain
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		return ""
+	}
+
+	// Sanitize domain: replace dots and hyphens with underscores, uppercase
+	domain := strings.ReplaceAll(u.Host, ".", "_")
+	domain = strings.ReplaceAll(domain, "-", "_")
+	envVar := "MAI_MCP_AUTH_" + strings.ToUpper(domain)
+
+	return os.Getenv(envVar)
+}
+
 // sendRequest sends a JSONRPC request to the server and returns the response
 func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
+	if server.IsHTTP {
+		return s.sendHTTPRequest(server, request)
+	}
+
+	// Original stdio logic
 	// Handle prompt execution confirmation for prompts/get requests when NOT in yolo mode
 	if !s.yoloMode && request.Method == "prompts/get" {
 		// Extract prompt name and args
@@ -1018,6 +1095,56 @@ func (s *MCPService) sendRequest(server *MCPServer, request JSONRPCRequest) (*JS
 	return &response, nil
 }
 
+// sendHTTPRequest sends a JSONRPC request to an HTTP MCP server
+func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
+	reqBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	debugLog(s.debugMode, "Sending HTTP request to %s: %s", server.URL, string(reqBytes))
+
+	httpReq, err := http.NewRequest("POST", server.URL, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %v", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	// Add bearer token if available
+	if token := s.getBearerToken(server); token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+		debugLog(s.debugMode, "Using bearer token for %s", server.URL)
+	} else {
+		debugLog(s.debugMode, "No bearer token found for %s", server.URL)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
+	}
+
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	debugLog(s.debugMode, "Received HTTP response from %s: %s", server.URL, string(respBytes))
+
+	var response JSONRPCResponse
+	if err := json.Unmarshal(respBytes, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
+	}
+
+	return &response, nil
+}
+
 // handleStderr reads from the stderr pipe and logs all messages
 func (s *MCPService) handleStderr(server *MCPServer) {
 	scanner := bufio.NewScanner(server.Stderr)
@@ -1160,17 +1287,25 @@ func (s *MCPService) stopServer(server *MCPServer) {
 	server.stderrActive = false
 	server.monitorActive = false
 
-	if server.Process != nil {
-		server.Process.Process.Kill()
-		server.Process.Wait()
-	}
-	server.Stdin.Close()
-	server.Stdout.Close()
-	server.Stderr.Close()
+	if !server.IsHTTP {
+		if server.Process != nil {
+			server.Process.Process.Kill()
+			server.Process.Wait()
+		}
+		if server.Stdin != nil {
+			server.Stdin.Close()
+		}
+		if server.Stdout != nil {
+			server.Stdout.Close()
+		}
+		if server.Stderr != nil {
+			server.Stderr.Close()
+		}
 
-	// Wait for goroutines to finish
-	<-server.stderrDone
-	<-server.monitorDone
+		// Wait for goroutines to finish
+		<-server.stderrDone
+		<-server.monitorDone
+	}
 }
 
 // StopAllServers stops all MCP servers
