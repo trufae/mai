@@ -1,44 +1,59 @@
-# MCPD Command Line Client
+# MAI Tool
 
-A command-line interface for interacting with the MCPD REST service.
+A command-line interface for interacting with the MAI MCPD REST service.
 
 ## Features
 
 - List available servers
-- List available tools
+- List available tools, resources, and prompts
 - Call tools with parameters
-- Output in Markdown (default) or JSON format
+- Read resources by URI
+- Render prompts with parameters
+- Output in Markdown (default), JSON, or XML format
 
 ## Building
 
 ```bash
-cd clients/cli
-go build -o mcpcli
+make
 ```
 
 ## Usage
 
 ```
-mcpcli [options] <command>
+mai-tool [options] <command>
 
 Options:
-  -h <host>  Host where mcpd is running (default: localhost)
-  -p <port>  Port where mcpd is running (default: 8989)
-  -j         Output in JSON format
-  -m         Wrap markdown output in code blocks
+  -b <url>      Base URL where mcpd is running (default: http://localhost:8989)
+                Can also be set with MAI_TOOL_BASEURL environment variable
+  -j            Output in JSON format
+  -x            Output in XML format
+  -m            Wrap markdown output in code blocks
+  -q            Suppress non-essential output
+  -s            Use simple output format (for small models)
+  -d            Enable debug mode to show HTTP requests and JSON payloads
+  -h            Show help message
 
 Commands:
   list                           List all available tools
   servers                        List all available servers
   call <server> <tool> [params]  Call a specific tool
+  prompts [list]                 List all available prompts
+  prompts get <server>/<name>    Render a prompt (accepts params)
+  resources [list]               List all available resources
+  resources read <server>/<uri>  Read a resource by URI
 
 Note: When parameters are provided, the client sends them as a JSON POST request, enabling multiline values and special characters without URL-encoding.
 
 Examples:
-  mcpcli list
-  mcpcli -j list
-  mcpcli call server1 mytool param1=value1 param2=value2
-  mcpcli call server1 mytool "text=value with spaces"
+  mai-tool list
+  mai-tool -j list
+  mai-tool call server1 mytool param1=value1 param2=value2
+  mai-tool call server1 mytool "text=value with spaces"
+  mai-tool servers
+  mai-tool prompts list
+  mai-tool prompts get server1/prompt1 param1=value1
+  mai-tool resources list
+  mai-tool resources read server1/file.txt
 ```
 
 ## Example Commands
@@ -46,29 +61,53 @@ Examples:
 ### List all servers
 
 ```bash
-./mcpcli servers
+./mai-tool servers
 ```
 
 ### List all tools
 
 ```bash
-./mcpcli list
+./mai-tool list
 ```
 
 ### List tools in JSON format
 
 ```bash
-./mcpcli -j list
+./mai-tool -j list
 ```
 
 ### Call a tool with parameters
 
 ```bash
-./mcpcli call server1 mytool param1=value1 param2=value2
+./mai-tool call server1 mytool param1=value1 param2=value2
 ```
 
 ### Call a tool and get JSON output
 
 ```bash
-./mcpcli -j call server1 mytool param1=value1
+./mai-tool -j call server1 mytool param1=value1
+```
+
+### List prompts
+
+```bash
+./mai-tool prompts list
+```
+
+### Render a prompt with parameters
+
+```bash
+./mai-tool prompts get server1/my-prompt topic="artificial intelligence"
+```
+
+### List resources
+
+```bash
+./mai-tool resources list
+```
+
+### Read a resource
+
+```bash
+./mai-tool resources read server1/document.txt
 ```
