@@ -246,32 +246,34 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		}
 	}
 
-	// Spawn mai-wmcp if mcp.config or mcp.args is set
-	var wmcpArgs []string
-	if v := repl.configOptions.Get("mcp.config"); v != "" {
-		wmcpArgs = []string{"-c", v}
-	} else if v := repl.configOptions.Get("mcp.args"); v != "" {
-		wmcpArgs = parseShellArgs(v)
-	}
+	if repl.configOptions.GetBool("mcp.daemon") {
+		// Spawn mai-wmcp if mcp.config or mcp.args is set
+		var wmcpArgs []string
+		if v := repl.configOptions.Get("mcp.config"); v != "" {
+			wmcpArgs = []string{"-c", v}
+		} else if v := repl.configOptions.Get("mcp.args"); v != "" {
+			wmcpArgs = parseShellArgs(v)
+		}
 
-	if len(wmcpArgs) > 0 {
-		listener, err := net.Listen("tcp", "localhost:0")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error finding random port for wmcp: %v\n", err)
-		} else {
-			port := listener.Addr().(*net.TCPAddr).Port
-			listener.Close()
-			repl.wmcpPort = port
-			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
-			os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
-			// Append the base URL argument
-			wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
-			cmd := exec.Command("mai-wmcp", wmcpArgs...)
-			err = cmd.Start()
+		if len(wmcpArgs) > 0 {
+			listener, err := net.Listen("tcp", "localhost:0")
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error starting wmcp: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error finding random port for wmcp: %v\n", err)
 			} else {
-				repl.wmcpProcess = cmd
+				port := listener.Addr().(*net.TCPAddr).Port
+				listener.Close()
+				repl.wmcpPort = port
+				os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
+				os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
+				// Append the base URL argument
+				wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
+				cmd := exec.Command("mai-wmcp", wmcpArgs...)
+				err = cmd.Start()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting wmcp: %v\n", err)
+				} else {
+					repl.wmcpProcess = cmd
+				}
 			}
 		}
 	}
