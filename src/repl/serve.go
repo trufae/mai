@@ -498,7 +498,7 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 		fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 		return
 	}
-	response, err := client.SendMessage(messages, false, nil)
+	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 		return
@@ -570,7 +570,7 @@ func (sm *ServerManager) handleNonStreamingResponse(w http.ResponseWriter, r *ht
 		http.Error(w, fmt.Sprintf("LLM init error: %v", err), http.StatusInternalServerError)
 		return
 	}
-	response, err := client.SendMessage(messages, false, nil)
+	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM error: %v", err), http.StatusInternalServerError)
 		return

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
@@ -24,6 +25,19 @@ type Tool struct {
 	Plan        string   // Overall plan for solving the problem
 	Progress    string   // Current progress through the plan
 	StepNumber  int      // Current step number in the execution
+}
+
+// OpenAITool represents a tool in OpenAI's tool calling format
+type OpenAITool struct {
+	Type     string             `json:"type"`
+	Function OpenAIToolFunction `json:"function"`
+}
+
+// OpenAIToolFunction represents the function part of an OpenAI tool
+type OpenAIToolFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
 }
 
 // Define an enum-like type
@@ -87,6 +101,48 @@ func GetAvailableToolsWithConfig(configOptions ConfigOptions, defaultFormat Form
 	}
 	format := parseToolFormat(toolFormat)
 	return GetAvailableTools(format)
+}
+
+// GetOpenAITools gets available tools in OpenAI tool calling format
+func GetOpenAITools() ([]OpenAITool, error) {
+	// Get tools in JSON format from MCP
+	jsonStr, err := GetAvailableTools(JSON)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the MCP JSON format
+	var mcpTools map[string][]map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &mcpTools); err != nil {
+		return nil, err
+	}
+
+	var openAITools []OpenAITool
+	for _, tools := range mcpTools {
+		for _, tool := range tools {
+			name, ok := tool["name"].(string)
+			if !ok {
+				continue
+			}
+			description, _ := tool["description"].(string)
+			inputSchema, ok := tool["inputSchema"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			openAITool := OpenAITool{
+				Type: "function",
+				Function: OpenAIToolFunction{
+					Name:        name,
+					Description: description,
+					Parameters:  inputSchema,
+				},
+			}
+			openAITools = append(openAITools, openAITool)
+		}
+	}
+
+	return openAITools, nil
 }
 
 // callTool executes a specified tool with provided arguments and returns the output
@@ -248,4 +304,24 @@ func (r *REPL) ReactLoop(messages []llm.Message, input string) (string, error) {
 		return r.ReactJson(messages, input)
 	}
 	return r.ReactText(messages, input)
+}
+
+// NativeToolLoop handles native tool calling protocol
+func (r *REPL) NativeToolLoop(messages []llm.Message, input string) (string, error) {
+	// Get available tools in OpenAI format
+	tools, err := GetOpenAITools()
+	if err != nil {
+		return input, fmt.Errorf("failed to get tools: %v", err)
+	}
+
+	// For now, just modify the input to include tool instructions
+	toolPrompt := "You have access to the following tools:\n"
+	for _, tool := range tools {
+		toolPrompt += fmt.Sprintf("- %s: %s\n", tool.Function.Name, tool.Function.Description)
+	}
+	toolPrompt += "\nWhen you need to use a tool, use the tool calling format. After receiving tool results, provide your final answer."
+
+	modifiedInput := toolPrompt + "\n\n" + input
+
+	return modifiedInput, nil
 }

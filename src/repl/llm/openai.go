@@ -218,7 +218,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// nothing more to do; parsing helper already returned results or an error
 }
 
-func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	// If images are provided, prepend a user message with OpenAI vision content blocks
 	if len(images) > 0 {
 		fmt.Println("sending images")
@@ -241,6 +241,11 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 	request := map[string]interface{}{
 		"model":    effectiveModel,
 		"messages": messages,
+	}
+
+	// Add tools if provided
+	if len(tools) > 0 {
+		request["tools"] = tools
 	}
 
 	// Add response_format with JSON schema if provided
@@ -322,9 +327,11 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content""`
-			} `json:"message""`
-		} `json:"choices""`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {

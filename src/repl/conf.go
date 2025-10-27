@@ -119,6 +119,7 @@ func NewConfigOptions() *ConfigOptions {
 	// Tooling options
 	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
 	co.RegisterOption("mcp.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
+	co.RegisterOption("mcp.native", BooleanOption, "Use native tool calling protocol instead of MCP react loop", "false")
 	// Unified tool-calling controls
 	co.RegisterOption("mcp.grammar", BooleanOption, "Use JSON schema/grammar for tool planning output", "true")
 	co.RegisterOption("mcp.display", StringOption, "Tool loop display: verbose, plan, progress, reason, quiet", "verbose")

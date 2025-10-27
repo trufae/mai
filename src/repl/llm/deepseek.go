@@ -126,7 +126,7 @@ func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *DeepSeekProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (p *DeepSeekProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: DeepSeek")
 	}

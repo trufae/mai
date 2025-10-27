@@ -91,7 +91,7 @@ func (p *XAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return chatModels, nil
 }
 
-func (p *XAIProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (p *XAIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	// If images are provided, prepend a user message with xAI vision content blocks
 	if len(images) > 0 {
 		fmt.Println("sending images")

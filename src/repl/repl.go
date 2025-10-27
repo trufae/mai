@@ -640,7 +640,7 @@ func (r *REPL) generateMemory() error {
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: combined.String()})
 
-	response, err := client.SendMessage(messages, false, nil)
+	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to generate memory: %v", err)
 	}
@@ -1021,7 +1021,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		art.StartLoop("Thinking...")
 	}
 
-	response, err := client.SendMessage(messages, streamEnabled, images)
+	response, err := client.SendMessage(messages, streamEnabled, images, nil)
 
 	// Stop the animation after SendMessage returns (for non-streaming)
 	// For streaming, the animation will be stopped when the first token arrives.
@@ -1172,7 +1172,7 @@ func (r *REPL) regularResponse(input string) error {
 	fmt.Print("\r\nAI: ")
 
 	// Send message without streaming
-	_, err = client.SendMessage(messages, false, nil)
+	_, err = client.SendMessage(messages, false, nil, nil)
 
 	fmt.Print("\r\n")
 	return err
@@ -1519,7 +1519,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 	messages = append(messages, llm.Message{Role: "user", Content: processedQuery})
 
 	// Call the LLM with streaming disabled
-	response, err := client.SendMessage(messages, false, nil)
+	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("LLM query failed: %v", err)
 	}
@@ -2058,7 +2058,7 @@ func (r *REPL) handleCompactCommand() error {
 	apiMessages = append(apiMessages, compactMessage)
 
 	// Send the message to the AI (non-streaming mode for this operation)
-	response, err := client.SendMessage(apiMessages, false, nil)
+	response, err := client.SendMessage(apiMessages, false, nil, nil)
 	if err != nil {
 		// Restore original messages on error
 		r.messages = originalMessages

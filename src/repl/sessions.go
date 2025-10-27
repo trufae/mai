@@ -419,7 +419,7 @@ func (r *REPL) generateTopic() (string, error) {
 	}
 
 	messages := []llm.Message{{Role: "user", Content: prompt}}
-	response, err := client.SendMessage(messages, false, nil)
+	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate topic: %v", err)
 	}

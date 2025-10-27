@@ -45,6 +45,19 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 		messages = llm.PrepareMessages(input, config)
 	}
 
+	// Run native tool calling if enabled
+	if config.MCPNative {
+		repl := &REPL{configOptions: *configOptions}
+		repl.currentClient = client
+		modifiedInput, err := repl.NativeToolLoop(messages, input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Native tool calling error: %v\n", err)
+			os.Exit(1)
+		}
+		input = modifiedInput
+		messages = llm.PrepareMessages(input, config)
+	}
+
 	// Prepare image if specified
 	var images []string
 	if config.ImagePath != "" {
@@ -62,7 +75,12 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 	}
 
 	// Send to LLM without streaming (for stdin mode)
-	res, err := client.SendMessage(messages, false, images)
+	var tools []llm.OpenAITool
+	if config.MCPNative {
+		// TODO: get tools
+		tools = nil
+	}
+	res, err := client.SendMessage(messages, false, images, tools)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 		os.Exit(1)
@@ -283,6 +301,9 @@ func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
 	// MCP options
 	if v := opts.Get("mcp.use"); v != "" {
 		config.UseMCP = opts.GetBool("mcp.use")
+	}
+	if v := opts.Get("mcp.native"); v != "" {
+		config.MCPNative = opts.GetBool("mcp.native")
 	}
 	if v := opts.Get("mcp.grammar"); v == "" {
 		config.MCPGrammar = true
@@ -546,7 +567,7 @@ func main() {
 			}
 
 			// Send to LLM without streaming
-			res, err := client.SendMessage(messages, false, nil)
+			res, err := client.SendMessage(messages, false, nil, nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error sending to AI: %v\n", err)
 			} else {

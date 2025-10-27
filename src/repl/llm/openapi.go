@@ -126,7 +126,7 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	}, nil
 }
 
-func (p *OpenAPIProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (p *OpenAPIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: OpenAPI")
 	}

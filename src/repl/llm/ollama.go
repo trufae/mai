@@ -135,7 +135,7 @@ func tryPostCandidatesStream(ctx context.Context, candidates []string, headers m
 }
 
 // image sending handled inside Provider.SendMessage
-func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 
 	// If images are attached, construct request injecting images into the last user message
 	if len(images) > 0 {

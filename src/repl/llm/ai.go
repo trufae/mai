@@ -1,11 +1,41 @@
 package llm
 
+// ToolCall represents a tool call in the native tool calling protocol
+type ToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
+// ToolCallFunction represents the function part of a tool call
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
+}
+
+// OpenAITool represents a tool in OpenAI's tool calling format
+type OpenAITool struct {
+	Type     string             `json:"type"`
+	Function OpenAIToolFunction `json:"function"`
+}
+
+// OpenAIToolFunction represents the function part of an OpenAI tool
+type OpenAIToolFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
 // Message represents a chat message with a role and content.
 type Message struct {
 	Role    string      `json:"role"`
 	Content interface{} `json:"content"`
 	// Optional images attached to this message (base64 or URLs depending on provider)
 	Images []string `json:"images,omitempty"`
+	// Tool calls for native tool calling protocol
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	// Tool call ID for tool result messages
+	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
 // Config holds configuration values for LLM providers.
@@ -59,6 +89,7 @@ type Config struct {
 
 	// MCP (Model Context Protocol) options for tool usage
 	UseMCP     bool
+	MCPNative  bool
 	MCPGrammar bool
 	MCPDisplay string
 	MCPReason  string

@@ -277,7 +277,7 @@ func (sd *StreamDemo) OnStreamEnd() {
 // LLMProvider is a generic interface for all LLM providers
 type LLMProvider interface {
 	// SendMessage sends a message to the LLM and returns the response
-	SendMessage(messages []Message, stream bool, images []string) (string, error)
+	SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error)
 
 	// GetName returns the name of the provider
 	GetName() string
@@ -308,8 +308,9 @@ type ContentBlock struct {
 
 // LLMResponse is a generic response handler for both streaming and non-streaming responses
 type LLMResponse struct {
-	Text string
-	Err  error
+	Text      string
+	ToolCalls []ToolCall
+	Err       error
 }
 
 // Model represents information about an available model from a provider
@@ -433,7 +434,7 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 }
 
 // SendMessage sends a message to the LLM and handles the response
-func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	// Track timing if TPS statistics are enabled
 	var requestStart time.Time
 	var firstTokenTime time.Time
@@ -524,7 +525,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	// Single entry point for all providers; providers handle images support.
 	// Delegate to provider and capture response so we can debug-print it
 	isStreaming := stream && !c.Config.NoStream
-	resp, err := c.provider.SendMessage(messagesToSend, isStreaming, images)
+	resp, err := c.provider.SendMessage(messagesToSend, isStreaming, images, tools)
 
 	// For non-streaming responses, simulate timing callbacks
 	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && resp != "" {

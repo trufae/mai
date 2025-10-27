@@ -116,7 +116,7 @@ func sendMessageCore(repl *REPL, args map[string]interface{}) (mcplib.ToolCallRe
 		streamingSessions[sessionID] = &StreamingSession{ID: sessionID, Chunks: []string{}, CurrentIdx: 0, Completed: false, CreatedAt: time.Now()}
 		streamingMutex.Unlock()
 
-		response, err := client.SendMessage(messages, true, nil)
+		response, err := client.SendMessage(messages, true, nil, nil)
 		if err != nil {
 			streamingMutex.Lock()
 			delete(streamingSessions, sessionID)
@@ -153,7 +153,7 @@ func sendMessageCore(repl *REPL, args map[string]interface{}) (mcplib.ToolCallRe
 	}
 
 	// non-stream
-	response, err := client.SendMessage(messages, false, nil)
+	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return mcplib.ToolCallResult{IsError: true}, err
 	}

@@ -101,7 +101,7 @@ Return a concise JSON object only, with the fields:
 		art.DebugBanner("MCP Prompt Selection", query.String())
 	}
 
-	resp, err := r.currentClient.SendMessage(req, false, nil)
+	resp, err := r.currentClient.SendMessage(req, false, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to query LLM for mcpprompts selection: %w", err)
 	}

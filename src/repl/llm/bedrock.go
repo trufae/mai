@@ -72,7 +72,7 @@ func (p *BedrockProvider) ListModels(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
-func (p *BedrockProvider) SendMessage(messages []Message, stream bool, images []string) (string, error) {
+func (p *BedrockProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	if len(images) > 0 {
 		return "", fmt.Errorf("images not supported by provider: Bedrock")
 	}

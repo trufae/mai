@@ -484,7 +484,7 @@ func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList st
 		art.DebugBanner("Tools Query", query)
 	}
 	messages := []llm.Message{{Role: "user", Content: query}}
-	responseText, err := r.currentClient.SendMessage(messages, false, nil)
+	responseText, err := r.currentClient.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
 	}
