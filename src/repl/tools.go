@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
-	"io"
-	"net/http"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -223,57 +221,39 @@ func (r *REPL) ExecuteTool(toolName string, args ...string) (string, error) {
 	return callTool(tool, false, toolFormat, 60)
 }
 
-// executeToolNative executes a tool using HTTP POST to wmcp for native tool calling
+// executeToolNative executes a tool using mai-tool for native tool calling
 func (r *REPL) executeToolNative(toolName string, args ...string) (string, error) {
-	// Get wmcp base URL
-	baseURL := r.configOptions.Get("mcp.baseurl")
-	if baseURL == "" {
-		baseURL = "http://localhost:8989"
-	}
-
-	// Parse arguments - for native tool calling, first arg should be JSON string
-	var arguments map[string]interface{}
+	// For native tool calling, first arg should be JSON string
+	jsonArgs := "{}"
 	if len(args) > 0 {
-		if err := json.Unmarshal([]byte(args[0]), &arguments); err != nil {
-			return "", fmt.Errorf("failed to parse tool arguments as JSON: %v", err)
+		jsonArgs = args[0]
+	}
+
+	// Build mai-tool command arguments: mai-tool call <tool> <json_args>
+	cmdArgs := []string{"call", toolName, jsonArgs}
+
+	// Execute mai-tool command
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+
+	// Set a timeout for the command execution
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(timeoutCtx, "mai-tool", cmdArgs...)
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", fmt.Errorf("tool execution timed out")
 		}
-	} else {
-		arguments = make(map[string]interface{})
+		return "", fmt.Errorf("tool execution failed: %v, stderr: %s", err, stderr.String())
 	}
 
-	// Make HTTP POST request to wmcp
-	url := fmt.Sprintf("%s/call/%s?native=true", baseURL, toolName)
-	jsonData, err := json.Marshal(arguments)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal arguments: %v", err)
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to call tool: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("tool call failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// For native tool calling, we expect JSON response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %v", err)
-	}
-
-	// Return the JSON response as string
-	return string(body), nil
+	// Return the output
+	return out.String(), nil
 }
 
 type PlanResponse struct {

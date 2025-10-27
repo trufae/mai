@@ -149,6 +149,16 @@ func buildApiUrl(config Config, path string) string {
 }
 
 func parseParams(args []string) map[string]interface{} {
+	// Special case: if there's exactly one argument and it starts with '{',
+	// treat it as a JSON object containing all parameters
+	if len(args) == 1 && strings.HasPrefix(args[0], "{") {
+		var params map[string]interface{}
+		if err := json.Unmarshal([]byte(args[0]), &params); err == nil {
+			return params
+		}
+		// If JSON parsing fails, fall back to normal parsing
+	}
+
 	params := make(map[string]interface{})
 
 	// Support both named parameters (name=value) and positional arguments.
