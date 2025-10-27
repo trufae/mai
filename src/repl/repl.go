@@ -2081,24 +2081,20 @@ func (r *REPL) handleCompactCommand() error {
 
 // handleToolCommand executes the mai-tool command with the given arguments
 func (r *REPL) handleToolCommand(args []string) (string, error) {
-	var output strings.Builder
 	if len(args) < 2 {
 		tools, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
-		if err == nil {
-			output.WriteString(tools)
-			output.WriteString("\n")
-		}
-	} else {
-		res, err := r.ExecuteTool(args[1], args[2:]...)
-		if err == nil {
-			output.WriteString(res)
-			output.WriteString("\n")
-		} else {
+		if err != nil {
 			return "", err
 		}
+		return tools + "\n", nil
 	}
-
-	return output.String(), nil
+	// Execute mai-tool directly with the provided arguments
+	cmd := exec.Command("mai-tool", args[1:]...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("mai-tool execution failed: %v\n%s", err, string(output))
+	}
+	return string(output), nil
 }
 
 // saveConversation saves the current conversation to a JSON file

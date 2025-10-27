@@ -229,8 +229,36 @@ func (r *REPL) executeToolNative(toolName string, args ...string) (string, error
 		jsonArgs = args[0]
 	}
 
-	// Build mai-tool command arguments: mai-tool call <tool> <json_args>
-	cmdArgs := []string{"call", toolName, jsonArgs}
+	// Parse JSON arguments
+	var params map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonArgs), &params); err != nil {
+		return "", fmt.Errorf("failed to parse tool arguments JSON: %v", err)
+	}
+
+	// Build mai-tool command arguments: mai-tool call <tool> [key=value ...]
+	cmdArgs := []string{"call", toolName}
+	for key, value := range params {
+		// Convert value to string
+		var strValue string
+		switch v := value.(type) {
+		case string:
+			strValue = v
+		case int, int64:
+			strValue = fmt.Sprintf("%d", v)
+		case float64:
+			strValue = fmt.Sprintf("%g", v)
+		case bool:
+			strValue = fmt.Sprintf("%t", v)
+		default:
+			// For complex types, marshal back to JSON
+			if jsonBytes, err := json.Marshal(v); err == nil {
+				strValue = string(jsonBytes)
+			} else {
+				strValue = fmt.Sprintf("%v", v)
+			}
+		}
+		cmdArgs = append(cmdArgs, fmt.Sprintf("%s=%s", key, strValue))
+	}
 
 	// Execute mai-tool command
 	var out bytes.Buffer
