@@ -49,13 +49,13 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 	if config.MCPNative {
 		repl := &REPL{configOptions: *configOptions}
 		repl.currentClient = client
-		modifiedInput, err := repl.NativeToolLoop(messages, input)
+		result, err := repl.NativeToolLoop(messages, input)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Native tool calling error: %v\n", err)
 			os.Exit(1)
 		}
-		input = modifiedInput
-		messages = llm.PrepareMessages(input, config)
+		fmt.Println(result)
+		return
 	}
 
 	// Prepare image if specified

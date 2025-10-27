@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/trufae/mai/src/repl/llm"
+	"io"
+	"net/http"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -25,12 +27,6 @@ type Tool struct {
 	Plan        string   // Overall plan for solving the problem
 	Progress    string   // Current progress through the plan
 	StepNumber  int      // Current step number in the execution
-}
-
-// OpenAITool represents a tool in OpenAI's tool calling format
-type OpenAITool struct {
-	Type     string             `json:"type"`
-	Function OpenAIToolFunction `json:"function"`
 }
 
 // OpenAIToolFunction represents the function part of an OpenAI tool
@@ -104,7 +100,7 @@ func GetAvailableToolsWithConfig(configOptions ConfigOptions, defaultFormat Form
 }
 
 // GetOpenAITools gets available tools in OpenAI tool calling format
-func GetOpenAITools() ([]OpenAITool, error) {
+func GetOpenAITools() ([]llm.OpenAITool, error) {
 	// Get tools in JSON format from MCP
 	jsonStr, err := GetAvailableTools(JSON)
 	if err != nil {
@@ -117,7 +113,7 @@ func GetOpenAITools() ([]OpenAITool, error) {
 		return nil, err
 	}
 
-	var openAITools []OpenAITool
+	var openAITools []llm.OpenAITool
 	for _, tools := range mcpTools {
 		for _, tool := range tools {
 			name, ok := tool["name"].(string)
@@ -130,9 +126,9 @@ func GetOpenAITools() ([]OpenAITool, error) {
 				continue
 			}
 
-			openAITool := OpenAITool{
+			openAITool := llm.OpenAITool{
 				Type: "function",
-				Function: OpenAIToolFunction{
+				Function: llm.OpenAIToolFunction{
 					Name:        name,
 					Description: description,
 					Parameters:  inputSchema,
@@ -214,12 +210,70 @@ func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string
 // ExecuteTool runs a specified tool with provided arguments and returns the output
 // Kept for backward compatibility
 func (r *REPL) ExecuteTool(toolName string, args ...string) (string, error) {
+	// Check if native tool calling is enabled
+	if r.configOptions.GetBool("mcp.native") {
+		return r.executeToolNative(toolName, args...)
+	}
+
 	tool := &Tool{
 		Name: toolName,
 		Args: args,
 	}
 	toolFormat := r.configOptions.Get("mcp.toolformat")
 	return callTool(tool, false, toolFormat, 60)
+}
+
+// executeToolNative executes a tool using HTTP POST to wmcp for native tool calling
+func (r *REPL) executeToolNative(toolName string, args ...string) (string, error) {
+	// Get wmcp base URL
+	baseURL := r.configOptions.Get("mcp.baseurl")
+	if baseURL == "" {
+		baseURL = "http://localhost:8989"
+	}
+
+	// Parse arguments - for native tool calling, first arg should be JSON string
+	var arguments map[string]interface{}
+	if len(args) > 0 {
+		if err := json.Unmarshal([]byte(args[0]), &arguments); err != nil {
+			return "", fmt.Errorf("failed to parse tool arguments as JSON: %v", err)
+		}
+	} else {
+		arguments = make(map[string]interface{})
+	}
+
+	// Make HTTP POST request to wmcp
+	url := fmt.Sprintf("%s/call/%s?native=true", baseURL, toolName)
+	jsonData, err := json.Marshal(arguments)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal arguments: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call tool: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("tool call failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// For native tool calling, we expect JSON response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	// Return the JSON response as string
+	return string(body), nil
 }
 
 type PlanResponse struct {
@@ -314,14 +368,63 @@ func (r *REPL) NativeToolLoop(messages []llm.Message, input string) (string, err
 		return input, fmt.Errorf("failed to get tools: %v", err)
 	}
 
-	// For now, just modify the input to include tool instructions
-	toolPrompt := "You have access to the following tools:\n"
-	for _, tool := range tools {
-		toolPrompt += fmt.Sprintf("- %s: %s\n", tool.Function.Name, tool.Function.Description)
+	// Prepare messages if empty
+	if len(messages) == 0 {
+		messages = llm.PrepareMessages(input, &llm.Config{})
 	}
-	toolPrompt += "\nWhen you need to use a tool, use the tool calling format. After receiving tool results, provide your final answer."
 
-	modifiedInput := toolPrompt + "\n\n" + input
+	// Tool calling loop
+	maxIterations := 5
+	for i := 0; i < maxIterations; i++ {
+		// Send message with tools
+		response, err := r.currentClient.SendMessage(messages, false, nil, tools)
+		if err != nil {
+			return "", fmt.Errorf("failed to send message: %v", err)
+		}
 
-	return modifiedInput, nil
+		// Try to parse response as JSON to check for tool_calls
+		var openaiResponse struct {
+			Choices []struct {
+				Message struct {
+					Content   string         `json:"content"`
+					ToolCalls []llm.ToolCall `json:"tool_calls,omitempty"`
+				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+		}
+
+		if err := json.Unmarshal([]byte(response), &openaiResponse); err == nil && len(openaiResponse.Choices) > 0 {
+			choice := openaiResponse.Choices[0]
+			if len(choice.Message.ToolCalls) > 0 && choice.FinishReason == "tool_calls" {
+				// Execute tools and add results
+				assistantMessage := llm.Message{
+					Role:      "assistant",
+					Content:   choice.Message.Content,
+					ToolCalls: choice.Message.ToolCalls,
+				}
+				messages = append(messages, assistantMessage)
+
+				// Execute each tool call
+				for _, toolCall := range choice.Message.ToolCalls {
+					toolResult, err := r.executeToolNative(toolCall.Function.Name, toolCall.Function.Arguments)
+					if err != nil {
+						toolResult = fmt.Sprintf("Error: %v", err)
+					}
+
+					toolMessage := llm.Message{
+						Role:       "tool",
+						Content:    toolResult,
+						ToolCallID: toolCall.ID,
+					}
+					messages = append(messages, toolMessage)
+				}
+				continue // Continue the loop
+			}
+		}
+
+		// No tool calls or not JSON response, return the response
+		return response, nil
+	}
+
+	return "", fmt.Errorf("tool calling loop exceeded maximum iterations")
 }

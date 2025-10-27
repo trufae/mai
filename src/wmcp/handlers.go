@@ -891,52 +891,76 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse and format response
-	w.Header().Set("Content-Type", "text/plain")
+	// Check if native tool calling format is requested
+	nativeFormat := r.URL.Query().Get("native") == "true" || r.Header.Get("X-Native-Tool-Call") == "true"
 
 	resultBytes, _ := json.Marshal(response.Result)
 	var toolResult CallToolResult
 	if err := json.Unmarshal(resultBytes, &toolResult); err != nil {
 		// Fallback to raw JSON if parsing fails
-		w.Write(resultBytes)
+		if nativeFormat {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(resultBytes)
+		} else {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write(resultBytes)
+		}
 		return
 	}
 	if toolResult.Error != nil {
 		emsg := "ERROR: " + toolResult.Error.Message
 		log.Printf("ERROR: Tool %s/%s returned error: %s", serverName, toolName, toolResult.Error.Message)
-		w.Write([]byte(emsg))
+		if nativeFormat {
+			w.Header().Set("Content-Type", "application/json")
+			errorResponse := map[string]interface{}{
+				"error": toolResult.Error.Message,
+			}
+			json.NewEncoder(w).Encode(errorResponse)
+		} else {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte(emsg))
+		}
 		debugLog(s.debugMode, emsg)
 		return
 	}
 
-	// Format content as markdown/plaintext
-	var output strings.Builder
-	for i, content := range toolResult.Content {
-		if i > 0 {
-			output.WriteString("\n\n")
-		}
-		output.WriteString(content.Text)
-	}
+	if nativeFormat {
+		// For native tool calling, return the structured result as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(toolResult)
+	} else {
+		// Parse and format response
+		w.Header().Set("Content-Type", "text/plain")
 
-	// If pagination metadata present, report pages left
-	pagesLeft := 0
-	if toolResult.TotalPages > 0 && toolResult.Page > 0 {
-		pagesLeft = toolResult.TotalPages - toolResult.Page
-		if pagesLeft < 0 {
-			pagesLeft = 0
+		// Format content as markdown/plaintext
+		var output strings.Builder
+		for i, content := range toolResult.Content {
+			if i > 0 {
+				output.WriteString("\n\n")
+			}
+			output.WriteString(content.Text)
 		}
-	}
-	if pagesLeft > 0 {
-		output.WriteString(fmt.Sprintf("\n\nPages left: %d", pagesLeft))
-		if toolResult.NextPageToken != "" {
-			output.WriteString(fmt.Sprintf(" (next_page_token: %s)", toolResult.NextPageToken))
+
+		// If pagination metadata present, report pages left
+		pagesLeft := 0
+		if toolResult.TotalPages > 0 && toolResult.Page > 0 {
+			pagesLeft = toolResult.TotalPages - toolResult.Page
+			if pagesLeft < 0 {
+				pagesLeft = 0
+			}
 		}
+		if pagesLeft > 0 {
+			output.WriteString(fmt.Sprintf("\n\nPages left: %d", pagesLeft))
+			if toolResult.NextPageToken != "" {
+				output.WriteString(fmt.Sprintf(" (next_page_token: %s)", toolResult.NextPageToken))
+			}
+		}
+
+		debugLog(s.debugMode, "Response content: %s", output.String())
+
+		log.Printf("SUCCESS: Tool %s/%s completed successfully", serverName, toolName)
+		w.Write([]byte(output.String()))
 	}
-
-	debugLog(s.debugMode, "Response content: %s", output.String())
-
-	log.Printf("SUCCESS: Tool %s/%s completed successfully", serverName, toolName)
-	w.Write([]byte(output.String()))
 }
 
 // statusHandler returns the status of all servers
