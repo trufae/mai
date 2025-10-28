@@ -21,6 +21,12 @@ type JSONRPCResponse struct {
 	ID      interface{} `json:"id"`
 }
 
+type RPCError struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
 // MCP Tool structures
 
 // ToolParameter represents a parameter for a tool
@@ -242,4 +248,6 @@ type MCPService struct {
 	reportFile           string
 	report               Report
 	reportLock           sync.RWMutex
+	sessionLock          sync.Mutex
+	sessionID            string
 }

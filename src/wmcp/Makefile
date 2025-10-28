@@ -4,7 +4,7 @@ GOOS ?= $(shell go env GOOS)
 EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 BIN=mai-wmcp
-SOURCES=main.go config.go types.go service.go handlers.go utils.go tools.go permissions.go servers.go
+SOURCES=main.go config.go types.go service.go handlers.go mcp_http.go utils.go tools.go permissions.go servers.go
 
 .PHONY: all build run clean deps install uninstall
 

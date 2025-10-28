@@ -395,6 +395,9 @@ func main() {
 	// Setup HTTP routes
 	router := mux.NewRouter()
 
+	// MCP JSON-RPC endpoint
+	service.registerMCPRoutes(router)
+
 	// List all tools
 	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET")
 	// JSON list of all tools
