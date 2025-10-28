@@ -291,7 +291,7 @@ func (r *REPL) Run() error {
 	cmdLineModel := r.configOptions.Get("ai.model")
 	cmdLineProvider := r.configOptions.Get("ai.provider")
 
-	// Load and process 'rc' file from project or home .mai directory unless skipped by option
+	// Load and process 'rc' file from project or home config directory unless skipped by option
 	if !r.configOptions.GetBool("repl.skiprc") {
 		if err := r.loadRCFile(); err != nil {
 			fmt.Printf("Error loading rc file: %v\r\n", err)

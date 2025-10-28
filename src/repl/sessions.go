@@ -209,11 +209,11 @@ func (r *REPL) handleSessionSubcommandCompletion(line *strings.Builder, subcmd s
 
 // handleSessionNameCompletion handles tab completion for session names.
 func (r *REPL) handleSessionNameCompletion(line *strings.Builder, command, partialName string) {
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
 		return
 	}
-	chatDir := filepath.Join(homeDir, ".mai", "chat")
+	chatDir := filepath.Join(maiDir, "chats")
 
 	if r.completeState == 0 || !strings.HasPrefix(line.String(), r.completePrefix) {
 		files, err := os.ReadDir(chatDir)
@@ -385,11 +385,11 @@ func (r *REPL) purgeSessions() error {
 		return nil
 	}
 
-	homeDir, err := os.UserHomeDir()
+	maiDir, err := findMaiDir()
 	if err != nil {
-		return fmt.Errorf("cannot get home directory: %v", err)
+		return fmt.Errorf("cannot find mai directory: %v", err)
 	}
-	chatDir := filepath.Join(homeDir, ".mai", "chat")
+	chatDir := filepath.Join(maiDir, "chats")
 
 	files, err := os.ReadDir(chatDir)
 	if err != nil {

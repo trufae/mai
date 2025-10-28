@@ -581,7 +581,7 @@ func (r *REPL) restartMCPServer(name string) error {
 	return r.startMCPServer(name)
 }
 
-// generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to ~/.mai/memory.txt
+// generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to the mai directory
 func (r *REPL) generateMemory() error {
 	maiDir, err := findMaiDir()
 	if err != nil {

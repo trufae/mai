@@ -63,7 +63,7 @@ func (r *REPL) loadRCFile() error {
 // findMaiMD is no longer used; system prompt file loading is handled dynamically
 
 // findMaiDir searches for a .mai directory from the current directory up to root,
-// and returns it, or falls back to $HOME/.config/mai, then $HOME/.mai for backward compatibility.
+// and returns it, or falls back to $HOME/.config/mai.
 func findMaiDir() (string, error) {
 	currentDir, err := os.Getwd()
 	if err != nil {
@@ -84,13 +84,8 @@ func findMaiDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %v", err)
 	}
-	// Check ~/.config/mai first
-	configMaiDir := filepath.Join(homeDir, ".config", "mai")
-	if fi, err := os.Stat(configMaiDir); err == nil && fi.IsDir() {
-		return configMaiDir, nil
-	}
-	// Fallback to ~/.mai for backward compatibility
-	return filepath.Join(homeDir, ".mai"), nil
+	// Fallback to ~/.config/mai
+	return filepath.Join(homeDir, ".config", "mai"), nil
 }
 
 func findFileUpwards(filename string) (string, error) {

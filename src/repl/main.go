@@ -189,7 +189,7 @@ func showHelp() {
 -v               show version
 
 Files:
-.mai/rc (project or ~/.config/mai/rc)  : script to be loaded before the repl is shown
+.mai/rc (project) or ~/.config/mai/rc  : script to be loaded before the repl is shown
 ~/.mairc                               : legacy rc file (also loaded for compatibility)
 ~/.config/mai/history.json            : REPL command history file (JSON array)
 ~/.config/mai/chats                   : storage for chat session files
