@@ -210,22 +210,32 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 
 // InitializeServer performs the MCP handshake
 func (s *MCPService) InitializeServer(server *MCPServer) error {
+	clientCapabilities := map[string]interface{}{
+		"experimental": map[string]interface{}{},
+		"prompts": map[string]interface{}{
+			"listChanged": false,
+		},
+		"resources": map[string]interface{}{
+			"subscribe":   false,
+			"listChanged": false,
+		},
+		"tools": map[string]interface{}{
+			"listChanged": false,
+		},
+	}
+
 	initRequest := JSONRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "initialize",
 		Params: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
-			"capabilities": map[string]interface{}{
-				"tools":     map[string]interface{}{},
-				"prompts":   map[string]interface{}{},
-				"resources": map[string]interface{}{},
-			},
 			"clientInfo": map[string]interface{}{
 				"name":    "mai-wmcp",
 				"version": MaiVersion,
 			},
+			"capabilities": clientCapabilities,
 		},
-		ID: 1,
+		ID: "1",
 	}
 
 	response, err := s.sendRequest(server, initRequest)
@@ -244,10 +254,44 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		Params:  map[string]interface{}{},
 	}
 
-	// Send notification (no response expected)
-	reqBytes, _ := json.Marshal(initNotification)
-	server.Stdin.Write(reqBytes)
-	server.Stdin.Write([]byte("\n"))
+	if server.IsHTTP {
+		// Send notification via HTTP
+		reqBytes, _ := json.Marshal(initNotification)
+		httpReq, err := http.NewRequest("POST", server.URL, bytes.NewBuffer(reqBytes))
+		if err != nil {
+			return fmt.Errorf("failed to create notification request: %v", err)
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+		server.mutex.RLock()
+		sessionID := server.SessionID
+		server.mutex.RUnlock()
+		if sessionID != "" {
+			httpReq.Header.Set("Mcp-Session-Id", sessionID)
+		}
+
+		if token := s.GetBearerToken(server); token != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+token)
+		}
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			return fmt.Errorf("notification request failed: %v", err)
+		}
+		if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+			server.mutex.Lock()
+			server.SessionID = newSessionID
+			server.mutex.Unlock()
+		}
+		resp.Body.Close() // Ignore response
+	} else {
+		// Send notification (no response expected)
+		reqBytes, _ := json.Marshal(initNotification)
+		server.Stdin.Write(reqBytes)
+		server.Stdin.Write([]byte("\n"))
+	}
 
 	return nil
 }
@@ -258,7 +302,7 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 		JSONRPC: "2.0",
 		Method:  "tools/list",
 		Params:  map[string]interface{}{},
-		ID:      2,
+		ID:      "2",
 	}
 
 	response, err := s.sendRequest(server, toolsRequest)
@@ -311,7 +355,7 @@ func (s *MCPService) loadPrompts(server *MCPServer) error {
 		JSONRPC: "2.0",
 		Method:  "prompts/list",
 		Params:  map[string]interface{}{},
-		ID:      3,
+		ID:      "3",
 	}
 
 	response, err := s.sendRequest(server, promptsRequest)
@@ -345,7 +389,7 @@ func (s *MCPService) loadResources(server *MCPServer) error {
 		JSONRPC: "2.0",
 		Method:  "resources/list",
 		Params:  map[string]interface{}{},
-		ID:      4,
+		ID:      "4",
 	}
 
 	response, err := s.sendRequest(server, resourcesRequest)
@@ -624,6 +668,15 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	// Reuse existing session if available
+	server.mutex.RLock()
+	sessionID := server.SessionID
+	server.mutex.RUnlock()
+	if sessionID != "" {
+		httpReq.Header.Set("Mcp-Session-Id", sessionID)
+	}
 
 	// Add bearer token if available
 	if token := s.GetBearerToken(server); token != "" {
@@ -642,6 +695,58 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
+	}
+
+	if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+		server.mutex.Lock()
+		server.SessionID = newSessionID
+		server.mutex.Unlock()
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		scanner := bufio.NewScanner(resp.Body)
+		var dataBuffer bytes.Buffer
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "data: ") {
+				if dataBuffer.Len() > 0 {
+					dataBuffer.WriteByte('\n')
+				}
+				dataBuffer.WriteString(strings.TrimPrefix(line, "data: "))
+			}
+
+			if line == "" && dataBuffer.Len() > 0 {
+				payload := dataBuffer.String()
+				debugLog(s.debugMode, "Received HTTP SSE payload from %s: %s", server.URL, payload)
+
+				var response JSONRPCResponse
+				if err := json.Unmarshal([]byte(payload), &response); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal SSE response: %v", err)
+				}
+
+				return &response, nil
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read SSE response: %v", err)
+		}
+
+		if dataBuffer.Len() > 0 {
+			payload := dataBuffer.String()
+			debugLog(s.debugMode, "Received HTTP SSE payload from %s: %s", server.URL, payload)
+
+			var response JSONRPCResponse
+			if err := json.Unmarshal([]byte(payload), &response); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal SSE response: %v", err)
+			}
+
+			return &response, nil
+		}
+
+		return nil, fmt.Errorf("no data in SSE response")
 	}
 
 	respBytes, err := ioutil.ReadAll(resp.Body)

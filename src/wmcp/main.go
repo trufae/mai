@@ -215,17 +215,14 @@ func main() {
 		}
 	}
 
-	// Set defaults from config
-	baseURL := config.MaiOptions.BaseURL
-	if baseURL == "" {
-		baseURL = ":8989"
-	}
-	yoloMode := config.MaiOptions.YoloMode
-	drunkMode := config.MaiOptions.DrunkMode
-	nonInteractiveMode := config.MaiOptions.NonInteractive
-	outputReport := config.MaiOptions.OutputReport
-	debugMode := config.MaiOptions.DebugMode
-	noPromptsMode := config.MaiOptions.NoPrompts
+	// Set initial defaults
+	baseURL := ":8989"
+	yoloMode := false
+	drunkMode := false
+	nonInteractiveMode := false
+	outputReport := ""
+	debugMode := false
+	noPromptsMode := false
 
 	// Second pass: process other command line arguments (can override config)
 	for i := 0; i < len(args); i++ {
@@ -286,6 +283,20 @@ func main() {
 		}
 	}
 
+	// Auto skip config if URLs are provided and no config path specified
+	if len(cmdArgs) > 0 && configPath == "" && !skipConfig {
+		allURLs := true
+		for _, arg := range cmdArgs {
+			if !strings.HasPrefix(arg, "http://") && !strings.HasPrefix(arg, "https://") && !strings.HasPrefix(arg, "sse://") && !strings.HasPrefix(arg, "sses://") {
+				allURLs = false
+				break
+			}
+		}
+		if allURLs {
+			skipConfig = true
+		}
+	}
+
 	// Load configuration if not skipped
 	if !skipConfig {
 		config, configErr = LoadConfig(configPath)
@@ -300,7 +311,7 @@ func main() {
 				}
 			}
 			// If still failed, try loading from ~/.config/mai/mcps.json as fallback
-			if (configErr != nil || len(config.MCPServers) == 0) && len(cmdArgs) == 0 {
+			if configErr != nil || len(config.MCPServers) == 0 {
 				home, err := os.UserHomeDir()
 				if err == nil {
 					maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
@@ -320,6 +331,18 @@ func main() {
 	} else {
 		config = &Config{MCPServers: make(map[string]MCPServerConfig)}
 	}
+
+	// Set defaults from config
+	baseURL = config.MaiOptions.BaseURL
+	if baseURL == "" {
+		baseURL = ":8989"
+	}
+	yoloMode = config.MaiOptions.YoloMode
+	drunkMode = config.MaiOptions.DrunkMode
+	nonInteractiveMode = config.MaiOptions.NonInteractive
+	outputReport = config.MaiOptions.OutputReport
+	debugMode = config.MaiOptions.DebugMode
+	noPromptsMode = config.MaiOptions.NoPrompts
 
 	// Check if we have any commands to run or servers in config
 	cmdProvided := len(cmdArgs) > 0
