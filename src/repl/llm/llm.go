@@ -428,6 +428,8 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 		return NewXAIProvider(config, ctx), nil
 	case "openapi":
 		return NewOpenAPIProvider(config, ctx), nil
+	case "llamacli":
+		return NewLlamaCliProvider(config, ctx), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", config.PROVIDER)
 	}

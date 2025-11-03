@@ -24,6 +24,7 @@ var providerCatalog = []ProviderInfo{
 	{Name: "xai"},
 	{Name: "ollamacloud"},
 	{Name: "openapi"},
+	{Name: "llamacli"},
 }
 
 var (
