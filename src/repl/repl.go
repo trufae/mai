@@ -456,7 +456,11 @@ func (r *REPL) handleMCPEdit() (string, error) {
 
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = "nano" // fallback editor
+		if runtime.GOOS == "windows" {
+			editor = "notepad"
+		} else {
+			editor = "nano" // fallback editor
+		}
 	}
 
 	cmd := exec.Command(editor, configPath)

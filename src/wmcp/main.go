@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -272,7 +273,11 @@ func main() {
 				}
 				editor := os.Getenv("EDITOR")
 				if editor == "" {
-					editor = "vim"
+					if runtime.GOOS == "windows" {
+						editor = "notepad"
+					} else {
+						editor = "vim"
+					}
 				}
 				cmd := exec.Command(editor, configFile)
 				cmd.Stdin = os.Stdin

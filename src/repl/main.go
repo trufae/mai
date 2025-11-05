@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"golang.org/x/term"
@@ -108,7 +109,11 @@ func editAgentsFile() {
 	// Get the editor from environment or default to vi
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = "vi"
+		if runtime.GOOS == "windows" {
+			editor = "notepad"
+		} else {
+			editor = "vi"
+		}
 	}
 
 	// Launch editor
@@ -886,7 +891,11 @@ func editAPIKeysFile() {
 	// Get the editor from environment or default to vi
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = "vi"
+		if runtime.GOOS == "windows" {
+			editor = "notepad"
+		} else {
+			editor = "vi"
+		}
 	}
 
 	// Launch editor
@@ -922,7 +931,11 @@ func editMaiRcFile() {
 	// Get the editor from environment or default to vi
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = "vi"
+		if runtime.GOOS == "windows" {
+			editor = "notepad"
+		} else {
+			editor = "vi"
+		}
 	}
 
 	// Launch editor
