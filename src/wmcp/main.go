@@ -18,7 +18,7 @@ func showHelp() {
 	fmt.Println(`Usage: mai-wmcp [options] "server1" "server2" ...
   Options:
      -b URL   Base URL to listen on (default: :8989)
-     -c FILE  Path to config file (default: ~/.mai-wmcp.json)
+     -c FILE  Path to config file (default: ~/.config/mai/mcps.json)
      -d       Enable debug logging (shows HTTP requests and JSON payloads)
      -h       Show this help message
      -i       Non-interactive mode (return errors instead of prompting)

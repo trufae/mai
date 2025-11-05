@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // MaiOptions represents configuration options for the mai-wmcp service
@@ -35,9 +36,13 @@ type MCPServerConfig struct {
 
 // LoadConfig loads the configuration from a file
 func LoadConfig(configPath string) (*Config, error) {
-	// If configPath is empty, return empty config (no default loading)
+	// If configPath is empty, use default path ~/.config/mai/mcps.json
 	if configPath == "" {
-		return &Config{MCPServers: make(map[string]MCPServerConfig)}, nil
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return &Config{MCPServers: make(map[string]MCPServerConfig)}, nil
+		}
+		configPath = filepath.Join(home, ".config", "mai", "mcps.json")
 	}
 
 	// Check if the file exists
