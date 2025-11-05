@@ -9,7 +9,7 @@ import (
 )
 
 // loadAPIKeysFromFile loads API keys from ~/.config/mai/apikeys.txt
-// Format: each line is provider:key, comments start with # or empty lines
+// Format: each line is provider=key, comments start with # or empty lines
 func loadAPIKeysFromFile() map[string]string {
 	keys := make(map[string]string)
 
@@ -31,12 +31,23 @@ func loadAPIKeysFromFile() map[string]string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if colonIndex := strings.Index(line, ":"); colonIndex != -1 {
-			provider := strings.TrimSpace(line[:colonIndex])
-			key := strings.TrimSpace(line[colonIndex+1:])
-			if provider != "" && key != "" {
-				keys[strings.ToLower(provider)] = key
-			}
+		// Try = first (new format), then : (old format) for backward compatibility
+		var separatorIndex int
+		var separator string
+		if equalIndex := strings.Index(line, "="); equalIndex != -1 {
+			separatorIndex = equalIndex
+			separator = "="
+		} else if colonIndex := strings.Index(line, ":"); colonIndex != -1 {
+			separatorIndex = colonIndex
+			separator = ":"
+		} else {
+			continue // no valid separator found
+		}
+
+		provider := strings.TrimSpace(line[:separatorIndex])
+		key := strings.TrimSpace(line[separatorIndex+len(separator):])
+		if provider != "" && key != "" {
+			keys[strings.ToLower(provider)] = key
 		}
 	}
 

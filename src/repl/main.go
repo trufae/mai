@@ -175,6 +175,7 @@ func showHelp() {
 -h               show this help message
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
+-K               edit API keys file (~/.config/mai/apikeys.txt)
 -M               enable MCP mode (run as MCP agent)
 -m <model>       select the model for the given provider
 -n               do not load rc file and disable REPL history
@@ -196,6 +197,7 @@ Files:
 ~/.config/mai/systemprompt.md         : system prompt file (supports '@' include directives)
 ~/.config/mai/prompts                 : directory containing custom prompts
 ./share/mai/prompts                   : directory containing system prompts
+~/.config/mai/apikeys.txt             : API keys configuration file (provider=key format)
 `)
 }
 
@@ -517,6 +519,10 @@ func main() {
 		case "-M":
 			// Enable MCP mode - run as MCP agent
 			mcpMode = true
+		case "-K":
+			// Edit apikeys.txt file
+			editAPIKeysFile()
+			return
 		case "-U":
 			// Update project by running git pull ; make in project directory
 			projectDir, err := resolveProjectDirectory()
@@ -684,6 +690,50 @@ func resolveProjectDirectory() (string, error) {
 	}
 
 	return "", fmt.Errorf("no git repository found in executable path hierarchy")
+}
+
+// editAPIKeysFile opens the apikeys.txt file for editing
+func editAPIKeysFile() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	configDir := filepath.Join(home, ".config", "mai")
+	filePath := filepath.Join(configDir, "apikeys.txt")
+
+	// Create config directory if it doesn't exist
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating config directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check if file exists, if not create with sample content
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		sampleContent := "# API Keys configuration file\n# Format: provider=key\n# Provider names are case-insensitive\n#\n#openai=yourapikeyhere\n#ollamacloud=yourapikeyhere\n"
+		if err := os.WriteFile(filePath, []byte(sampleContent), 0600); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating apikeys.txt: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Get the editor from environment or default to vi
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	// Launch editor
+	cmd := exec.Command(editor, filePath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running editor: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // updateProject runs "git pull ; make" in the specified project directory
