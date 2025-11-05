@@ -442,7 +442,11 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 	// Store inline schema JSON in options for providers to consume
 	_ = r.configOptions.Set("llm.schema", schemaString)
 	// Recreate client with the new schema
-	r.currentClient, _ = llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
+	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to create LLM client: %v", err)
+	}
+	r.currentClient = client
 	// toolList, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
 	toolList, err := GetAvailableToolsWithConfig(r.configOptions, Quiet)
 	if err != nil {
