@@ -185,12 +185,6 @@ func main() {
 	var config *Config
 	var configErr error
 
-	// Show help if no arguments provided
-	if len(args) == 0 {
-		showHelp()
-		os.Exit(0)
-	}
-
 	// First pass: extract config-related flags
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -328,6 +322,11 @@ func main() {
 		} else {
 			cmdArgs = append(cmdArgs, arg)
 		}
+	}
+
+	// Skip config when -t is used with arguments
+	if toolsList && len(cmdArgs) > 0 {
+		skipConfig = true
 	}
 
 	// Auto skip config if URLs are provided and no config path specified
