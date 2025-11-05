@@ -1,0 +1,21 @@
+{
+  "agents": {
+    "coding": {
+      "description": "Coding assistant with access to development tools",
+      "systemPrompt": "You are an expert coding assistant. Help with programming tasks, debugging, and code improvements.",
+      "mcps": ["pancode"],
+      "tools": {
+        "allowed": ["run_terminal_cmd", "read_file", "search_replace", "grep_search"],
+        "forbidden": [],
+        "yolo": ["run_terminal_cmd"]
+      },
+      "config": {
+        "ai.provider": "ollama",
+        "ai.model": "codellama",
+        "ui.colors": "blue"
+      },
+      "defaultProvider": "ollama",
+      "defaultModel": "codellama"
+    }
+  }
+}
