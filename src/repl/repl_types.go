@@ -38,6 +38,8 @@ type REPL struct {
 	messages         []llm.Message
 	pendingFiles     []pendingFile      // Files and images to include in the next message
 	commands         map[string]Command // Registry of available commands
+	agentName        string             // Current agent name if using an agent
+	agentConfig      *llm.Agent         // Current agent configuration
 	skillRegistry    *SkillRegistry     // Registry of available skills
 	currentSession   string             // Name of the active chat session
 	unsavedTopic     string             // Topic for unsaved session before saving to disk

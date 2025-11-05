@@ -194,7 +194,7 @@ func StartMCPServer(repl *REPL) {
 	go cleanupStreamingSessions()
 
 	// Define all the tools
-	tools := []mcplib.ToolDefinition{
+	allTools := []mcplib.ToolDefinition{
 		{
 			Name:        "send_message",
 			Description: "Send a message to the AI model and get a response",
@@ -513,6 +513,14 @@ func StartMCPServer(repl *REPL) {
 				"properties": map[string]interface{}{},
 			},
 		},
+	}
+
+	// Filter tools based on agent configuration
+	var tools []mcplib.ToolDefinition
+	for _, tool := range allTools {
+		if isToolAllowed(tool.Name, repl.agentConfig) {
+			tools = append(tools, tool)
+		}
 	}
 
 	// Create MCP server
@@ -925,9 +933,45 @@ func StartMCPServer(repl *REPL) {
 	server.Start()
 }
 
+// isToolAllowed checks if a tool is allowed for the current agent configuration
+func isToolAllowed(toolName string, agentConfig *llm.Agent) bool {
+	if agentConfig == nil {
+		return true // No agent restriction, allow all tools
+	}
+
+	tools := agentConfig.Tools
+
+	// Check forbidden tools first
+	for _, forbidden := range tools.Forbidden {
+		if forbidden == toolName {
+			return false
+		}
+	}
+
+	// Check yolo tools (allowed but potentially risky)
+	for _, yolo := range tools.Yolo {
+		if yolo == toolName {
+			return true
+		}
+	}
+
+	// If allowed tools are specified, check if tool is in the list
+	if len(tools.Allowed) > 0 {
+		for _, allowed := range tools.Allowed {
+			if allowed == toolName {
+				return true
+			}
+		}
+		return false
+	}
+
+	// If no allowed list specified, allow all except forbidden
+	return true
+}
+
 // getREPLTools returns all mai-repl tools as mcplib.Tool slice for DSL usage
 func getREPLTools(repl *REPL) []mcplib.Tool {
-	return []mcplib.Tool{
+	allTools := []mcplib.Tool{
 		{
 			Name:        "send_message",
 			Description: "Send a message to the AI model and get a response",
@@ -1588,4 +1632,14 @@ func getREPLTools(repl *REPL) []mcplib.Tool {
 			},
 		},
 	}
+
+	// Filter tools based on agent configuration
+	var filteredTools []mcplib.Tool
+	for _, tool := range allTools {
+		if isToolAllowed(tool.Name, repl.agentConfig) {
+			filteredTools = append(filteredTools, tool)
+		}
+	}
+
+	return filteredTools
 }

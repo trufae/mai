@@ -19,7 +19,7 @@ import (
 	"github.com/trufae/mai/src/repl/llm"
 )
 
-func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterActions bool) (*REPL, error) {
+func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterActions bool, agentName string, agentConfig *llm.Agent) (*REPL, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var readLine *ReadLine
@@ -48,6 +48,8 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		initialCommand:   initialCommand,
 		quitAfterActions: quitAfterActions,
 		mcpProcesses:     make(map[string]*MCPProcess), // Initialize MCP processes map
+		agentName:        agentName,
+		agentConfig:      agentConfig,
 	}
 
 	// Create chat directory and history file
@@ -241,6 +243,21 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 					fmt.Fprintf(os.Stderr, "Warning: Failed to start MCP server %s: %v\n", name, err)
 				} else {
 					fmt.Fprintf(os.Stderr, "Started MCP server: %s\n", name)
+				}
+			}
+		}
+
+		// Start agent-specific MCP servers
+		if repl.agentConfig != nil {
+			for _, mcpName := range repl.agentConfig.MCPS {
+				if _, exists := repl.mcpConfig.Servers[mcpName]; exists {
+					if err := repl.startMCPServer(mcpName); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: Failed to start agent MCP server %s: %v\n", mcpName, err)
+					} else {
+						fmt.Fprintf(os.Stderr, "Started agent MCP server: %s\n", mcpName)
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "Warning: Agent MCP server %s not found in config\n", mcpName)
 				}
 			}
 		}

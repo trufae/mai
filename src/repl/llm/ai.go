@@ -38,6 +38,24 @@ type Message struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
+// Agent represents an AI agent configuration
+type Agent struct {
+	Description     string            `json:"description"`
+	SystemPrompt    string            `json:"systemPrompt,omitempty"`
+	MCPS            []string          `json:"mcps,omitempty"`
+	Tools           AgentTools        `json:"tools,omitempty"`
+	Config          map[string]string `json:"config,omitempty"`
+	DefaultProvider string            `json:"defaultProvider,omitempty"`
+	DefaultModel    string            `json:"defaultModel,omitempty"`
+}
+
+// AgentTools defines tool access for an agent
+type AgentTools struct {
+	Allowed   []string `json:"allowed,omitempty"`
+	Forbidden []string `json:"forbidden,omitempty"`
+	Yolo      []string `json:"yolo,omitempty"`
+}
+
 // Config holds configuration values for LLM providers.
 type Config struct {
 	PROVIDER  string
@@ -107,4 +125,8 @@ type Config struct {
 	// ShowTPS enables displaying time statistics (time to first token,
 	// generation time, tokens/second, chars/second) after LLM responses.
 	ShowTPS bool
+
+	// Agent configuration for when using named agents
+	AgentName   string
+	AgentConfig *Agent
 }

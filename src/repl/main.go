@@ -18,6 +18,111 @@ import (
 	mcplib "mai/src/mcps/lib"
 )
 
+// AgentsConfig holds all agent definitions
+type AgentsConfig struct {
+	Agents map[string]llm.Agent `json:"agents"`
+}
+
+// loadAgents loads agent configurations from ~/.config/mai/agents.json
+func loadAgents() (*AgentsConfig, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("could not get home directory: %v", err)
+	}
+
+	configDir := filepath.Join(home, ".config", "mai")
+	filePath := filepath.Join(configDir, "agents.json")
+
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// Return empty config if file doesn't exist
+		return &AgentsConfig{Agents: make(map[string]llm.Agent)}, nil
+	}
+
+	// Read and parse the file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("could not read agents.json: %v", err)
+	}
+
+	var config AgentsConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("could not parse agents.json: %v", err)
+	}
+
+	if config.Agents == nil {
+		config.Agents = make(map[string]llm.Agent)
+	}
+
+	return &config, nil
+}
+
+// AgentsConfig holds all agent definitions
+
+// editAgentsFile opens the agents.json file for editing
+func editAgentsFile() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	configDir := filepath.Join(home, ".config", "mai")
+	filePath := filepath.Join(configDir, "agents.json")
+
+	// Create config directory if it doesn't exist
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating config directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check if file exists, if not create with sample content
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		sampleContent := `{
+  "agents": {
+    "coding": {
+      "description": "Coding assistant with access to development tools",
+      "systemPrompt": "You are an expert coding assistant. Help with programming tasks, debugging, and code improvements.",
+      "mcps": ["pancode"],
+      "tools": {
+        "allowed": ["run_terminal_cmd", "read_file", "search_replace", "grep_search"],
+        "forbidden": [],
+        "yolo": ["run_terminal_cmd"]
+      },
+      "config": {
+        "ai.provider": "ollama",
+        "ai.model": "codellama",
+        "ui.colors": "blue"
+      },
+      "defaultProvider": "ollama",
+      "defaultModel": "codellama"
+    }
+  }
+}`
+		if err := os.WriteFile(filePath, []byte(sampleContent), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating agents.json: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Get the editor from environment or default to vi
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	// Launch editor
+	cmd := exec.Command(editor, filePath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running editor: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 // runStdinMode handles sending messages to LLM in stdin mode.
 func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []string) {
 	input := readInput(args)
@@ -168,7 +273,8 @@ func showHelp() {
 	fmt.Print(`$ mai-repl [--] | [-h] | [prompt] < INPUT
 --               stdin mode (see -r)
 -1               don't stream response, print once at the end
--a <string>      set the user agent for HTTP requests
+-a <agent>       specify the agent to use
+-A               edit the ~/.config/mai/agents.json
 -b <url>         specify a custom base URL for API requests
 -c <key=value>   set configuration option
 -d               enable debug mode
@@ -187,6 +293,7 @@ func showHelp() {
 -t               enable tools processing
 -tt              enable tools processing with mcp.grammar=false
 -T <dsl>         execute DSL commands using tools
+-u <string>      set the user agent for HTTP requests
 -U               update project by running git pull ; make in project directory
 -v               show version
 
@@ -468,6 +575,59 @@ func main() {
 			}
 		case "-a":
 			if i+1 < len(args) {
+				agentName := args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i--
+
+				// Load agents
+				agentsConfig, err := loadAgents()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error loading agents: %v\n", err)
+					os.Exit(1)
+				}
+
+				agent, exists := agentsConfig.Agents[agentName]
+				if !exists {
+					fmt.Fprintf(os.Stderr, "Agent '%s' not found. Available agents:\n", agentName)
+					for name, ag := range agentsConfig.Agents {
+						fmt.Fprintf(os.Stderr, "  %s: %s\n", name, ag.Description)
+					}
+					os.Exit(1)
+				}
+
+				// Apply agent config
+				for key, value := range agent.Config {
+					configOptions.Set(key, value)
+				}
+
+				// Set system prompt if specified
+				if agent.SystemPrompt != "" {
+					configOptions.Set("llm.systemprompt", agent.SystemPrompt)
+				}
+
+				// Set default provider/model if not overridden by flags
+				if agent.DefaultProvider != "" && config.PROVIDER == "" {
+					config.PROVIDER = agent.DefaultProvider
+					configOptions.Set("ai.provider", agent.DefaultProvider)
+				}
+				if agent.DefaultModel != "" && config.Model == "" {
+					config.Model = agent.DefaultModel
+					configOptions.Set("ai.model", agent.DefaultModel)
+				}
+
+				// Store agent info for later use (MCP config, tool filtering)
+				config.AgentName = agentName
+				config.AgentConfig = &agent
+
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -a requires an agent name argument\n")
+				os.Exit(1)
+			}
+		case "-A":
+			editAgentsFile()
+			return
+		case "-u":
+			if i+1 < len(args) {
 				config.UserAgent = args[i+1]
 				// Mirror into options so /get useragent shows it
 				configOptions.Set("http.useragent", args[i+1])
@@ -603,7 +763,7 @@ func main() {
 		// Not stdin mode, will load 'rc' file and start REPL
 		config.IsStdinMode = false
 
-		repl, err := NewREPL(*configOptions, config.InitialCommand, config.QuitAfterActions)
+		repl, err := NewREPL(*configOptions, config.InitialCommand, config.QuitAfterActions, config.AgentName, config.AgentConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing REPL: %v\n", err)
 			os.Exit(1)
@@ -623,7 +783,7 @@ func main() {
 // runMCPMode starts the MCP server with all mai-repl tools exposed
 func runMCPMode(config *llm.Config, configOptions *ConfigOptions) {
 	// Initialize REPL for MCP mode (no readline needed)
-	repl, err := NewREPL(*configOptions, "", true)
+	repl, err := NewREPL(*configOptions, "", true, config.AgentName, config.AgentConfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing REPL for MCP mode: %v\n", err)
 		os.Exit(1)
@@ -636,7 +796,7 @@ func runMCPMode(config *llm.Config, configOptions *ConfigOptions) {
 // runDSLMode executes DSL commands using mai-repl tools
 func runDSLMode(config *llm.Config, configOptions *ConfigOptions, dsl string) {
 	// Initialize REPL for DSL mode (no readline needed)
-	repl, err := NewREPL(*configOptions, "", true)
+	repl, err := NewREPL(*configOptions, "", true, config.AgentName, config.AgentConfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing REPL for DSL mode: %v\n", err)
 		os.Exit(1)
