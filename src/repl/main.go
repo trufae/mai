@@ -172,6 +172,7 @@ func showHelp() {
 -b <url>         specify a custom base URL for API requests
 -c <key=value>   set configuration option
 -d               enable debug mode
+-E               edit ~/.mairc file
 -h               show this help message
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
@@ -523,6 +524,10 @@ func main() {
 			// Edit apikeys.txt file
 			editAPIKeysFile()
 			return
+		case "-E":
+			// Edit ~/.mairc file
+			editMaiRcFile()
+			return
 		case "-U":
 			// Update project by running git pull ; make in project directory
 			projectDir, err := resolveProjectDirectory()
@@ -714,6 +719,42 @@ func editAPIKeysFile() {
 		sampleContent := "# API Keys configuration file\n# Format: provider=key\n# Provider names are case-insensitive\n#\n#openai=yourapikeyhere\n#ollamacloud=yourapikeyhere\n"
 		if err := os.WriteFile(filePath, []byte(sampleContent), 0600); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating apikeys.txt: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Get the editor from environment or default to vi
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	// Launch editor
+	cmd := exec.Command(editor, filePath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running editor: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// editMaiRcFile opens the ~/.mairc file for editing
+func editMaiRcFile() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	filePath := filepath.Join(home, ".mairc")
+
+	// Check if file exists, if not create empty
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		if err := os.WriteFile(filePath, []byte("# MAI RC file\n# This file is loaded on startup for backwards compatibility\n"), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating .mairc: %v\n", err)
 			os.Exit(1)
 		}
 	}
