@@ -355,7 +355,7 @@ func main() {
 		}
 
 		// If no env config or env config failed, try -C flag
-		if (configErr != nil || len(config.MCPServers) == 0) && configJSON != "" {
+		if (configErr != nil || config == nil || len(config.MCPServers) == 0) && configJSON != "" {
 			config, configErr = LoadConfigFromJSON(configJSON)
 			if configErr == nil {
 				log.Printf("Loaded config from -C flag")
@@ -363,9 +363,9 @@ func main() {
 		}
 
 		// If still no config, try loading from file
-		if configErr != nil || len(config.MCPServers) == 0 {
+		if configErr != nil || config == nil || len(config.MCPServers) == 0 {
 			config, configErr = LoadConfig(configPath)
-			if configErr != nil || len(config.MCPServers) == 0 {
+			if configErr != nil || config == nil || len(config.MCPServers) == 0 {
 				// Try loading as MAI config format from the specified path
 				if configPath != "" {
 					if _, err := os.Stat(configPath); err == nil {
@@ -376,7 +376,7 @@ func main() {
 					}
 				}
 				// If still failed, try loading from ~/.config/mai/mcps.json as fallback
-				if configErr != nil || len(config.MCPServers) == 0 {
+				if configErr != nil || config == nil || len(config.MCPServers) == 0 {
 					home, err := os.UserHomeDir()
 					if err == nil {
 						maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
