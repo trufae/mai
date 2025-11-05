@@ -19,6 +19,7 @@ func showHelp() {
   Options:
      -b URL   Base URL to listen on (default: :8989)
      -c FILE  Path to config file (default: ~/.config/mai/mcps.json)
+     -C JSON  Config as JSON string (alternative to -c)
      -d       Enable debug logging (shows HTTP requests and JSON payloads)
      -h       Show this help message
      -i       Non-interactive mode (return errors instead of prompting)
@@ -35,6 +36,7 @@ func showHelp() {
      HTTP servers: mai-wmcp "https://api.example.com/mcp"
      SSE servers: mai-wmcp "sse://api.example.com/mcp"
     Config file: mai-wmcp -c /path/to/config.json
+    Config JSON: mai-wmcp -C '{"mcpServers":{"myserver":{"type":"stdio","command":"mycommand"}}}'
     List mode: mai-wmcp -t "r2pm -r r2mcp" "timemcp"
      HTTP/SSE servers use bearer auth from MAI_MCP_AUTH_<DOMAIN> env vars (domain sanitized)`)
 }
@@ -168,6 +170,7 @@ func listMCPData(service *MCPService, jsonOutput bool) {
 func main() {
 	// Parse command line flags
 	configPath := ""
+	configJSON := ""
 	skipConfig := false
 	toolsList := false
 	jsonOutput := false
@@ -197,6 +200,15 @@ func main() {
 					i++
 				} else {
 					fmt.Println("Error: -c requires a file path")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-C":
+				if i+1 < len(args) {
+					configJSON = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -C requires a JSON string")
 					showHelp()
 					os.Exit(1)
 				}
@@ -249,6 +261,9 @@ func main() {
 			case "-c":
 				// Already handled in first pass
 				i++ // Skip the value
+			case "-C":
+				// Already handled in first pass
+				i++ // Skip the value
 			case "-n":
 				// Already handled in first pass
 			case "-t":
@@ -299,33 +314,52 @@ func main() {
 
 	// Load configuration if not skipped
 	if !skipConfig {
-		config, configErr = LoadConfig(configPath)
-		if configErr != nil || len(config.MCPServers) == 0 {
-			// Try loading as MAI config format from the specified path
-			if configPath != "" {
-				if _, err := os.Stat(configPath); err == nil {
-					config, configErr = LoadMAIConfig(configPath)
-					if configErr == nil {
-						log.Printf("Loaded MAI config from %s", configPath)
-					}
-				}
+		// Check for config JSON from environment variable first
+		if envConfigJSON := os.Getenv("MAI_AGENT_CONFIG"); envConfigJSON != "" {
+			config, configErr = LoadConfigFromJSON(envConfigJSON)
+			if configErr == nil {
+				log.Printf("Loaded config from MAI_AGENT_CONFIG environment variable")
 			}
-			// If still failed, try loading from ~/.config/mai/mcps.json as fallback
+		}
+
+		// If no env config or env config failed, try -C flag
+		if (configErr != nil || len(config.MCPServers) == 0) && configJSON != "" {
+			config, configErr = LoadConfigFromJSON(configJSON)
+			if configErr == nil {
+				log.Printf("Loaded config from -C flag")
+			}
+		}
+
+		// If still no config, try loading from file
+		if configErr != nil || len(config.MCPServers) == 0 {
+			config, configErr = LoadConfig(configPath)
 			if configErr != nil || len(config.MCPServers) == 0 {
-				home, err := os.UserHomeDir()
-				if err == nil {
-					maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
-					if _, err := os.Stat(maiConfigPath); err == nil {
-						config, configErr = LoadMAIConfig(maiConfigPath)
+				// Try loading as MAI config format from the specified path
+				if configPath != "" {
+					if _, err := os.Stat(configPath); err == nil {
+						config, configErr = LoadMAIConfig(configPath)
 						if configErr == nil {
-							log.Printf("Loaded config from %s", maiConfigPath)
+							log.Printf("Loaded MAI config from %s", configPath)
 						}
 					}
 				}
-			}
-			if configErr != nil {
-				log.Printf("Warning: Failed to load config: %v", configErr)
-				config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+				// If still failed, try loading from ~/.config/mai/mcps.json as fallback
+				if configErr != nil || len(config.MCPServers) == 0 {
+					home, err := os.UserHomeDir()
+					if err == nil {
+						maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
+						if _, err := os.Stat(maiConfigPath); err == nil {
+							config, configErr = LoadMAIConfig(maiConfigPath)
+							if configErr == nil {
+								log.Printf("Loaded config from %s", maiConfigPath)
+							}
+						}
+					}
+				}
+				if configErr != nil {
+					log.Printf("Warning: Failed to load config: %v", configErr)
+					config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+				}
 			}
 		}
 	} else {

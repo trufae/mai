@@ -581,6 +581,64 @@ func (r *REPL) restartMCPServer(name string) error {
 	return r.startMCPServer(name)
 }
 
+// startAgentWMCP starts mai-wmcp with agent-specific configuration
+func (r *REPL) startAgentWMCP() error {
+	// Build agent-specific config with only the required MCP servers
+	agentConfig := map[string]interface{}{
+		"mcpServers": make(map[string]interface{}),
+		"maiOptions": map[string]interface{}{
+			"baseURL":        ":0", // Use port 0 for auto-assignment
+			"yoloMode":       true,
+			"nonInteractive": true,
+		},
+	}
+
+	mcpServers := agentConfig["mcpServers"].(map[string]interface{})
+
+	// Add only the agent's required MCP servers
+	for _, mcpName := range r.agentConfig.MCPS {
+		if server, exists := r.mcpConfig.Servers[mcpName]; exists {
+			mcpServers[mcpName] = map[string]interface{}{
+				"type":    "stdio",
+				"command": server.Command,
+				"args":    server.Args,
+				"env":     server.Env,
+			}
+		} else {
+			return fmt.Errorf("agent MCP server %s not found in config", mcpName)
+		}
+	}
+
+	// Convert to JSON
+	configJSON, err := json.Marshal(agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal agent config: %v", err)
+	}
+
+	// Set environment variable for wmcp
+	os.Setenv("MAI_AGENT_CONFIG", string(configJSON))
+
+	// Find available port for wmcp
+	port, err := findAvailablePort(8989)
+	if err != nil {
+		return fmt.Errorf("failed to find available port for wmcp: %v", err)
+	}
+
+	// Start mai-wmcp with the agent config
+	cmd := exec.Command("mai-wmcp", "-b", fmt.Sprintf("localhost:%d", port), "-n") // -n to skip config file loading
+	cmd.Env = append(os.Environ(), fmt.Sprintf("MAI_AGENT_CONFIG=%s", string(configJSON)))
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start mai-wmcp: %v", err)
+	}
+
+	// Store the wmcp process
+	r.wmcpProcess = cmd
+	r.wmcpPort = port
+
+	return nil
+}
+
 // generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to the mai directory
 func (r *REPL) generateMemory() error {
 	maiDir, err := findMaiDir()

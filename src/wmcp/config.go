@@ -34,6 +34,35 @@ type MCPServerConfig struct {
 	Tools   map[string]bool   `json:"tools,omitempty"` // Tool name -> enabled status
 }
 
+// LoadConfigFromJSON loads the configuration from a JSON string
+func LoadConfigFromJSON(jsonStr string) (*Config, error) {
+	// Parse the JSON
+	var config Config
+	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config JSON: %v", err)
+	}
+
+	// Set defaults for MaiOptions if not specified
+	if config.MaiOptions.BaseURL == "" {
+		config.MaiOptions.BaseURL = ":8989"
+	}
+
+	// Validate the config
+	for name, server := range config.MCPServers {
+		if server.Type != "stdio" && server.Type != "http" && server.Type != "sse" {
+			return nil, fmt.Errorf("server %s: type must be 'stdio', 'http', or 'sse'", name)
+		}
+		if server.Type == "stdio" && server.Command == "" {
+			return nil, fmt.Errorf("server %s: command cannot be empty for stdio type", name)
+		}
+		if (server.Type == "http" || server.Type == "sse") && server.URL == "" {
+			return nil, fmt.Errorf("server %s: url cannot be empty for %s type", name, server.Type)
+		}
+	}
+
+	return &config, nil
+}
+
 // LoadConfig loads the configuration from a file
 func LoadConfig(configPath string) (*Config, error) {
 	// If configPath is empty, use default path ~/.config/mai/mcps.json

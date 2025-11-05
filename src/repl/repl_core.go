@@ -237,27 +237,23 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 
 	// Auto-start enabled MCP servers only if not running a single command
 	if repl.initialCommand == "" {
-		for name, server := range repl.mcpConfig.Servers {
-			if server.Enabled {
-				if err := repl.startMCPServer(name); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to start MCP server %s: %v\n", name, err)
-				} else {
-					fmt.Fprintf(os.Stderr, "Started MCP server: %s\n", name)
-				}
+		// Start agent-specific MCP servers if agent is active
+		if repl.agentConfig != nil && len(repl.agentConfig.MCPS) > 0 {
+			// For agents, use wmcp with agent-specific config instead of individual servers
+			if err := repl.startAgentWMCP(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to start agent wmcp: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Started agent wmcp with servers: %v\n", repl.agentConfig.MCPS)
 			}
-		}
-
-		// Start agent-specific MCP servers
-		if repl.agentConfig != nil {
-			for _, mcpName := range repl.agentConfig.MCPS {
-				if _, exists := repl.mcpConfig.Servers[mcpName]; exists {
-					if err := repl.startMCPServer(mcpName); err != nil {
-						fmt.Fprintf(os.Stderr, "Warning: Failed to start agent MCP server %s: %v\n", mcpName, err)
+		} else {
+			// Start regular enabled MCP servers
+			for name, server := range repl.mcpConfig.Servers {
+				if server.Enabled {
+					if err := repl.startMCPServer(name); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: Failed to start MCP server %s: %v\n", name, err)
 					} else {
-						fmt.Fprintf(os.Stderr, "Started agent MCP server: %s\n", mcpName)
+						fmt.Fprintf(os.Stderr, "Started MCP server: %s\n", name)
 					}
-				} else {
-					fmt.Fprintf(os.Stderr, "Warning: Agent MCP server %s not found in config\n", mcpName)
 				}
 			}
 		}
