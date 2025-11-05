@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -21,6 +22,7 @@ func showHelp() {
      -c FILE  Path to config file (default: ~/.config/mai/mcps.json)
      -C JSON  Config as JSON string (alternative to -c)
      -d       Enable debug logging (shows HTTP requests and JSON payloads)
+     -E       Edit the config file (~/.config/mai/mcps.json)
      -h       Show this help message
      -i       Non-interactive mode (return errors instead of prompting)
      -j       Print tools, prompts, and resources in JSON format (with -t)
@@ -33,12 +35,12 @@ func showHelp() {
      -y       Yolo mode (skip tool confirmations)
   Examples:
     Local servers: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
-     HTTP servers: mai-wmcp "https://api.example.com/mcp"
-     SSE servers: mai-wmcp "sse://api.example.com/mcp"
+    HTTP servers: mai-wmcp "https://api.example.com/mcp"
+    SSE servers: mai-wmcp "sse://api.example.com/mcp"
     Config file: mai-wmcp -c /path/to/config.json
     Config JSON: mai-wmcp -C '{"mcpServers":{"myserver":{"type":"stdio","command":"mycommand"}}}'
     List mode: mai-wmcp -t "r2pm -r r2mcp" "timemcp"
-     HTTP/SSE servers use bearer auth from MAI_MCP_AUTH_<DOMAIN> env vars (domain sanitized)`)
+    HTTP/SSE servers use bearer auth from MAI_MCP_AUTH_<DOMAIN> env vars (domain sanitized)`)
 }
 
 func showVersion() {
@@ -256,6 +258,31 @@ func main() {
 				nonInteractiveMode = true
 			case "-d":
 				debugMode = true
+			case "-E":
+				home, err := os.UserHomeDir()
+				if err != nil {
+					fmt.Println("Error: cannot get home directory")
+					os.Exit(1)
+				}
+				configFile := filepath.Join(home, ".config", "mai", "mcps.json")
+				dir := filepath.Dir(configFile)
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					fmt.Printf("Error creating config directory: %v\n", err)
+					os.Exit(1)
+				}
+				editor := os.Getenv("EDITOR")
+				if editor == "" {
+					editor = "vim"
+				}
+				cmd := exec.Command(editor, configFile)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				if err := cmd.Run(); err != nil {
+					fmt.Printf("Error running editor: %v\n", err)
+					os.Exit(1)
+				}
+				os.Exit(0)
 			case "-p":
 				noPromptsMode = true
 			case "-c":
