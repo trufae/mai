@@ -15,8 +15,7 @@ func GetAvailableMCPrompts(f Format) (string, error) {
 	var cmd *exec.Cmd
 	switch f {
 	case Quiet:
-		// Quiet not meaningful here, keep default list
-		cmd = exec.Command("mai-tool", "prompts", "list")
+		cmd = exec.Command("mai-tool", "-q", "prompts", "list")
 	case JSON:
 		cmd = exec.Command("mai-tool", "-j", "prompts", "list")
 	case Markdown:

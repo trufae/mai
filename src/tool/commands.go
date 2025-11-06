@@ -420,6 +420,8 @@ func listPrompts(config Config) {
 	var endpoint string
 	if config.JsonOutput {
 		endpoint = "/prompts/json"
+	} else if config.Quiet {
+		endpoint = "/prompts/quiet"
 	} else {
 		endpoint = "/prompts"
 	}
@@ -431,7 +433,11 @@ func listPrompts(config Config) {
 		os.Exit(1)
 	}
 
-	formatJsonPrettyOutput(config, body)
+	if config.Quiet {
+		formatStandardOutput(config, body)
+	} else {
+		formatJsonPrettyOutput(config, body)
+	}
 }
 
 func getPrompt(config Config, serverName, promptName string, params map[string]interface{}) {

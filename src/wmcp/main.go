@@ -477,6 +477,7 @@ func main() {
 	// Prompts endpoints
 	router.HandleFunc("/prompts", service.listPromptsHandler).Methods("GET")
 	router.HandleFunc("/prompts/json", service.jsonPromptsHandler).Methods("GET")
+	router.HandleFunc("/prompts/quiet", service.quietPromptsHandler).Methods("GET")
 	router.HandleFunc("/prompts/{prompt}", service.getPromptHandler).Methods("GET", "POST")
 	router.HandleFunc("/prompts/{server}/{prompt}", service.getPromptHandler).Methods("GET", "POST")
 
@@ -513,13 +514,14 @@ Available endpoints:
 - POST /call/{server}/{tool} - Call tool with JSON body or form data
 - POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
 
- Prompts endpoints:
- - GET /prompts - List all available prompts
- - GET /prompts/json - List all available prompts in JSON format
- - GET /prompts/{server}/{prompt} - Get a prompt by name from a server (args as query)
- - GET /prompts/{prompt} - Get a prompt by name via auto-discovery
- - POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
- - POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
+  Prompts endpoints:
+  - GET /prompts - List all available prompts
+  - GET /prompts/json - List all available prompts in JSON format
+  - GET /prompts/quiet - List all available prompts in quiet format (names only)
+  - GET /prompts/{server}/{prompt} - Get a prompt by name from a server (args as query)
+  - GET /prompts/{prompt} - Get a prompt by name via auto-discovery
+  - POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
+  - POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
 
  Resources endpoints:
  - GET /resources - List all available resources

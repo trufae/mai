@@ -112,6 +112,24 @@ func (s *MCPService) jsonPromptsHandler(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(result)
 }
 
+// quietPromptsHandler returns all prompts in quiet format (just names)
+func (s *MCPService) quietPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	var output strings.Builder
+
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, prompt := range server.Prompts {
+			output.WriteString(fmt.Sprintf("%s/%s\n", serverName, prompt.Name))
+		}
+		server.mutex.RUnlock()
+	}
+
+	writeTextResponse(w, output.String())
+}
+
 // getPromptHandler calls prompts/get on a server (or auto-discovers by prompt name)
 func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
