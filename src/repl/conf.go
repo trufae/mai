@@ -117,7 +117,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("ui.bgprompt", StringOption, "Background color for the prompt text (named colors or rgb:RGB)", "")
 
 	// Tooling options
-	co.RegisterOption("mcp.prompts", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "true")
+	co.RegisterOption("mcp.autoselectprompt", BooleanOption, "Enable MCP prompts selection to choose a plan template for newtools", "false")
 	co.RegisterOption("mcp.use", BooleanOption, "Process user input using newtools functions (overrides tools.old)", "false")
 	co.RegisterOption("mcp.native", BooleanOption, "Use native tool calling protocol instead of MCP react loop", "false")
 	// Unified tool-calling controls

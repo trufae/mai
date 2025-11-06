@@ -411,7 +411,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 		display = "verbose"
 	}
 	// If enabled, query MCP prompts to choose a plan template before running the tool loop
-	if r.configOptions.GetBool("mcp.prompts") {
+	if r.configOptions.GetBool("mcp.autoselectprompt") {
 		planTemplate, err := r.prepareMCPromptTemplate(input, messages)
 		if err != nil {
 			// Non-fatal: proceed without a template if selection fails

@@ -26,7 +26,7 @@ func (r *REPL) loadPrompt(promptName, extra string) (string, error) {
 	return expandedInput, nil
 }
 
-// listPrompts lists all .md files in the promptdir
+// listPrompts lists all .md files in the promptdir and MCP prompts
 func (r *REPL) listPrompts() ([]string, error) {
 	// Get the prompt directory from config
 	promptDir := r.configOptions.Get("dir.prompt")
