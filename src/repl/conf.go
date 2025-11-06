@@ -55,7 +55,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("ai.deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
 	co.RegisterOption("ai.provider", StringOption, "AI provider to use", DefaultProvider)
 	co.RegisterOption("ai.model", StringOption, "AI model to use", DefaultModel)
-	co.RegisterOption("ai.model.embed", StringOption, "AI model to use for embedding tasks", "")
+	co.RegisterOption("ai.model.embed", StringOption, "AI model to use for embedding tasks", "all-minilm@ollama")
 	co.RegisterOption("ai.model.compact", StringOption, "AI model to use for /compact command", "")
 	co.RegisterOption("ai.model.tool", StringOption, "AI model to use for tool calling", "")
 
