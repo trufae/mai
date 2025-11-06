@@ -359,9 +359,19 @@ func (r *REPL) Run() error {
 }
 
 func (r *REPL) cleanup() {
+	// Kill wmcp process first to ensure it's stopped regardless of what happens next
 	if r.wmcpProcess != nil && r.wmcpProcess.Process != nil {
-		r.wmcpProcess.Process.Kill()
+		if err := r.wmcpProcess.Process.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error killing wmcp process: %v\n", err)
+		}
+		// Wait for the process to actually terminate
+		if err := r.wmcpProcess.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error waiting for wmcp process to terminate: %v\n", err)
+		}
+		r.wmcpProcess = nil
+		r.wmcpPort = 0
 	}
+
 	if r.readline != nil {
 		r.readline.Restore()
 	} else if r.oldState != nil {
@@ -393,11 +403,6 @@ func (r *REPL) cleanup() {
 			}
 			r.currentSession = name
 		}
-	}
-	// Kill wmcp process if running
-	if r.wmcpProcess != nil {
-		r.wmcpProcess.Process.Kill()
-		r.wmcpProcess.Wait()
 	}
 
 	// Note: MCP processes are designed to run independently of REPL sessions
