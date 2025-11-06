@@ -685,3 +685,42 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 
 	return fullResponse.String(), nil
 }
+
+func (p *OllamaProvider) Embed(input string) ([]float64, error) {
+	effectiveModel := p.config.Model
+	if effectiveModel == "" {
+		effectiveModel = p.DefaultModel()
+	}
+
+	request := map[string]interface{}{
+		"model":  effectiveModel,
+		"prompt": input,
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	// Build embeddings endpoint URL
+	apiURL := buildURL("", p.config.BaseURL, "", "", "/api/embeddings")
+
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL, headers, jsonData)
+	if err != nil {
+		return nil, err
+	}
+
+	var response struct {
+		Embedding []float64 `json:"embedding"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return nil, err
+	}
+
+	return response.Embedding, nil
+}

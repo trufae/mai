@@ -312,3 +312,7 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 
 	return fullResponse.String(), nil
 }
+
+func (p *ClaudeProvider) Embed(input string) ([]float64, error) {
+	return nil, fmt.Errorf("embeddings not supported by Claude provider")
+}

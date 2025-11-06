@@ -199,6 +199,35 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 	fmt.Println(res)
 }
 
+// runEmbedMode handles embedding text and outputting vectors
+func runEmbedMode(config *llm.Config, configOptions *ConfigOptions, input string) {
+	// Apply config options for embed task
+	applyConfigOptionsToLLMConfigForTask(config, configOptions, "embed")
+
+	// Create LLM client
+	client, err := llm.NewLLMClient(config, context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Get the embedding vectors
+	vectors, err := client.Embed(input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting embeddings: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Output as comma-separated floats without brackets
+	for i, v := range vectors {
+		if i > 0 {
+			fmt.Print(",")
+		}
+		fmt.Printf("%.6f", v)
+	}
+	fmt.Println()
+}
+
 func loadConfig() *llm.Config {
 	config := &llm.Config{
 		PROVIDER:  getEnvOrDefault("MAI_PROVIDER", "ollama"),
@@ -281,9 +310,10 @@ func showHelp() {
 -a <agent>       specify the agent to use
 -A               edit the ~/.config/mai/agents.json
 -b <url>         specify a custom base URL for API requests
--c <key=value>   set configuration option
--d               enable debug mode
--E               edit ~/.mairc file
+ -c <key=value>   set configuration option
+ -d               enable debug mode
+ -e <text>        generate embeddings for text and output vectors
+ -E               edit ~/.mairc file
 -h               show this help message
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
@@ -708,6 +738,16 @@ func main() {
 			configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
+		case "-e":
+			// Embedding mode: take all remaining args as input text
+			args = append(args[:i], args[i+1:]...)
+			i--
+			// Join remaining args as input
+			input := strings.Join(args, " ")
+			// Apply config options
+			applyConfigOptionsToLLMConfig(config, configOptions)
+			runEmbedMode(config, configOptions, input)
+			return
 		case "-q":
 			quitAfterActions = true
 			config.QuitAfterActions = true

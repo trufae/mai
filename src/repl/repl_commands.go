@@ -245,4 +245,30 @@ func (r *REPL) initCommands() {
 			return "", r.handleTemplateSlashCommand(args)
 		},
 	}
+
+	// Embed command
+	r.commands["/embed"] = Command{
+		Name:        "/embed",
+		Description: "Generate embeddings for text and output vectors",
+		Handler: func(r *REPL, args []string) (string, error) {
+			if len(args) < 2 {
+				return "Usage: /embed <text>\n\r", nil
+			}
+			input := strings.Join(args[1:], " ")
+			vectors, err := r.currentClient.Embed(input)
+			if err != nil {
+				return fmt.Sprintf("Error getting embeddings: %v\n\r", err), nil
+			}
+			// Output as comma-separated floats without brackets
+			var result strings.Builder
+			for i, v := range vectors {
+				if i > 0 {
+					result.WriteString(",")
+				}
+				result.WriteString(fmt.Sprintf("%.6f", v))
+			}
+			result.WriteString("\n\r")
+			return result.String(), nil
+		},
+	}
 }

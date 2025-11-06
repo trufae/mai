@@ -180,3 +180,7 @@ func (p *OpenAPIProvider) parseStream(reader io.Reader) (string, error) {
 	// OpenAPI streaming isn't implemented yet
 	return "", fmt.Errorf("streaming not implemented for OpenAPI")
 }
+
+func (p *OpenAPIProvider) Embed(input string) ([]float64, error) {
+	return nil, fmt.Errorf("embeddings not supported by OpenAPI provider")
+}

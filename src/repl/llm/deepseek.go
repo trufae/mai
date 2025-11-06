@@ -191,3 +191,7 @@ func (p *DeepSeekProvider) parseStream(reader io.Reader) (string, error) {
 	// DeepSeek streaming isn't implemented yet
 	return "", fmt.Errorf("streaming not implemented for DeepSeek")
 }
+
+func (p *DeepSeekProvider) Embed(input string) ([]float64, error) {
+	return nil, fmt.Errorf("embeddings not supported by DeepSeek provider")
+}

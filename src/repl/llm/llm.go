@@ -279,6 +279,9 @@ type LLMProvider interface {
 	// SendMessage sends a message to the LLM and returns the response
 	SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error)
 
+	// Embed generates embeddings for the given text input
+	Embed(input string) ([]float64, error)
+
 	// GetName returns the name of the provider
 	GetName() string
 
@@ -433,6 +436,11 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", config.PROVIDER)
 	}
+}
+
+// Embed generates embeddings for the given text input
+func (c *LLMClient) Embed(input string) ([]float64, error) {
+	return c.provider.Embed(input)
 }
 
 // SendMessage sends a message to the LLM and handles the response

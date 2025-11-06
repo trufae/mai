@@ -347,6 +347,65 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 	return "", fmt.Errorf("no content in response")
 }
 
+func (p *OpenAIProvider) Embed(input string) ([]float64, error) {
+	effectiveModel := p.config.Model
+	if effectiveModel == "" {
+		effectiveModel = "text-embedding-3-small" // Use embedding model by default
+	}
+
+	request := map[string]interface{}{
+		"model": effectiveModel,
+		"input": input,
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+	if p.apiKey != "" {
+		headers["Authorization"] = "Bearer " + p.apiKey
+	}
+
+	// Build embeddings endpoint URL
+	apiURL := buildURL("https://api.openai.com/v1/embeddings", p.config.BaseURL, "", "", "/embeddings")
+
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL, headers, jsonData)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.config.Debug {
+		art.DebugBanner("OpenAI Embed Response", string(respBody))
+	}
+
+	var response struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return nil, err
+	}
+
+	if response.Error.Message != "" {
+		return nil, fmt.Errorf("OpenAI API error: %s", response.Error.Message)
+	}
+
+	if len(response.Data) == 0 {
+		return nil, fmt.Errorf("no embedding data in response")
+	}
+
+	return response.Data[0].Embedding, nil
+}
+
 func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	return p.parseStreamWithCallback(reader, nil)
 }

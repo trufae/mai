@@ -215,3 +215,7 @@ func (p *LlamaCliProvider) nonStreamResponse(stdout io.ReadCloser, stdin io.Writ
 
 	return buf.String(), nil
 }
+
+func (p *LlamaCliProvider) Embed(input string) ([]float64, error) {
+	return nil, fmt.Errorf("embeddings not supported by LlamaCli provider")
+}

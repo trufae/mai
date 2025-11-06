@@ -112,3 +112,7 @@ func (p *BedrockProvider) SendMessage(messages []Message, stream bool, images []
 
 	return string(output), nil
 }
+
+func (p *BedrockProvider) Embed(input string) ([]float64, error) {
+	return nil, fmt.Errorf("embeddings not supported by Bedrock provider")
+}

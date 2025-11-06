@@ -297,3 +297,7 @@ func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firs
 
 	return fullResponse.String(), nil
 }
+
+func (p *XAIProvider) Embed(input string) ([]float64, error) {
+	return nil, fmt.Errorf("embeddings not supported by XAI provider")
+}
