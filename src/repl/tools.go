@@ -381,11 +381,17 @@ func (r *REPL) NativeToolLoop(messages []llm.Message, input string) (string, err
 		messages = llm.PrepareMessages(input, &llm.Config{})
 	}
 
+	// Create client for tool calling with specific model
+	client, err := llm.NewLLMClient(r.buildLLMConfigForTask("tool"), r.ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to create LLM client for tool calling: %v", err)
+	}
+
 	// Tool calling loop
 	maxIterations := 5
 	for i := 0; i < maxIterations; i++ {
 		// Send message with tools
-		response, err := r.currentClient.SendMessage(messages, false, nil, tools)
+		response, err := client.SendMessage(messages, false, nil, tools)
 		if err != nil {
 			return "", fmt.Errorf("failed to send message: %v", err)
 		}

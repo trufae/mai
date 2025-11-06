@@ -320,14 +320,57 @@ func setModel(config *llm.Config, model string) { config.Model = model }
 // applyConfigOptionsToLLMConfig maps relevant ConfigOptions into the llm.Config
 // so that stdin mode and providers see the same effective configuration.
 func applyConfigOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
+	applyConfigOptionsToLLMConfigForTask(config, opts, "")
+}
+
+// applyConfigOptionsToLLMConfigForTask maps relevant ConfigOptions into the llm.Config for a specific task
+func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOptions, task string) {
 	if opts == nil {
 		return
 	}
-	if v := opts.Get("ai.provider"); v != "" {
-		config.PROVIDER = v
+
+	// Get model and provider for the task
+	var model, provider string
+	if task != "" {
+		// We need access to the REPL's getModel method, but this is a standalone function
+		// For now, we'll implement the logic here directly
+		var modelKey string
+		switch task {
+		case "embed":
+			modelKey = "ai.model.embed"
+		case "compact":
+			modelKey = "ai.model.compact"
+		case "tool":
+			modelKey = "ai.model.tool"
+		default:
+			modelKey = "ai.model"
+		}
+
+		modelValue := opts.Get(modelKey)
+		if modelValue == "" {
+			// Fallback to default model
+			modelValue = opts.Get("ai.model")
+		}
+
+		// Check if model contains "@" to specify provider
+		if strings.Contains(modelValue, "@") {
+			parts := strings.SplitN(modelValue, "@", 2)
+			model = parts[0]
+			provider = parts[1]
+		} else {
+			model = modelValue
+			provider = opts.Get("ai.provider")
+		}
+	} else {
+		model = opts.Get("ai.model")
+		provider = opts.Get("ai.provider")
 	}
-	if v := opts.Get("ai.model"); v != "" {
-		config.Model = v
+
+	if provider != "" {
+		config.PROVIDER = provider
+	}
+	if model != "" {
+		config.Model = model
 	}
 	if v := opts.Get("ai.baseurl"); v != "" {
 		config.BaseURL = v

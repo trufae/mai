@@ -157,9 +157,15 @@ func containsSpace(s string) bool {
 // This avoids storing a persistent config in the REPL and ensures providers
 // always receive up-to-date settings (provider, model, schema, headers, etc.).
 func (r *REPL) buildLLMConfig() *llm.Config {
+	return r.buildLLMConfigForTask("")
+}
+
+// buildLLMConfigForTask constructs a provider config for a specific task.
+// If task is empty, it uses the default model and provider.
+func (r *REPL) buildLLMConfigForTask(task string) *llm.Config {
 	cfg := loadConfig()
 	// Apply current options into the provider config (provider, model, baseurl, toggles, schema)
-	applyConfigOptionsToLLMConfig(cfg, &r.configOptions)
+	applyConfigOptionsToLLMConfigForTask(cfg, &r.configOptions, task)
 	// Respect REPL streaming option
 	cfg.NoStream = !r.configOptions.GetBool("llm.stream")
 	// Set demo mode option
@@ -1911,6 +1917,41 @@ func (r *REPL) setModel(model string) error {
 	return nil
 }
 
+// getModel returns the model and provider for a specific task
+// If the task-specific model contains "@", it splits into model@provider
+// Otherwise, it uses the default ai.provider
+func (r *REPL) getModel(task string) (model, provider string) {
+	var modelKey string
+	switch task {
+	case "embed":
+		modelKey = "ai.model.embed"
+	case "compact":
+		modelKey = "ai.model.compact"
+	case "tool":
+		modelKey = "ai.model.tool"
+	default:
+		modelKey = "ai.model"
+	}
+
+	modelValue := r.configOptions.Get(modelKey)
+	if modelValue == "" {
+		// Fallback to default model
+		modelValue = r.configOptions.Get("ai.model")
+	}
+
+	// Check if model contains "@" to specify provider
+	if strings.Contains(modelValue, "@") {
+		parts := strings.SplitN(modelValue, "@", 2)
+		model = parts[0]
+		provider = parts[1]
+	} else {
+		model = modelValue
+		provider = r.configOptions.Get("ai.provider")
+	}
+
+	return model, provider
+}
+
 // showCurrentProvider displays the current provider
 func (r *REPL) showCurrentProvider() {
 	fmt.Printf("Current provider: %s\r\n", r.configOptions.Get("ai.provider"))
@@ -2105,7 +2146,7 @@ func (r *REPL) handleCompactCommand() error {
 	fmt.Print("Compacting conversation...\r\n")
 
 	// Create client and send message
-	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
+	client, err := llm.NewLLMClient(r.buildLLMConfigForTask("compact"), r.ctx)
 	if err != nil {
 		// Restore original messages on error
 		r.messages = originalMessages

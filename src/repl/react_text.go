@@ -478,13 +478,13 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 	return response, strings.TrimSpace(answerBuilder.String()), nil
 }
 
-func (r *REPL) toolStep(toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
+func (r *REPL) toolStep(client *llm.LLMClient, toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
 	query := buildMessageWithTools(toolPrompt, input, ctx, toolList)
 	if r.configOptions.GetBool("repl.debug") {
 		art.DebugBanner("Tools Query", query)
 	}
 	messages := []llm.Message{{Role: "user", Content: query}}
-	responseText, err := r.currentClient.SendMessage(messages, false, nil, nil)
+	responseText, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)
 	}
@@ -547,6 +547,12 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			return input, nil
 		}
 	}
+
+	// Create client for tool operations with specific model
+	toolClient, err := llm.NewLLMClient(r.buildLLMConfigForTask("tool"), r.ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to create LLM client for tool operations: %v", err)
+	}
 	lines := strings.Split(toolList, "\n")
 	cleanLines := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -584,7 +590,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			break
 		}
 		r.mu.Unlock()
-		step, explTemp, err := r.toolStep(toolPrompt, input, context, toolList)
+		step, explTemp, err := r.toolStep(toolClient, toolPrompt, input, context, toolList)
 		expl = explTemp
 		if err != nil {
 			if r.configOptions.GetBool("repl.debug") {
