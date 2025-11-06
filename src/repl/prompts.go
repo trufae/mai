@@ -8,6 +8,19 @@ import (
 )
 
 func (r *REPL) loadPrompt(promptName, extra string) (string, error) {
+	// Check if it's an MCP prompt (contains '/')
+	if strings.Contains(promptName, "/") {
+		promptContent, err := GetMCPromptContent(promptName)
+		if err != nil {
+			return "", err
+		}
+		expandedInput := promptContent
+		if extra != "" {
+			expandedInput += "\n\n" + extra
+		}
+		return expandedInput, nil
+	}
+
 	promptPath, err := r.resolvePromptPath(promptName)
 	if err != nil {
 		return "", err
@@ -63,6 +76,18 @@ func (r *REPL) listPrompts() ([]string, error) {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".md") {
 			baseName := strings.TrimSuffix(file.Name(), ".md")
 			mdFiles = append(mdFiles, baseName)
+		}
+	}
+
+	// Get MCP prompts
+	mcpPromptsStr, err := GetAvailableMCPrompts(Quiet)
+	if err == nil {
+		lines := strings.Split(mcpPromptsStr, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && trimmed != "# Prompts Catalog" && strings.Contains(trimmed, "/") {
+				mdFiles = append(mdFiles, trimmed)
+			}
 		}
 	}
 
