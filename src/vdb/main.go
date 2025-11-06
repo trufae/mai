@@ -26,12 +26,14 @@ func main() {
 	var numResults int
 	var minChars int
 	var dimensions int
+	var customEmbed bool
 
 	flag.Var(&sources, "s", "source file or directory (can be used multiple times)")
 	flag.BoolVar(&jsonOutput, "j", false, "output in JSON format")
 	flag.IntVar(&numResults, "n", 5, "number of results to return")
 	flag.IntVar(&minChars, "m", 10, "minimum characters per line/section")
-	flag.IntVar(&dimensions, "d", 64, "number of dimensions for the vector database")
+	flag.IntVar(&dimensions, "d", 1024, "number of dimensions for the vector database")
+	flag.BoolVar(&customEmbed, "c", false, "use custom/internal embedding algorithm")
 	flag.Parse()
 
 	args := flag.Args()
@@ -44,7 +46,7 @@ func main() {
 		log.Fatal("At least one source must be specified with -s")
 	}
 
-	db := vectordb.NewVectorDB(dimensions)
+	db := vectordb.NewVectorDBWithCustomEmbed(dimensions, customEmbed)
 
 	// Load data from sources
 	for _, source := range sources {

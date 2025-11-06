@@ -1,7 +1,10 @@
 package vectordb
 
 import (
+	"fmt"
 	"math"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 )
@@ -18,20 +21,31 @@ type Document struct {
 }
 
 type VectorDB struct {
-	Dimension int
-	Root      *KDNode
-	Tokens    []Token
-	TotalDocs int
-	Size      int
-	Inserted  map[string]bool
-	Documents map[string]*Document // Map text to document for metadata access
+	Dimension   int
+	Root        *KDNode
+	Tokens      []Token
+	TotalDocs   int
+	Size        int
+	Inserted    map[string]bool
+	Documents   map[string]*Document // Map text to document for metadata access
+	CustomEmbed bool                 // Use custom/internal embedding algorithm
 }
 
 func NewVectorDB(dimension int) *VectorDB {
 	return &VectorDB{
-		Dimension: dimension,
-		Inserted:  make(map[string]bool),
-		Documents: make(map[string]*Document),
+		Dimension:   dimension,
+		Inserted:    make(map[string]bool),
+		Documents:   make(map[string]*Document),
+		CustomEmbed: false,
+	}
+}
+
+func NewVectorDBWithCustomEmbed(dimension int, customEmbed bool) *VectorDB {
+	return &VectorDB{
+		Dimension:   dimension,
+		Inserted:    make(map[string]bool),
+		Documents:   make(map[string]*Document),
+		CustomEmbed: customEmbed,
 	}
 }
 
@@ -54,6 +68,13 @@ func findToken(tokens []Token, token string) *Token {
 }
 
 func (db *VectorDB) computeEmbedding(text string) []float32 {
+	if db.CustomEmbed {
+		return db.computeCustomEmbedding(text)
+	}
+	return db.computeExternalEmbedding(text)
+}
+
+func (db *VectorDB) computeCustomEmbedding(text string) []float32 {
 	vec := make([]float32, db.Dimension)
 
 	re := regexp.MustCompile(`[^a-z0-9\s]+`)
@@ -91,6 +112,39 @@ func (db *VectorDB) computeEmbedding(text string) []float32 {
 	}
 
 	return normalizeVector(vec)
+}
+
+func (db *VectorDB) computeExternalEmbedding(text string) []float32 {
+	cmd := exec.Command("mai", "-e", text)
+	output, err := cmd.Output()
+	if err != nil || len(strings.TrimSpace(string(output))) == 0 {
+		// Fallback to custom embedding if external fails
+		fmt.Fprintf(os.Stderr, "Warning: External embedding failed, falling back to custom embedding. Please configure a working embedding model via 'mai -E' and set ai.model.embed\n")
+		return db.computeCustomEmbedding(text)
+	}
+
+	// Parse the external embedding output
+	// Assuming the output is a space-separated list of float values
+	embeddingStr := strings.TrimSpace(string(output))
+	parts := strings.Fields(embeddingStr)
+
+	vec := make([]float32, db.Dimension)
+	for i, part := range parts {
+		if i >= db.Dimension {
+			break
+		}
+		if val, err := parseFloat32(part); err == nil {
+			vec[i] = val
+		}
+	}
+
+	return normalizeVector(vec)
+}
+
+func parseFloat32(s string) (float32, error) {
+	var f float32
+	_, err := fmt.Sscanf(s, "%f", &f)
+	return f, err
 }
 
 func (db *VectorDB) Insert(text string) {
