@@ -300,9 +300,23 @@ func (r *REPL) Run() error {
 	// Handle interrupt signals
 	r.setupSignalHandler()
 
-	// Save command-line set options before loading rc file
-	cmdLineModel := r.configOptions.Get("ai.model")
-	cmdLineProvider := r.configOptions.Get("ai.provider")
+	// Save command-line provided options before loading rc file.
+	// Only capture options that were explicitly set (e.g., via CLI flags),
+	// not defaults, so rc can override defaults.
+	var (
+		cmdLineModel    string
+		haveCLModel     bool
+		cmdLineProvider string
+		haveCLProvider  bool
+	)
+	if r.configOptions.IsSet("ai.model") {
+		cmdLineModel = r.configOptions.Get("ai.model")
+		haveCLModel = true
+	}
+	if r.configOptions.IsSet("ai.provider") {
+		cmdLineProvider = r.configOptions.Get("ai.provider")
+		haveCLProvider = true
+	}
 
 	// Load and process 'rc' file from project or home config directory unless skipped by option
 	if !r.configOptions.GetBool("repl.skiprc") {
@@ -311,11 +325,11 @@ func (r *REPL) Run() error {
 		}
 	}
 
-	// Restore command-line set options (they have priority over rc file)
-	if cmdLineModel != "" {
+	// Restore only CLI-provided options (they have priority over rc file)
+	if haveCLModel {
 		r.configOptions.Set("ai.model", cmdLineModel)
 	}
-	if cmdLineProvider != "" {
+	if haveCLProvider {
 		r.configOptions.Set("ai.provider", cmdLineProvider)
 	}
 
@@ -398,6 +412,7 @@ func (r *REPL) cleanup() {
 					return
 				}
 			}
+			fmt.Println("")
 			if err := r.saveSession(name); err != nil {
 				fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
 			}

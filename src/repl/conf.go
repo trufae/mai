@@ -192,6 +192,13 @@ func (c *ConfigOptions) Get(key string) string {
 	return ""
 }
 
+// IsSet reports whether a configuration key has an explicit value set
+// (as opposed to falling back to its registered default).
+func (c *ConfigOptions) IsSet(key string) bool {
+	_, exists := c.values[key]
+	return exists
+}
+
 // GetBool retrieves a configuration value as boolean
 func (c *ConfigOptions) GetBool(key string) bool {
 	value := strings.ToLower(c.Get(key))
