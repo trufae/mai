@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "time-server": {
+      "command": "mai-mcp-time",
+      "enabled": false
+    },
+    "wttr": {
+      "command": "mai-mcp-wttr",
+      "enabled": true
+    }
+  }
+}

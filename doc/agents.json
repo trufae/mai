@@ -1,21 +1,34 @@
 {
   "agents": {
     "coding": {
-      "description": "Coding assistant with access to development tools",
-      "systemPrompt": "You are an expert coding assistant. Help with programming tasks, debugging, and code improvements.",
-      "mcps": ["pancode"],
+      "description": "Coding assistant with access to development tools.",
+      "systemPrompt": "You are an expert coding assistant. Help with programming tasks, debugging, and code improvements. Your name is Pepito",
+      "mcps": ["mai-mcp-pancode"],
       "tools": {
         "allowed": ["run_terminal_cmd", "read_file", "search_replace", "grep_search"],
         "forbidden": [],
         "yolo": ["run_terminal_cmd"]
       },
       "config": {
-        "ai.provider": "ollama",
-        "ai.model": "codellama",
         "ui.colors": "blue"
+      }
+    },
+    "weather": {
+      "description": ".",
+      "systemPrompt": "You are the weather expert. When location is not specified use 'Barcelona' as default city in the tool calls. Your responses must be clear and precise, check the current time and date and make some recommendations and predictions depending on real data. Use the tools to pull all this information. Always use emojis in the output response and use the Catalan language",
+      "mcps": ["wttr"],
+      "tools": {
+        "allowed": [],
+        "forbidden": [],
+        "yolo": ["*"]
       },
-      "defaultProvider": "ollama",
-      "defaultModel": "codellama"
+      "config": {
+        "ai.model": "gpt-oss:20b",
+	"_ai.model": "gemma3:12b",
+        "ui.bgline": "yellow",
+        "ui.markdown": "true",
+        "ui.colors": "green"
+      }
     }
   }
 }
