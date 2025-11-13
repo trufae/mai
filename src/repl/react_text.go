@@ -479,11 +479,26 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 }
 
 func (r *REPL) toolStep(client *llm.LLMClient, toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
-	query := buildMessageWithTools(toolPrompt, input, ctx, toolList)
-	if r.configOptions.GetBool("repl.debug") {
-		art.DebugBanner("Tools Query", query)
+	systemPrompt := strings.Replace(toolPrompt, "{tools}", toolList, -1)
+	var userBuilder strings.Builder
+	userBuilder.WriteString("USER QUERY TASK TO RESOLVE:\n")
+	userBuilder.WriteString(input)
+	trimmedCtx := strings.TrimSpace(ctx)
+	userBuilder.WriteString("\n\nCONTEXT:\n")
+	if trimmedCtx == "" {
+		userBuilder.WriteString("none")
+	} else {
+		userBuilder.WriteString(trimmedCtx)
 	}
-	messages := []llm.Message{{Role: "user", Content: query}}
+	userQuery := userBuilder.String()
+	if r.configOptions.GetBool("repl.debug") {
+		art.DebugBanner("Tools System", systemPrompt)
+		art.DebugBanner("Tools User", userQuery)
+	}
+	messages := []llm.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userQuery},
+	}
 	responseText, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
 		return PlanResponse{}, "", fmt.Errorf("failed to get response for tools: %v", err)

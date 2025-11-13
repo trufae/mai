@@ -264,12 +264,17 @@ func buildToolsMessage(toolPrompt string, userInput string, ctx string, toolList
 }
 
 func (r *REPL) newToolStep(toolPrompt string, input string, ctx string, toolList string, chatHistory string) (PlanResponse, error) {
-	query := buildToolsMessage(toolPrompt, input, ctx, toolList, chatHistory)
-	messages := []llm.Message{{Role: "user", Content: query}}
+	systemPrompt := fmt.Sprintf("%s\n<tools-catalog>%s</tools-catalog>", toolPrompt, toolList)
+	userQuery := fmt.Sprintf("<user-request>%s</user-request>\n<context>%s</context>", chatHistory, ctx)
+	messages := []llm.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userQuery},
+	}
 
 	// Debug output: show the reasoning prompt sent to LLM
 	if r.configOptions.GetBool("mcp.debug") {
-		art.DebugBanner("newToolStep Query", query)
+		art.DebugBanner("newToolStep System", systemPrompt)
+		art.DebugBanner("newToolStep User", userQuery)
 	}
 	responseJson, err := r.currentClient.SendMessage(messages, false, nil, nil)
 	if err != nil {
