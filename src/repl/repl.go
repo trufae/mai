@@ -2185,7 +2185,7 @@ func (r *REPL) handleCompactCommand() error {
 // handleToolCommand executes the mai-tool command with the given arguments
 func (r *REPL) handleToolCommand(args []string) (string, error) {
 	if len(args) < 2 {
-		tools, err := GetAvailableToolsWithConfig(r.configOptions, Simple)
+		tools, err := GetAvailableToolsWithStatus(r.configOptions, r.agentConfig)
 		if err != nil {
 			return "", err
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/trufae/mai/src/repl/llm"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -95,6 +96,25 @@ func GetAvailableToolsWithConfig(configOptions ConfigOptions, defaultFormat Form
 	}
 	format := parseToolFormat(toolFormat)
 	return GetAvailableTools(format)
+}
+
+// GetAvailableToolsWithStatus gets available tools with their permission status
+func GetAvailableToolsWithStatus(configOptions ConfigOptions, agentConfig *llm.Agent) (string, error) {
+	tools, err := getToolsWithPermissions(configOptions, agentConfig)
+	if err != nil {
+		return "", err
+	}
+
+	var result strings.Builder
+	for _, tool := range tools {
+		status := "ALLOWED"
+		if !tool.Allowed {
+			status = "DENIED"
+		}
+		result.WriteString(fmt.Sprintf("%s - %s [%s]\n", tool.Name, tool.Description, status))
+	}
+
+	return result.String(), nil
 }
 
 // GetOpenAITools gets available tools in OpenAI tool calling format
@@ -295,6 +315,153 @@ type PlanResponse struct {
 	Tool             string   `json:"tool,omitempty"`
 	// ToolParams     map[string]interface{} `json:"tool_params,omitempty"`
 	ToolParams interface{} `json:"tool_params,omitempty"`
+}
+
+// ToolInfo represents a tool with its permission status
+type ToolInfo struct {
+	Name        string
+	Description string
+	Allowed     bool
+}
+
+// parseCommaSeparatedList parses a comma-separated string into a slice of trimmed strings
+func parseCommaSeparatedList(listStr string) []string {
+	if listStr == "" {
+		return nil
+	}
+
+	var result []string
+	items := strings.Split(listStr, ",")
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// isToolAllowedWithConfig checks if a tool is allowed based on config and agent settings
+func isToolAllowedWithConfig(toolName string, configOptions ConfigOptions, agentConfig *llm.Agent) bool {
+	// Get config-based tool lists
+	allowedTools := parseCommaSeparatedList(configOptions.Get("mcp.allowtools"))
+	deniedTools := parseCommaSeparatedList(configOptions.Get("mcp.denytools"))
+	yoloTools := parseCommaSeparatedList(configOptions.Get("mcp.yolotools"))
+
+	// Check global denyall setting first
+	if configOptions.GetBool("mcp.denyall") {
+		// If denyall is true, only allow tools that are explicitly in the allowed list
+		// Check agent allowed list first
+		if agentConfig != nil && len(agentConfig.Tools.Allowed) > 0 {
+			for _, allowed := range agentConfig.Tools.Allowed {
+				if allowed == toolName {
+					return true
+				}
+			}
+		}
+		// Then check config allowed list
+		for _, allowed := range allowedTools {
+			if allowed == toolName {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Check yolo tools first (highest priority)
+	// Agent yolo tools
+	if agentConfig != nil {
+		for _, yolo := range agentConfig.Tools.Yolo {
+			if yolo == "*" || yolo == toolName {
+				return true
+			}
+		}
+	}
+	// Config yolo tools
+	for _, yolo := range yoloTools {
+		if yolo == "*" || yolo == toolName {
+			return true
+		}
+	}
+
+	// Check denied tools (agent takes priority over config)
+	// Agent denied tools
+	if agentConfig != nil {
+		for _, forbidden := range agentConfig.Tools.Forbidden {
+			if forbidden == toolName {
+				return false
+			}
+		}
+	}
+	// Config denied tools
+	for _, forbidden := range deniedTools {
+		if forbidden == toolName {
+			return false
+		}
+	}
+
+	// Check allowed tools (if specified, only allow those)
+	// Agent allowed tools
+	if agentConfig != nil && len(agentConfig.Tools.Allowed) > 0 {
+		for _, allowed := range agentConfig.Tools.Allowed {
+			if allowed == toolName {
+				return true
+			}
+		}
+		return false // Agent has allowed list but tool not in it
+	}
+
+	// Config allowed tools
+	if len(allowedTools) > 0 {
+		for _, allowed := range allowedTools {
+			if allowed == toolName {
+				return true
+			}
+		}
+		return false // Config has allowed list but tool not in it
+	}
+
+	// If no allowed list specified, allow all except forbidden
+	return true
+}
+
+// getToolsWithPermissions returns a list of tools with their permission status
+func getToolsWithPermissions(configOptions ConfigOptions, agentConfig *llm.Agent) ([]ToolInfo, error) {
+	// Get all available tools in JSON format
+	jsonStr, err := GetAvailableTools(JSON)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the MCP JSON format
+	var mcpTools map[string][]map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &mcpTools); err != nil {
+		return nil, err
+	}
+
+	var tools []ToolInfo
+	for _, toolsList := range mcpTools {
+		for _, tool := range toolsList {
+			name, ok := tool["name"].(string)
+			if !ok {
+				continue
+			}
+			description, _ := tool["description"].(string)
+
+			tools = append(tools, ToolInfo{
+				Name:        name,
+				Description: description,
+				Allowed:     isToolAllowedWithConfig(name, configOptions, agentConfig),
+			})
+		}
+	}
+
+	// Sort tools by name for consistent display
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].Name < tools[j].Name
+	})
+
+	return tools, nil
 }
 
 // extractJSONBlock locates the first balanced JSON object in text (or fenced JSON)

@@ -152,6 +152,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("mcp.prompt", StringOption, "Custom text to be included in the instructions prompt for react loops", "")
 	co.RegisterOption("mcp.toolformat", StringOption, "Tool list format: xml, markdown, simple, quiet, json (empty=auto)", "")
 	co.RegisterOption("mcp.baseurl", StringOption, "Base URL for MCP server connection", "http://localhost:8989")
+	co.RegisterOption("mcp.denyall", BooleanOption, "Deny all tools by default (requires explicit allow list)", "false")
+	co.RegisterOption("mcp.allowtools", StringOption, "Comma-separated list of allowed tools", "")
+	co.RegisterOption("mcp.denytools", StringOption, "Comma-separated list of forbidden tools", "")
+	co.RegisterOption("mcp.yolotools", StringOption, "Comma-separated list of yolo tools (allowed but potentially risky)", "")
 
 	co.initialized = true
 
