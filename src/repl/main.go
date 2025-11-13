@@ -681,6 +681,7 @@ func main() {
 				// Set system prompt if specified
 				if agent.SystemPrompt != "" {
 					configOptions.Set("llm.systemprompt", agent.SystemPrompt)
+					config.SystemPrompt = agent.SystemPrompt
 				}
 
 				// Set default provider/model if not overridden by flags
@@ -696,6 +697,12 @@ func main() {
 				// Store agent info for later use (MCP config, tool filtering)
 				config.AgentName = agentName
 				config.AgentConfig = &agent
+
+				// Enable MCP if agent has MCP servers
+				if len(agent.MCPS) > 0 {
+					config.UseMCP = true
+					configOptions.Set("mcp.use", "true")
+				}
 
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: -a requires an agent name argument\n")

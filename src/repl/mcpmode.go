@@ -950,7 +950,7 @@ func isToolAllowed(toolName string, agentConfig *llm.Agent) bool {
 
 	// Check yolo tools (allowed but potentially risky)
 	for _, yolo := range tools.Yolo {
-		if yolo == toolName {
+		if yolo == "*" || yolo == toolName {
 			return true
 		}
 	}
