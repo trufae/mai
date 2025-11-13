@@ -43,12 +43,14 @@ type CurrentWeather struct {
 	FeelsLike     string `json:"feels_like"`
 	Humidity      string `json:"humidity"`
 	Wind          string `json:"wind"`
+	CurrentTime   string `json:"current_time"`
 }
 
 // ForecastSummary represents an aggregated forecast for up to a week.
 type ForecastSummary struct {
-	Location string        `json:"location"`
-	Days     []ForecastDay `json:"days"`
+	Location    string        `json:"location"`
+	Days        []ForecastDay `json:"days"`
+	CurrentTime string        `json:"current_time"`
 }
 
 // ForecastDay captures daily forecast details.
@@ -73,6 +75,7 @@ type MoonInfo struct {
 	IlluminationPercent string `json:"illumination_percent"`
 	DaysUntilFullMoon   int    `json:"days_until_full_moon"`
 	NextFullMoonDate    string `json:"next_full_moon_date"`
+	CurrentTime         string `json:"current_time"`
 }
 
 type wttrResponse struct {
@@ -138,6 +141,7 @@ func (s *WeatherService) GetCurrentWeather(location string) (*CurrentWeather, er
 		FeelsLike:     strings.TrimSpace(parts[6]),
 		Humidity:      strings.TrimSpace(parts[7]),
 		Wind:          strings.TrimSpace(parts[8]),
+		CurrentTime:   time.Now().Format("2006-01-02 Monday January"),
 	}, nil
 }
 
@@ -148,7 +152,7 @@ func (s *WeatherService) GetWeeklyForecast(location string) (*ForecastSummary, e
 		return nil, err
 	}
 
-	summary := &ForecastSummary{Location: locationLabel(data)}
+	summary := &ForecastSummary{Location: locationLabel(data), CurrentTime: time.Now().Format("2006-01-02 Monday January")}
 	for i, day := range data.Weather {
 		if i >= 7 {
 			break
@@ -249,6 +253,7 @@ func (s *WeatherService) GetMoonInfo(location string) (*MoonInfo, error) {
 		IlluminationPercent: illumination,
 		DaysUntilFullMoon:   daysUntilFull,
 		NextFullMoonDate:    nextFull.Format("2006-01-02"),
+		CurrentTime:         time.Now().Format("2006-01-02 Monday January"),
 	}, nil
 }
 
