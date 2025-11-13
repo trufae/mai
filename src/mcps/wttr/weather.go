@@ -267,7 +267,7 @@ func CreateWeatherTool() mcplib.ToolDefinition {
 			"properties": map[string]interface{}{
 				"location": map[string]interface{}{
 					"type":        "string",
-					"description": "Optional city or country to get weather for. Leave empty for caller location.",
+					"description": "Optional city or country to get weather for.",
 				},
 			},
 		},
@@ -284,7 +284,7 @@ func CreateForecastTool() mcplib.ToolDefinition {
 			"properties": map[string]interface{}{
 				"location": map[string]interface{}{
 					"type":        "string",
-					"description": "Optional city or country to forecast. Leave empty for caller location.",
+					"description": "Optional city or country to forecast.",
 				},
 			},
 		},
@@ -301,7 +301,7 @@ func CreateMoonTool() mcplib.ToolDefinition {
 			"properties": map[string]interface{}{
 				"location": map[string]interface{}{
 					"type":        "string",
-					"description": "Optional city or country for moon data. Leave empty for caller location.",
+					"description": "Optional city or country for moon data.",
 				},
 			},
 		},
