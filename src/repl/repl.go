@@ -1908,12 +1908,6 @@ func (r *REPL) showCurrentModel() {
 // setModel changes the model for the current provider
 func (r *REPL) setModel(model string) error {
 	r.configOptions.Set("ai.model", model)
-	prov := r.configOptions.Get("ai.provider")
-	if prov == "" {
-		fmt.Fprintf(os.Stderr, "Model set to %s\n", model)
-		return nil
-	}
-	fmt.Fprintf(os.Stderr, "%s model set to %s\n", strings.Title(prov), model)
 	return nil
 }
 
