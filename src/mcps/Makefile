@@ -9,6 +9,7 @@ BINS+=pipe
 BINS+=shell
 BINS+=time
 BINS+=term
+BINS+=memory
 
 all:
 	for a in $(BINS); do \
