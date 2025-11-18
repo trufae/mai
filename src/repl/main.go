@@ -1042,16 +1042,12 @@ func editMaiRcFile() {
 
 // updateProject runs "git pull ; make" in the specified project directory
 func updateProject(projectDir string) error {
-	// Change to the project directory
-	if err := os.Chdir(projectDir); err != nil {
-		return fmt.Errorf("failed to change to project directory %s: %v", projectDir, err)
-	}
-
 	fmt.Printf("Updating project in %s...\n", projectDir)
 
 	// Run git pull
 	fmt.Println("Running git pull...")
 	gitCmd := exec.Command("git", "pull")
+	gitCmd.Dir = projectDir
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 	if err := gitCmd.Run(); err != nil {
@@ -1061,6 +1057,7 @@ func updateProject(projectDir string) error {
 	// Run make
 	fmt.Println("Running make...")
 	makeCmd := exec.Command("make")
+	makeCmd.Dir = projectDir
 	makeCmd.Stdout = os.Stdout
 	makeCmd.Stderr = os.Stderr
 	if err := makeCmd.Run(); err != nil {
