@@ -61,9 +61,10 @@ function! Mai() range abort
      echo '  3. Append below'
      echo '  4. C preprocessor block'
      echo '  5. Show in a separate split'
-     echo '  6. Append as comment'
-     echo '----'
-     let l:ans = input('Enter choice (1-6, default ' . l:defaction . '): ')
+      echo '  6. Append as comment'
+      echo '  7. Append as Python comment'
+      echo '----'
+      let l:ans = input('Enter choice (1-7, default ' . l:defaction . '): ')
     if empty(l:ans)
       let l:ans = l:defaction
     else
@@ -99,13 +100,18 @@ function! Mai() range abort
       execute l:first . ',' . l:last . 'delete _'
       call append(l:first - 1, ['#if 0'] + l:old_lines + ['#else'] + l:out + ['#endif'])
       echo "Replaced with C preprocessor conditional block."
-    elseif l:ans == 6
-      " Append as comment
-      let l:commented = map(l:out, '"/* " . v:val . " */"')
-      call append(l:last, l:commented)
-      echo "Appended as comment."
-   else
-     echo "Invalid option."
+      elseif l:ans == 6
+        " Append as comment
+        let l:commented = map(l:out, '"  " . v:val')
+        call append(l:last, ['/*'] + l:commented + ['*/'])
+        echo "Appended as comment."
+     elseif l:ans == 7
+       " Append as Python comment
+       let l:commented = map(l:out, '"# " . v:val')
+       call append(l:last, l:commented)
+       echo "Appended as Python comment."
+    else
+      echo "Invalid option."
    endif
 endfunction
 
