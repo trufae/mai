@@ -15,6 +15,15 @@ make install
 
 ## Configuration
 
+Your ~/.vimrc will look like this:
+
+```vim
+source ~/.vim/mai/mai.vim
+let g:mai_provider = 'ollama'
+let g:mai_model = 'gemma3:12b'
+xnoremap m :<C-U>call Mai()<CR>
+```
+
 ### AI Provider and Model
 
 Set your preferred AI provider and model in your `~/.vimrc`:

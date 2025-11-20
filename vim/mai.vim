@@ -12,12 +12,14 @@ function! Mai() range abort
   endif
 
    " 2) Let the user select a prompt
-    echo "Select a prompt:"
+    echo "# Select a prompt:"
     for i in range(len(l:lines))
       echo printf('%d. %s', i + 1, l:lines[i])
     endfor
+    echo ".."
     echo "e. Edit prompts"
     echo "i. Inline prompt"
+    echo ".."
     let l:choice = input('Enter choice (1-' . len(l:lines) . ' or e or i): ')
      if l:choice == 'e'
        execute 'edit ' . l:file
@@ -50,17 +52,22 @@ function! Mai() range abort
   echo join(l:out, "\n")
   echo "\n"
 
-   " 6) Ask user what to do with the output
-   let l:ans = inputlist([
-         \ '----',
-         \ 'What do you want to do with the output?',
-         \ '  1. Ignore',
-         \ '  2. Replace selected text',
-         \ '  3. Append below',
-         \ '  4. C preprocessor block',
-         \ '  5. Show in a separate split',
-         \ '----'
-         \ ])
+    " 6) Ask user what to do with the output
+    let l:defaction = get(g:, 'mai_defaction', 2)
+    echo '----'
+    echo 'What do you want to do with the output?'
+    echo '  1. Ignore'
+    echo '  2. Replace selected text'
+    echo '  3. Append below'
+    echo '  4. C preprocessor block'
+    echo '  5. Show in a separate split'
+    echo '----'
+    let l:ans = input('Enter choice (1-5, default ' . l:defaction . '): ')
+    if empty(l:ans)
+      let l:ans = l:defaction
+    else
+      let l:ans = str2nr(l:ans)
+    endif
   if l:ans == 1
     echo "Ignored."
     return
@@ -100,4 +107,4 @@ endfunction
 " Normal mode = current line, Visual mode = selection
 " nnoremap <leader>m :call Mai()<CR>
 " xnoremap <leader>m :<C-U>call Mai()<CR>
-xnoremap m :<C-U>call Mai()<CR>
+" xnoremap m :<C-U>call Mai()<CR>
