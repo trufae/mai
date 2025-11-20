@@ -1,26 +1,31 @@
-function! Mai() range abort
-  " 1) Read prompts.txt
-  let l:file = expand('~/.vim/mai/prompts.txt')
-  if !filereadable(l:file)
-    echoerr "File not found: " . l:file
-    return
-  endif
-  let l:lines = readfile(l:file)
-  if empty(l:lines)
-    echoerr "prompts.txt is empty"
-    return
-  endif
+ function! Mai() range abort
+   " 1) Read prompts.txt
+   let l:file = expand('~/.vim/mai/prompts.txt')
+   if !filereadable(l:file)
+     echoerr "File not found: " . l:file
+     return
+   endif
+   let l:lines = readfile(l:file)
+   if empty(l:lines)
+     echoerr "prompts.txt is empty"
+     return
+   endif
 
-   " 2) Let the user select a prompt
-    echo "# Select a prompt:"
-    for i in range(len(l:lines))
-      echo printf('%d. %s', i + 1, l:lines[i])
-    endfor
-    echo ".."
-    echo "e. Edit prompts"
-    echo "i. Inline prompt"
-    echo ".."
-    let l:choice = input('Enter choice (1-' . len(l:lines) . ' or e or i): ')
+    " 2) Let the user select a prompt
+     let l:color = get(g:, 'mai_color', 1)
+     if l:color
+       echohl Question
+     endif
+     for i in range(len(l:lines))
+       echo printf('%d. %s', i + 1, l:lines[i])
+     endfor
+     echo ".."
+     echo "e. Edit prompts"
+     echo "i. Inline prompt"
+     if l:color
+       echohl None
+     endif
+     let l:choice = input('Enter choice (1-' . len(l:lines) . ' or e, i (empty to cancel)): ')
      if l:choice == 'e'
        execute 'edit ' . l:file
        return
@@ -52,19 +57,25 @@ function! Mai() range abort
   echo join(l:out, "\n")
   echo "\n"
 
-    " 6) Ask user what to do with the output
-    let l:defaction = get(g:, 'mai_defaction', 2)
-     echo '----'
-     echo 'What do you want to do with the output?'
-     echo '  1. Ignore'
-     echo '  2. Replace selected text'
-     echo '  3. Append below'
-     echo '  4. C preprocessor block'
-     echo '  5. Show in a separate split'
-      echo '  6. Append as comment'
-      echo '  7. Append as Python comment'
+     " 6) Ask user what to do with the output
+     let l:defaction = get(g:, 'mai_defaction', 2)
+     if l:color
+       echohl Question
+     endif
       echo '----'
-      let l:ans = input('Enter choice (1-7, default ' . l:defaction . '): ')
+      echo 'What do you want to do with the output?'
+      echo '  1. Ignore'
+      echo '  2. Replace selected text'
+      echo '  3. Append below'
+      echo '  4. C preprocessor block'
+      echo '  5. Show in a separate split'
+       echo '  6. Append as comment'
+       echo '  7. Append as Python comment'
+      echo '----'
+     if l:color
+       echohl None
+     endif
+       let l:ans = input('Enter choice (1-7, default ' . l:defaction . '): ')
     if empty(l:ans)
       let l:ans = l:defaction
     else

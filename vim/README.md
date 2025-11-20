@@ -21,6 +21,8 @@ Your ~/.vimrc will look like this:
 source ~/.vim/mai/mai.vim
 let g:mai_provider = 'ollama'
 let g:mai_model = 'gemma3:12b'
+let g:mai_color = 0
+let g:mai_defaction = 3
 xnoremap m :<C-U>call Mai()<CR>
 ```
 
