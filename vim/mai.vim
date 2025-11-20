@@ -11,17 +11,27 @@ function! Mai() range abort
     return
   endif
 
-  " 2) Let the user select a prompt
-  let l:menu = ['Select a prompt:']
-  for i in range(len(l:lines))
-    call add(l:menu, printf('%d. %s', i + 1, l:lines[i]))
-  endfor
-  let l:choice = inputlist(l:menu)
-  if l:choice < 1 || l:choice > len(l:lines)
-    echo "Cancelled"
-    return
-  endif
-   let l:prompt = l:lines[l:choice - 1]
+   " 2) Let the user select a prompt
+    echo "Select a prompt:"
+    for i in range(len(l:lines))
+      echo printf('%d. %s', i + 1, l:lines[i])
+    endfor
+    echo "e. Edit prompts"
+    echo "i. Inline prompt"
+    let l:choice = input('Enter choice (1-' . len(l:lines) . ' or e or i): ')
+     if l:choice == 'e'
+       execute 'edit ' . l:file
+       return
+     elseif l:choice == 'i'
+       let l:prompt = input('Enter your custom prompt: ')
+     else
+       let l:choice = str2nr(l:choice)
+       if l:choice < 1 || l:choice > len(l:lines)
+         echo "Cancelled"
+         return
+       endif
+       let l:prompt = l:lines[l:choice - 1]
+     endif
 
    " 3) Get provider and model from global variables
    let l:provider = get(g:, 'mai_provider', 'openai')
