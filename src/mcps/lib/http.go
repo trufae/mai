@@ -28,7 +28,7 @@ func (s *MCPServer) loadAuthTokens() error {
 }
 
 // ServeHTTP starts an HTTP server on the specified port with optional Bearer authentication
-func (s *MCPServer) ServeHTTP(port string, authEnabled bool, authFile string) error {
+func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, authFile string) error {
 	s.authEnabled = authEnabled
 	s.authFile = authFile
 	if authEnabled {
@@ -36,8 +36,11 @@ func (s *MCPServer) ServeHTTP(port string, authEnabled bool, authFile string) er
 			return err
 		}
 	}
-	http.HandleFunc("/", s.httpHandler)
-	log.Printf("Starting HTTP server on port %s", port)
+	if basePath == "" {
+		basePath = "/"
+	}
+	http.HandleFunc(basePath, s.httpHandler)
+	log.Printf("Starting HTTP server on port %s with base path %s", port, basePath)
 	return http.ListenAndServe(":"+port, nil)
 }
 

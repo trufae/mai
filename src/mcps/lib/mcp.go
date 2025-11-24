@@ -12,6 +12,64 @@ import (
 	"strings"
 )
 
+// ListenConfig represents the parsed configuration from a listen string
+type ListenConfig struct {
+	Protocol string // "tcp" or "http"
+	Address  string // For TCP: the full host:port string
+	Port     string // For HTTP: the port number
+	BasePath string // For HTTP: the base path (e.g., "/mcp")
+}
+
+// ParseListenString parses a listen string into protocol, address/port, and base path
+func ParseListenString(listen string) (ListenConfig, error) {
+	if listen == "" {
+		return ListenConfig{}, fmt.Errorf("empty listen string")
+	}
+
+	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
+		// HTTP mode
+		url := listen
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			url = "http://" + url
+		}
+		// Parse URL to extract host, port, and path
+		if !strings.Contains(url, "://") {
+			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
+		}
+		parts := strings.SplitN(url, "://", 2)
+		if len(parts) != 2 {
+			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
+		}
+		hostAndPath := parts[1]
+		var hostPort, basePath string
+		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
+			hostPort = hostAndPath[:idx]
+			basePath = hostAndPath[idx:]
+		} else {
+			hostPort = hostAndPath
+			basePath = "/"
+		}
+		// Extract port from hostPort
+		var port string
+		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+			port = hostPort[idx+1:]
+		} else {
+			port = "80" // default HTTP port
+		}
+		return ListenConfig{
+			Protocol: "http",
+			Port:     port,
+			BasePath: basePath,
+		}, nil
+	} else {
+		// TCP mode (default)
+		return ListenConfig{
+			Protocol: "tcp",
+			Address:  listen,
+		}, nil
+	}
+}
+
 // JSONRPCRequest represents a JSON-RPC 2.0 request
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
