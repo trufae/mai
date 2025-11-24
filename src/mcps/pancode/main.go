@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	listen := flag.String("l", "", "listen host:port or http://host:port/path (optional) serve MCP over TCP or HTTP")
+	listen := flag.String("l", "", "listen host:port, http://host:port/path, or sse://host:port/path (optional) serve MCP over TCP, HTTP, or SSE")
 	workdirFlag := flag.String("workdir", "", "(optional) working directory for repository operations (or set PANCODE_WORKDIR)")
 	sandboxFlag := flag.String("sandboxdir", "", "(optional) sandbox directory for ephemeral files (or set PANCODE_SANDBOXDIR)")
 	listTools := flag.Bool("t", false, "list all available tools and exit")
@@ -80,6 +80,10 @@ func main() {
 		if config.Protocol == "http" {
 			if err := server.ServeHTTP(config.Port, config.BasePath, false, ""); err != nil {
 				log.Fatalln("ServeHTTP:", err)
+			}
+		} else if config.Protocol == "sse" {
+			if err := server.ServeSSE(config.Port, config.BasePath, false, ""); err != nil {
+				log.Fatalln("ServeSSE:", err)
 			}
 		} else {
 			// TCP mode (default)

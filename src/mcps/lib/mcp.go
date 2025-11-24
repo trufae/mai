@@ -14,10 +14,10 @@ import (
 
 // ListenConfig represents the parsed configuration from a listen string
 type ListenConfig struct {
-	Protocol string // "tcp" or "http"
+	Protocol string // "tcp", "http", or "sse"
 	Address  string // For TCP: the full host:port string
-	Port     string // For HTTP: the port number
-	BasePath string // For HTTP: the base path (e.g., "/mcp")
+	Port     string // For HTTP/SSE: the port number
+	BasePath string // For HTTP/SSE: the base path (e.g., "/mcp")
 }
 
 // ParseListenString parses a listen string into protocol, address/port, and base path
@@ -58,6 +58,35 @@ func ParseListenString(listen string) (ListenConfig, error) {
 		}
 		return ListenConfig{
 			Protocol: "http",
+			Port:     port,
+			BasePath: basePath,
+		}, nil
+	} else if strings.HasPrefix(listen, "sse://") {
+		// SSE mode
+		url := listen
+		// Parse URL to extract host, port, and path
+		parts := strings.SplitN(url, "://", 2)
+		if len(parts) != 2 {
+			return ListenConfig{}, fmt.Errorf("invalid SSE URL format")
+		}
+		hostAndPath := parts[1]
+		var hostPort, basePath string
+		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
+			hostPort = hostAndPath[:idx]
+			basePath = hostAndPath[idx:]
+		} else {
+			hostPort = hostAndPath
+			basePath = "/"
+		}
+		// Extract port from hostPort
+		var port string
+		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+			port = hostPort[idx+1:]
+		} else {
+			port = "80" // default HTTP port
+		}
+		return ListenConfig{
+			Protocol: "sse",
 			Port:     port,
 			BasePath: basePath,
 		}, nil
@@ -122,6 +151,7 @@ type MCPServer struct {
 	authEnabled       bool
 	authFile          string
 	authTokens        map[string]bool
+	sseConnections    map[string]chan JSONRPCResponse // SSE connection management
 }
 
 // ToolHandler is a function that handles a tool call
@@ -183,6 +213,7 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		reader:            bufio.NewScanner(os.Stdin),
 		writer:            os.Stdout,
 		bufr:              bufio.NewReader(os.Stdin),
+		sseConnections:    make(map[string]chan JSONRPCResponse),
 	}
 	if logfile := os.Getenv("MCPLIB_LOGFILE"); logfile != "" {
 		if err := s.SetLogFile(logfile); err != nil {
