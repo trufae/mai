@@ -36,26 +36,7 @@ func main() {
 	}
 
 	// Start the server - this will block until the server is stopped
-	if *listen != "" {
-		config, err := mcplib.ParseListenString(*listen)
-		if err != nil {
-			log.Fatalln("ParseListenString:", err)
-		}
-		if config.Protocol == "http" {
-			if err := server.ServeHTTP(config.Port, config.BasePath, false, ""); err != nil {
-				log.Fatalln("ServeHTTP:", err)
-			}
-		} else if config.Protocol == "sse" {
-			if err := server.ServeSSE(config.Port, config.BasePath, false, ""); err != nil {
-				log.Fatalln("ServeSSE:", err)
-			}
-		} else {
-			// TCP mode (default)
-			if err := server.ServeTCP(config.Address); err != nil {
-				log.Fatalln("ServeTCP:", err)
-			}
-		}
-	} else {
-		server.Start()
+	if err := server.ListenAndServe(*listen, false, ""); err != nil {
+		log.Fatalln("ListenAndServe:", err)
 	}
 }

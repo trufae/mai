@@ -68,6 +68,31 @@ func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, aut
 	return http.ListenAndServe(":"+port, nil)
 }
 
+// ListenAndServe starts the MCP server based on the listen string.
+// It supports TCP (default), HTTP, and SSE protocols.
+// For HTTP and SSE protocols, authEnabled and authFile control Bearer token authentication.
+func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile string) error {
+	if listen == "" {
+		// Default stdin/stdout mode
+		s.Start()
+		return nil
+	}
+
+	config, err := ParseListenString(listen)
+	if err != nil {
+		return err
+	}
+
+	switch config.Protocol {
+	case "http":
+		return s.ServeHTTP(config.Port, config.BasePath, authEnabled, authFile)
+	case "sse":
+		return s.ServeSSE(config.Port, config.BasePath, authEnabled, authFile)
+	default: // "tcp"
+		return s.ServeTCP(config.Address)
+	}
+}
+
 // sseHandler handles SSE connections
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	if s.authEnabled {
