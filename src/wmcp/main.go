@@ -473,15 +473,15 @@ func main() {
 	service.registerMCPRoutes(router)
 
 	// List all tools
-	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET")
+	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET", "OPTIONS")
 	// JSON list of all tools
-	router.HandleFunc("/tools/json", service.jsonToolsHandler).Methods("GET")
+	router.HandleFunc("/tools/json", service.jsonToolsHandler).Methods("GET", "OPTIONS")
 	// Quiet list of all tools
-	router.HandleFunc("/tools/quiet", service.quietToolsHandler).Methods("GET")
+	router.HandleFunc("/tools/quiet", service.quietToolsHandler).Methods("GET", "OPTIONS")
 	// Simple list of all tools (for small models)
-	router.HandleFunc("/tools/simple", service.simpleToolsHandler).Methods("GET")
+	router.HandleFunc("/tools/simple", service.simpleToolsHandler).Methods("GET", "OPTIONS")
 	// Markdown list of all tools
-	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET")
+	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET", "OPTIONS")
 
 	// Prompts endpoints
 	router.HandleFunc("/prompts", service.listPromptsHandler).Methods("GET")
@@ -498,14 +498,18 @@ func main() {
 	// Get service status
 	router.HandleFunc("/status", service.statusHandler).Methods("GET")
 
+	// OpenAPI specification
+	router.HandleFunc("/openapi.json", service.openapiHandler).Methods("GET", "OPTIONS")
+
 	// Call a specific tool (old endpoint for backward compatibility)
-	router.HandleFunc("/tools/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
+	router.HandleFunc("/tools/{server}/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
 	// Call a specific tool (new endpoint)
-	router.HandleFunc("/call/{tool}", service.callToolHandler).Methods("GET", "POST")
-	router.HandleFunc("/call/{server}/{tool}", service.callToolHandler).Methods("GET", "POST")
+	router.HandleFunc("/call/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
+	router.HandleFunc("/call/{server}/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
 
 	// Root endpoint with usage info
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("HTTP %s %s", r.Method, r.URL.String())
 		w.Header().Set("Content-Type", "text/plain")
 		usage := `# MCP REST Bridge
 

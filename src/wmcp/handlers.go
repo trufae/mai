@@ -23,10 +23,25 @@ func writeTextResponse(w http.ResponseWriter, content string) {
 	w.Write([]byte(content))
 }
 
+// setCORSHeaders sets CORS headers for responses
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call")
+}
+
 // HTTP Handlers
 
 // listToolsHandler returns all tools from all servers
 func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -58,6 +73,7 @@ func (s *MCPService) listToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 // listPromptsHandler returns all prompts from all servers
 func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -95,6 +111,7 @@ func (s *MCPService) listPromptsHandler(w http.ResponseWriter, r *http.Request) 
 
 // jsonPromptsHandler returns all prompts in JSON grouped by server
 func (s *MCPService) jsonPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -114,6 +131,7 @@ func (s *MCPService) jsonPromptsHandler(w http.ResponseWriter, r *http.Request) 
 
 // quietPromptsHandler returns all prompts in quiet format (just names)
 func (s *MCPService) quietPromptsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -284,6 +302,7 @@ func (s *MCPService) getPromptHandler(w http.ResponseWriter, r *http.Request) {
 
 // listResourcesHandler returns all resources from all servers
 func (s *MCPService) listResourcesHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -314,6 +333,7 @@ func (s *MCPService) listResourcesHandler(w http.ResponseWriter, r *http.Request
 
 // jsonResourcesHandler returns all resources in JSON format
 func (s *MCPService) jsonResourcesHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -377,6 +397,14 @@ func (s *MCPService) readResourceHandler(w http.ResponseWriter, r *http.Request)
 
 // jsonToolsHandler returns all tools from all servers in JSON format
 func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -412,6 +440,14 @@ func (s *MCPService) jsonToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 // simpleToolsHandler returns all tools in a very simple format for small models
 func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -468,6 +504,14 @@ func (s *MCPService) simpleToolsHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -544,6 +588,14 @@ func (s *MCPService) quietToolsHandler(w http.ResponseWriter, r *http.Request) {
 
 // markdownToolsHandler returns all tools from all servers in markdown format
 func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -627,6 +679,15 @@ func (s *MCPService) markdownToolsHandler(w http.ResponseWriter, r *http.Request
 
 // callToolHandler calls a specific tool on a specific server
 func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+	setCORSHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		// Return empty response for OPTIONS requests
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	vars := mux.Vars(r)
 	serverName := vars["server"]
 	toolName := vars["tool"]
@@ -661,9 +722,6 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	// Always log HTTP requests regardless of debug mode
-	log.Printf("HTTP %s %s - Server: %s, Tool: %s", r.Method, r.URL.String(), serverName, toolName)
 
 	// Parse arguments up front so they can be reused if the tool needs to be adjusted
 	arguments := make(map[string]interface{})
@@ -983,6 +1041,7 @@ func (s *MCPService) callToolHandler(w http.ResponseWriter, r *http.Request) {
 
 // statusHandler returns the status of all servers
 func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
@@ -1001,4 +1060,221 @@ func (s *MCPService) statusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeTextResponse(w, output.String())
+}
+
+// openapiHandler returns the OpenAPI specification
+func (s *MCPService) openapiHandler(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HTTP %s %s", r.Method, r.URL.String())
+
+	// Set CORS headers for all requests
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call")
+
+	if r.Method == "OPTIONS" {
+		// Return empty response for OPTIONS requests
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	spec := s.generateOpenAPISpec()
+	json.NewEncoder(w).Encode(spec)
+}
+
+// generateOpenAPISpec generates the OpenAPI specification dynamically
+func (s *MCPService) generateOpenAPISpec() map[string]interface{} {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	// Build simple description focusing on available tools
+	description := "MCP Server API\n\n"
+	description += "**Available Tools:**\n"
+
+	if len(s.servers) == 0 {
+		description += "- No tools currently available\n"
+	} else {
+		for _, server := range s.servers {
+			server.mutex.RLock()
+			for _, tool := range server.Tools {
+				description += fmt.Sprintf("- **%s**: %s\n", tool.Name, tool.Description)
+			}
+			server.mutex.RUnlock()
+		}
+	}
+
+	spec := map[string]interface{}{
+		"openapi": "3.1.0",
+		"info": map[string]interface{}{
+			"title":       "MCP Server API",
+			"description": description,
+			"version":     "1.0.0",
+		},
+		"servers": []map[string]interface{}{
+			{
+				"url":         "http://localhost:8989",
+				"description": "Local MCP server",
+			},
+		},
+		"paths":      s.generatePaths(),
+		"components": s.generateComponents(),
+	}
+
+	return spec
+}
+
+// generatePaths generates the paths section of the OpenAPI spec
+func (s *MCPService) generatePaths() map[string]interface{} {
+	paths := make(map[string]interface{})
+
+	// Tool calling endpoints - these are dynamic based on available tools
+	for serverName, server := range s.servers {
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			// Tool endpoint following tool server standard
+			path := fmt.Sprintf("/%s", tool.Name)
+			paths[path] = s.generateToolOperation(serverName, tool)
+		}
+		server.mutex.RUnlock()
+	}
+
+	return paths
+}
+
+// generateToolOperation generates an OpenAPI operation for a specific tool
+func (s *MCPService) generateToolOperation(serverName string, tool Tool) map[string]interface{} {
+	operation := map[string]interface{}{
+		"summary":     tool.Name,
+		"description": tool.Description,
+		"operationId": fmt.Sprintf("tool_%s_post", tool.Name),
+		"requestBody": map[string]interface{}{
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"$ref": fmt.Sprintf("#/components/schemas/%s_form_model", tool.Name),
+					},
+				},
+			},
+			"required": true,
+		},
+		"responses": map[string]interface{}{
+			"200": map[string]interface{}{
+				"description": "Successful Response",
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"title": fmt.Sprintf("Response Tool %s Post", tool.Name),
+						},
+					},
+				},
+			},
+			"422": map[string]interface{}{
+				"description": "Validation Error",
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{
+							"$ref": "#/components/schemas/HTTPValidationError",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return map[string]interface{}{
+		"post": operation,
+	}
+}
+
+// generateComponents generates the components section of the OpenAPI spec
+func (s *MCPService) generateComponents() map[string]interface{} {
+	components := map[string]interface{}{
+		"schemas": map[string]interface{}{
+			"HTTPValidationError": map[string]interface{}{
+				"properties": map[string]interface{}{
+					"detail": map[string]interface{}{
+						"items": map[string]interface{}{
+							"$ref": "#/components/schemas/ValidationError",
+						},
+						"type":  "array",
+						"title": "Detail",
+					},
+				},
+				"type":  "object",
+				"title": "HTTPValidationError",
+			},
+			"ValidationError": map[string]interface{}{
+				"properties": map[string]interface{}{
+					"loc": map[string]interface{}{
+						"items": map[string]interface{}{
+							"anyOf": []map[string]interface{}{
+								{"type": "string"},
+								{"type": "integer"},
+							},
+						},
+						"type":  "array",
+						"title": "Location",
+					},
+					"msg": map[string]interface{}{
+						"type":  "string",
+						"title": "Message",
+					},
+					"type": map[string]interface{}{
+						"type":  "string",
+						"title": "Error Type",
+					},
+				},
+				"type":     "object",
+				"required": []string{"loc", "msg", "type"},
+				"title":    "ValidationError",
+			},
+		},
+	}
+
+	// Add schemas for each tool
+	schemas := components["schemas"].(map[string]interface{})
+	for _, server := range s.servers {
+		server.mutex.RLock()
+		for _, tool := range server.Tools {
+			if len(tool.Parameters) > 0 {
+				properties := make(map[string]interface{})
+				required := []string{}
+
+				for _, param := range tool.Parameters {
+					paramSchema := map[string]interface{}{
+						"type":        param.Type,
+						"title":       strings.Title(strings.ReplaceAll(param.Name, "_", " ")),
+						"description": param.Description,
+					}
+
+					if param.Type == "array" {
+						paramSchema["items"] = map[string]interface{}{
+							"type": "string",
+						}
+					}
+
+					properties[param.Name] = paramSchema
+					if param.Required {
+						required = append(required, param.Name)
+					}
+				}
+
+				schema := map[string]interface{}{
+					"properties": properties,
+					"type":       "object",
+					"title":      fmt.Sprintf("%s_form_model", tool.Name),
+				}
+
+				if len(required) > 0 {
+					schema["required"] = required
+				}
+
+				schemas[fmt.Sprintf("%s_form_model", tool.Name)] = schema
+			}
+		}
+		server.mutex.RUnlock()
+	}
+
+	return components
 }
