@@ -506,6 +506,8 @@ func main() {
 	// Call a specific tool (new endpoint)
 	router.HandleFunc("/call/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
 	router.HandleFunc("/call/{server}/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
+	// Call a specific tool (OpenAPI-compatible endpoint)
+	router.HandleFunc("/v1/tool/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
 
 	// Root endpoint with usage info
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

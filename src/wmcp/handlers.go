@@ -1132,8 +1132,8 @@ func (s *MCPService) generatePaths() map[string]interface{} {
 	for serverName, server := range s.servers {
 		server.mutex.RLock()
 		for _, tool := range server.Tools {
-			// Tool endpoint following tool server standard
-			path := fmt.Sprintf("/%s", tool.Name)
+			// Tool endpoint under /v1/tool/ to avoid conflicts
+			path := fmt.Sprintf("/v1/tool/%s", tool.Name)
 			paths[path] = s.generateToolOperation(serverName, tool)
 		}
 		server.mutex.RUnlock()
