@@ -2,6 +2,7 @@ package mcplib
 
 import (
 	"encoding/json"
+	"os"
 	"fmt"
 	"strconv"
 	"strings"
@@ -66,20 +67,20 @@ func RunDSLTests(tools []Tool, dsl string) error {
 		// Execute the tool
 		result, err := handler(args)
 		if err != nil {
-			fmt.Printf("[DSL] %s -> ERROR: %v\n", toolName, err)
+			fmt.Fprintf(os.Stderr, "[DSL] %s -> ERROR: %v\n", toolName, err)
 			continue
 		}
 
 		// Print result
 		switch v := result.(type) {
 		case string:
-			fmt.Printf("[DSL] %s -> %s\n", toolName, v)
+			fmt.Println(v)
 		case map[string]interface{}:
 			if content, ok := v["content"]; ok {
 				if contentSlice, ok := content.([]interface{}); ok && len(contentSlice) > 0 {
 					if textMap, ok := contentSlice[0].(map[string]interface{}); ok {
 						if text, ok := textMap["text"].(string); ok {
-							fmt.Printf("[DSL] %s -> %s\n", toolName, text)
+							fmt.Println(text)
 							continue
 						}
 					}
@@ -87,15 +88,15 @@ func RunDSLTests(tools []Tool, dsl string) error {
 			}
 			// Fallback: marshal to JSON
 			if jsonData, err := json.MarshalIndent(v, "", "  "); err == nil {
-				fmt.Printf("[DSL] %s -> %s\n", toolName, string(jsonData))
+				fmt.Println(string(jsonData))
 			} else {
-				fmt.Printf("[DSL] %s -> %v\n", toolName, v)
+				fmt.Println(v)
 			}
 		default:
 			if jsonData, err := json.MarshalIndent(v, "", "  "); err == nil {
-				fmt.Printf("[DSL] %s -> %s\n", toolName, string(jsonData))
+				fmt.Println(string(jsonData))
 			} else {
-				fmt.Printf("[DSL] %s -> %v\n", toolName, v)
+				fmt.Println(v)
 			}
 		}
 	}
