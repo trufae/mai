@@ -154,6 +154,20 @@ func (p *MistralProvider) SendMessage(messages []Message, stream bool, images []
 		request.Temperature = 0.001
 	}
 
+	// Filter out assistant messages that have empty content and no tool calls,
+	// as Mistral requires assistant messages to have either content or tool_calls
+	filteredMessages := make([]Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Role == "assistant" {
+			contentStr, ok := msg.Content.(string)
+			if ok && contentStr == "" && len(msg.ToolCalls) == 0 {
+				continue // skip empty assistant messages
+			}
+		}
+		filteredMessages = append(filteredMessages, msg)
+	}
+	request.Messages = filteredMessages
+
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return "", err
