@@ -157,7 +157,11 @@ func (sm *ServerManager) Start() error {
 
 	// API endpoints
 	mux.HandleFunc("/v1/models", sm.handleModels)
+	mux.HandleFunc("/v1/complete", sm.handleAnthropicComplete)
+	mux.HandleFunc("/v1/messages", sm.handleAnthropicMessages)
+	mux.HandleFunc("/v1/messages/count_tokens", sm.handleAnthropicCountTokens)
 	mux.HandleFunc("/v1/chat/completions", sm.handleChatCompletions)
+	mux.HandleFunc("/api/event_logging/batch", sm.handleEventLogging)
 	mux.HandleFunc("/health", sm.handleHealth)
 
 	// Additional simplified endpoints
@@ -169,9 +173,32 @@ func (sm *ServerManager) Start() error {
 	mux.HandleFunc("/api/config/set", sm.handleSetConfig)
 	mux.HandleFunc("/api/models/", sm.handleGetProviderModels)
 
+	// Wrap mux with debug logging middleware that checks http.debug at request time.
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If repl is available and http.debug is enabled, log request details
+		if sm.repl != nil && sm.repl.configOptions.GetBool("http.debug") {
+			// Read and log request details and body
+			bodyBytes, _ := io.ReadAll(r.Body)
+			_ = r.Body.Close()
+			// Restore the body for downstream handlers
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			log.Printf("HTTP %s %s from %s", r.Method, r.URL.String(), r.RemoteAddr)
+			for name, vals := range r.Header {
+				log.Printf("Header: %s=%v", name, vals)
+			}
+			if len(bodyBytes) > 0 {
+				if len(bodyBytes) > 4096 {
+					log.Printf("Body (first 4096 bytes): %s", string(bodyBytes[:4096]))
+				} else {
+					log.Printf("Body: %s", string(bodyBytes))
+				}
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
 	sm.server = &http.Server{
 		Addr:    sm.listenAddr,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	// Start server in background
