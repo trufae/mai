@@ -91,6 +91,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("http.repl", BooleanOption, "Route / commands from web UI through REPL command system", "true")
 	co.RegisterOption("http.useragent", StringOption, "Custom user agent for HTTP requests", "mai-repl/1.0")
 	co.RegisterOption("http.wwwroot", StringOption, "Directory to serve static web files from", "")
+	co.RegisterOption("http.debug", BooleanOption, "Log incoming HTTP requests", "false")
 
 	// LLM interaction options
 	// co.RegisterOption("llm.agentfile", StringOption, "Filename to load agent instructions from current or parent directories (empty to disable)", "AGENTS.md")
