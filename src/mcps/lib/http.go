@@ -133,7 +133,7 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Send endpoint event
-	endpointEvent := fmt.Sprintf("event: endpoint\ndata: /mcp\n\n")
+	endpointEvent := "event: endpoint\ndata: /mcp\n\n"
 	if _, err := w.Write([]byte(endpointEvent)); err != nil {
 		return
 	}
@@ -180,7 +180,7 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -204,7 +204,7 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(respData)
+		_, _ = w.Write(respData)
 		return
 	}
 
@@ -247,7 +247,7 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -266,5 +266,5 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(respData)
+	_, _ = w.Write(respData)
 }

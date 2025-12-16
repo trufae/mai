@@ -432,12 +432,12 @@ func (s *MCPServer) ServeTCP(addr string) error {
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	conn, err := ln.Accept()
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	// Use the connection for both read/write
 	s.SetIO(conn, conn)
 	// This will block until the connection is closed
@@ -510,8 +510,9 @@ func (s *MCPServer) Start() {
 			continue
 		}
 		if s.logFile != nil && len(payload) > 0 {
-			s.logFile.Write(payload)
-			s.logFile.Write([]byte("\n"))
+			if _, err := s.logFile.Write(append(payload, '\n')); err != nil {
+				log.Printf("Failed to write to log file: %v", err)
+			}
 		}
 		var req JSONRPCRequest
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -680,8 +681,9 @@ func (s *MCPServer) sendResult(id interface{}, result interface{}) {
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result}
 	data, _ := json.Marshal(resp)
 	if s.logFile != nil {
-		s.logFile.Write(data)
-		s.logFile.Write([]byte("\n"))
+		if _, err := s.logFile.Write(append(data, '\n')); err != nil {
+			log.Printf("Failed to write to log file: %v", err)
+		}
 	}
 	s.writeFramed(data)
 }
@@ -692,8 +694,9 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &errObj}
 	data, _ := json.Marshal(resp)
 	if s.logFile != nil {
-		s.logFile.Write(data)
-		s.logFile.Write([]byte("\n"))
+		if _, err := s.logFile.Write(append(data, '\n')); err != nil {
+			log.Printf("Failed to write to log file: %v", err)
+		}
 	}
 	s.writeFramed(data)
 }
@@ -702,12 +705,12 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 func (s *MCPServer) writeFramed(data []byte) {
 	if s.useHeaders {
 		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-		io.WriteString(s.writer, header)
-		s.writer.Write(data)
+		_, _ = io.WriteString(s.writer, header)
+		_, _ = s.writer.Write(data)
 		return
 	}
 	// newline-delimited fallback
-	fmt.Fprintln(s.writer, string(data))
+	_, _ = fmt.Fprintln(s.writer, string(data))
 }
 
 // sendResponse sends a JSON-RPC response
@@ -719,8 +722,9 @@ func (s *MCPServer) sendResponse(resp JSONRPCResponse) {
 		return
 	}
 	if s.logFile != nil {
-		s.logFile.Write(data)
-		s.logFile.Write([]byte("\n"))
+		if _, err := s.logFile.Write(append(data, '\n')); err != nil {
+			log.Printf("Failed to write to log file: %v", err)
+		}
 	}
 	s.writeFramed(data)
 }
@@ -983,12 +987,12 @@ func (c *MCPClient) readNextMessage() ([]byte, error) {
 func (c *MCPClient) writeFramed(data []byte) {
 	if c.useHeaders {
 		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-		io.WriteString(c.writer, header)
-		c.writer.Write(data)
+		_, _ = io.WriteString(c.writer, header)
+		_, _ = c.writer.Write(data)
 		return
 	}
 	// newline-delimited fallback
-	fmt.Fprintln(c.writer, string(data))
+	_, _ = fmt.Fprintln(c.writer, string(data))
 }
 
 // ListResources sends the resources/list request and returns available resources
