@@ -326,7 +326,7 @@ func (p *templateParser) parseNodesUntil(endTags map[string]bool) ([]templateNod
 			}
 		}
 	}
-	if endTags != nil && len(endTags) > 0 {
+	if len(endTags) > 0 {
 		var expected []string
 		for tag := range endTags {
 			expected = append(expected, tag)

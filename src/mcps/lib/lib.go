@@ -531,7 +531,7 @@ func (s *MCPServer) readNextMessage() ([]byte, error) {
 			headers = append(headers, th)
 		}
 		// Find Content-Length (case-insensitive)
-		var n int = -1
+		var n = -1
 		for _, h := range headers {
 			parts := strings.SplitN(h, ":", 2)
 			if len(parts) != 2 {
@@ -826,7 +826,7 @@ func (c *MCPClient) readNextMessage() ([]byte, error) {
 			headers = append(headers, th)
 		}
 		// Find Content-Length
-		var n int = -1
+		var n = -1
 		for _, h := range headers {
 			parts := strings.SplitN(h, ":", 2)
 			if len(parts) != 2 {
