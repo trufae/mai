@@ -512,6 +512,15 @@ func main() {
 	// Root endpoint with usage info
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("HTTP %s %s", r.Method, r.URL.String())
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/plain")
 		usage := `# MCP REST Bridge
 
