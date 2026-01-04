@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -236,6 +237,104 @@ func (p *WikipediaSearchProvider) Search(query string) (*SearchResult, error) {
 	return result, nil
 }
 
+// SearxngSearchProvider implements SearchProvider for Searxng's search API
+type SearxngSearchProvider struct{}
+
+// Name returns the provider name
+func (p *SearxngSearchProvider) Name() string {
+	return "searxng"
+}
+
+// Search performs a web search using Searxng's API
+func (p *SearxngSearchProvider) Search(query string) (*SearchResult, error) {
+	// Default to localhost:8888 as per user example, but allow env override
+	apiURL := "http://localhost:8888/search"
+	if envURL := os.Getenv("SEARXNG_API_URL"); envURL != "" {
+		apiURL = envURL
+	}
+
+	// Prepare query parameters
+	params := url.Values{}
+	params.Add("q", query)
+	params.Add("format", "csv")
+
+	// Construct request URL
+	reqURL := fmt.Sprintf("%s?%s", apiURL, params.Encode())
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Add Accept header as per user example
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse CSV response
+	reader := csv.NewReader(resp.Body)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CSV response: %v", err)
+	}
+
+	result := &SearchResult{
+		Query:   query,
+		Results: []SearchItem{},
+	}
+
+	if len(records) < 2 {
+		// No results or just header
+		return result, nil
+	}
+
+	// Map headers to indices
+	headers := records[0]
+	headerMap := make(map[string]int)
+	for i, h := range headers {
+		headerMap[strings.ToLower(h)] = i
+	}
+
+	// Check for required headers
+	titleIdx, okTitle := headerMap["title"]
+	urlIdx, okUrl := headerMap["url"]
+	contentIdx, okContent := headerMap["content"]
+
+	if !okTitle || !okUrl {
+		return nil, fmt.Errorf("CSV response missing required headers (title, url)")
+	}
+
+	for _, record := range records[1:] {
+		// Ensure record has enough fields
+		if len(record) <= titleIdx || len(record) <= urlIdx {
+			continue
+		}
+
+		item := SearchItem{
+			Title: record[titleIdx],
+			URL:   record[urlIdx],
+		}
+
+		if okContent && len(record) > contentIdx {
+			item.Content = record[contentIdx]
+		}
+
+		result.Results = append(result.Results, item)
+	}
+
+	return result, nil
+}
+
 // WebSearchService handles web search operations
 type WebSearchService struct {
 	providers          map[string]SearchProvider
@@ -255,6 +354,7 @@ func NewWebSearchService(searchAllProviders bool) *WebSearchService {
 	service.providers["ollama"] = &OllamaSearchProvider{}
 	service.providers["duckduckgo"] = &DuckDuckGoSearchProvider{}
 	service.providers["wikipedia"] = &WikipediaSearchProvider{}
+	service.providers["searxng"] = &SearxngSearchProvider{}
 
 	return service
 }
@@ -293,6 +393,9 @@ func (s *WebSearchService) isProviderWorking(provider SearchProvider) bool {
 	case "wikipedia":
 		// Wikipedia doesn't require API keys
 		return true
+	case "searxng":
+		// Searxng doesn't require API keys (uses localhost or configured URL)
+		return true
 	default:
 		return false
 	}
@@ -311,7 +414,7 @@ func (s *WebSearchService) GetTools() []mcplib.Tool {
 
 	return []mcplib.Tool{
 		{
-			Name:        "WebSearch",
+			Name:        "web_search",
 			Description: "Performs a web search using the configured search provider and returns relevant results.",
 			InputSchema: map[string]any{
 				"type": "object",

@@ -14,6 +14,7 @@ func main() {
 	enableOllama := flag.Bool("ollama", false, "enable Ollama search provider")
 	enableDuckDuckGo := flag.Bool("duckduckgo", false, "enable DuckDuckGo search provider")
 	enableWikipedia := flag.Bool("wikipedia", false, "enable Wikipedia search provider")
+	enableSearxng := flag.Bool("searxng", false, "enable Searxng search provider")
 	allProviders := flag.Bool("all-providers", false, "search with all enabled providers instead of just the first one")
 	flag.Parse()
 
@@ -38,6 +39,12 @@ func main() {
 		}
 	}
 
+	if *enableSearxng {
+		if err := webSearchService.EnableProvider("searxng"); err != nil {
+			log.Fatalf("Failed to enable Searxng provider: %v", err)
+		}
+	}
+
 	// Check if any providers are enabled and working
 	enabledProviders := webSearchService.GetEnabledProviders()
 	if len(enabledProviders) == 0 {
@@ -46,7 +53,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -ollama: Enable Ollama search (requires OLLAMA_API_KEY environment variable)\n")
 		fmt.Fprintf(os.Stderr, "  -duckduckgo: Enable DuckDuckGo search (no API key required)\n")
 		fmt.Fprintf(os.Stderr, "  -wikipedia: Enable Wikipedia search (no API key required)\n")
-		fmt.Fprintf(os.Stderr, "\nExample: ./websearch -ollama -duckduckgo -wikipedia\n")
+		fmt.Fprintf(os.Stderr, "  -searxng: Enable Searxng search (requires Searxng instance at localhost:8888 or SEARXNG_API_URL)\n")
+		fmt.Fprintf(os.Stderr, "\nExample: ./websearch -ollama -duckduckgo -wikipedia -searxng\n")
 		os.Exit(1)
 	}
 
