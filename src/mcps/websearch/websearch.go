@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"mcplib"
 )
@@ -412,6 +415,8 @@ func (s *WebSearchService) GetTools() []mcplib.Tool {
 	providerEnum := make([]string, len(enabledProviders))
 	copy(providerEnum, enabledProviders)
 
+	forceEnum := []string{"plaintext", "rawhtml", "download"}
+
 	return []mcplib.Tool{
 		{
 			Name:        "web_search",
@@ -433,6 +438,27 @@ func (s *WebSearchService) GetTools() []mcplib.Tool {
 			},
 			UsageExamples: fmt.Sprintf("Example: {\"query\": \"what is ollama?\"} - Searches the web for information about Ollama\nExample: {\"query\": \"golang tutorials\", \"provider\": \"%s\"} - Searches using the specified provider", enabledProviders[0]),
 			Handler:       s.handleWebSearch,
+		},
+		{
+			Name:        "web_fetch",
+			Description: "Downloads content from a URL and processes it according to the specified mode. If HTML content is detected and plaintext mode is used, extracts only the text content from HTML tags. Binary files can be downloaded to temp directory.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{
+						"type":        "string",
+						"description": "The URL to fetch content from.",
+					},
+					"force": map[string]any{
+						"type":        "string",
+						"description": "Force behavior: 'plaintext' (extract text from HTML, default), 'rawhtml' (return HTML as-is), 'download' (save to temp directory).",
+						"enum":        forceEnum,
+					},
+				},
+				"required": []string{"url"},
+			},
+			UsageExamples: "Example: {\"url\": \"https://example.com\"} - Fetches and extracts text content\nExample: {\"url\": \"https://example.com\", \"force\": \"rawhtml\"} - Returns raw HTML\nExample: {\"url\": \"https://example.com/image.jpg\", \"force\": \"download\"} - Downloads file to temp directory",
+			Handler:       s.handleWebFetch,
 		},
 	}
 }
@@ -537,4 +563,158 @@ func (s *WebSearchService) searchWithAllProviders(query string, enabledProviders
 	}
 
 	return aggregatedResults, nil
+}
+
+// extractTextFromHTML extracts plain text content from HTML
+func extractTextFromHTML(htmlContent string) string {
+	// Remove script and style tags with their content
+	scriptRegex := regexp.MustCompile(`(?i)<(script|style)[^>]*>.*?</\1>`)
+	htmlContent = scriptRegex.ReplaceAllString(htmlContent, "")
+
+	// Remove HTML comments
+	commentRegex := regexp.MustCompile(`<!--.*?-->`)
+	htmlContent = commentRegex.ReplaceAllString(htmlContent, "")
+
+	// Remove remaining HTML tags
+	tagRegex := regexp.MustCompile(`<[^>]+>`)
+	htmlContent = tagRegex.ReplaceAllString(htmlContent, "")
+
+	// Normalize whitespace
+	whitespaceRegex := regexp.MustCompile(`\s+`)
+	htmlContent = whitespaceRegex.ReplaceAllString(htmlContent, " ")
+
+	// Trim leading/trailing whitespace
+	htmlContent = strings.TrimSpace(htmlContent)
+
+	return htmlContent
+}
+
+// isHTMLContentType checks if the content type is HTML
+func isHTMLContentType(contentType string) bool {
+	contentType = strings.ToLower(contentType)
+	return strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml")
+}
+
+// createTempFile creates a temporary file with the appropriate extension
+func createTempFile(filename string) (string, error) {
+	// Get temp directory
+	tempDir := os.TempDir()
+
+	// Extract extension from filename
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		ext = ".bin" // default extension for binary files
+	}
+
+	// Create temporary file with timestamp and random number
+	timestamp := time.Now().Unix()
+	tempFilename := fmt.Sprintf("webfetch_%d_%s%s", timestamp, strings.ReplaceAll(filename, " ", "_"), ext)
+	tempPath := filepath.Join(tempDir, tempFilename)
+
+	return tempPath, nil
+}
+
+// handleWebFetch handles the web_fetch tool call
+func (s *WebSearchService) handleWebFetch(args map[string]interface{}) (interface{}, error) {
+	urlStr, ok := args["url"].(string)
+	if !ok || urlStr == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+
+	// Parse force parameter, default to "plaintext"
+	force := "plaintext"
+	if forceArg, ok := args["force"].(string); ok && forceArg != "" {
+		force = strings.ToLower(forceArg)
+	}
+
+	// Validate force parameter
+	validForces := map[string]bool{"plaintext": true, "rawhtml": true, "download": true}
+	if !validForces[force] {
+		return nil, fmt.Errorf("invalid force parameter: %s. Must be one of: plaintext, rawhtml, download", force)
+	}
+
+	// Make HTTP request
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Get(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch URL: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP request failed with status %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	// Read response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	isHTML := isHTMLContentType(contentType)
+
+	// Handle based on force parameter and content type
+	switch force {
+	case "download":
+		// Save to temp file regardless of content type
+		filename := filepath.Base(urlStr)
+		if filename == "" || filename == "." || filename == "/" {
+			filename = "downloaded_file"
+		}
+
+		tempPath, err := createTempFile(filename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp file: %v", err)
+		}
+
+		err = os.WriteFile(tempPath, bodyBytes, 0644)
+		if err != nil {
+			return nil, fmt.Errorf("failed to write file: %v", err)
+		}
+
+		return map[string]interface{}{
+			"content": fmt.Sprintf("File downloaded to: %s", tempPath),
+			"path":    tempPath,
+			"type":    "download",
+		}, nil
+
+	case "rawhtml":
+		if isHTML {
+			return map[string]interface{}{
+				"content": string(bodyBytes),
+				"type":    "rawhtml",
+			}, nil
+		} else {
+			// Not HTML, treat as plaintext
+			content := string(bodyBytes)
+			return map[string]interface{}{
+				"content": content,
+				"type":    "plaintext",
+			}, nil
+		}
+
+	case "plaintext":
+		if isHTML {
+			// Extract text from HTML
+			textContent := extractTextFromHTML(string(bodyBytes))
+			return map[string]interface{}{
+				"content": textContent,
+				"type":    "plaintext",
+			}, nil
+		} else {
+			// Not HTML, return as-is
+			content := string(bodyBytes)
+			return map[string]interface{}{
+				"content": content,
+				"type":    "plaintext",
+			}, nil
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported force parameter: %s", force)
+	}
 }
