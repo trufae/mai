@@ -310,10 +310,10 @@ func showHelp() {
 -a <agent>       specify the agent to use
 -A               edit the ~/.config/mai/agents.json
 -b <url>         specify a custom base URL for API requests
- -c <key=value>   set configuration option
- -d               enable debug mode
- -e <text>        generate embeddings for text and output vectors
- -E               edit ~/.mairc file
+-c <key=value>   set configuration option
+-d               enable debug mode
+-e <text>        generate embeddings for text and output vectors
+-E               edit ~/.mairc file
 -h               show this help message
 -H               show environment variables help (same as -hh)
 -i <path>        attach an image to send to the model
