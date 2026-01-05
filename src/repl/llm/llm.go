@@ -417,6 +417,8 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 		return NewOpenAIProvider(config, ctx), nil
 	case "openai":
 		return NewOpenAIProvider(config, ctx), nil
+	case "openrouter":
+		return NewOpenRouterProvider(config, ctx), nil
 	case "claude":
 		return NewClaudeProvider(config, ctx), nil
 	case "gemini", "google":

@@ -91,6 +91,8 @@ func getEnvVarForProvider(provider string) string {
 		return "AWS_ACCESS_KEY_ID"
 	case "ollama":
 		return "OLLAMA_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
 	default:
 		return strings.ToUpper(provider) + "_API_KEY"
 	}

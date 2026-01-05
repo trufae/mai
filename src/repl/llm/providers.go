@@ -16,6 +16,7 @@ var providerCatalog = []ProviderInfo{
 	{Name: "lmstudio"},
 	{Name: "openai"},
 	{Name: "shimmy"},
+	{Name: "openrouter"},
 	{Name: "claude"},
 	{Name: "gemini", Aliases: []string{"google"}},
 	{Name: "mistral"},

@@ -278,7 +278,7 @@ func readInput(args []string) string {
 
 func showEnvHelp() {
 	fmt.Print(`
-MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | openapi]
+MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | openrouter | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | openapi]
 MAI_BASEURL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
 MAI_USERAGENT=[custom user agent string for HTTP requests]
 
