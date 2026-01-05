@@ -317,7 +317,11 @@ func (p *SearxngSearchProvider) Search(query string) (*SearchResult, error) {
 		return nil, fmt.Errorf("CSV response missing required headers (title, url)")
 	}
 
-	for _, record := range records[1:] {
+	for i, record := range records[1:] {
+		if i > 4 {
+			// take only the first 5 elements
+			break
+		}
 		// Ensure record has enough fields
 		if len(record) <= titleIdx || len(record) <= urlIdx {
 			continue
@@ -430,13 +434,13 @@ func (s *WebSearchService) GetTools() []mcplib.Tool {
 					},
 					"provider": map[string]any{
 						"type":        "string",
-						"description": "The search provider to use (optional, defaults to first enabled provider).",
+						"description": "Optional search provider to use",
 						"enum":        providerEnum,
 					},
 				},
 				"required": []string{"query"},
 			},
-			UsageExamples: fmt.Sprintf("Example: {\"query\": \"what is ollama?\"} - Searches the web for information about Ollama\nExample: {\"query\": \"golang tutorials\", \"provider\": \"%s\"} - Searches using the specified provider", enabledProviders[0]),
+			UsageExamples: fmt.Sprintf("Example: {\"query\": \"what is ollama?\"} - Searches the web for information about Ollama"),
 			Handler:       s.handleWebSearch,
 		},
 		{
@@ -486,20 +490,25 @@ func (s *WebSearchService) handleWebSearch(args map[string]interface{}) (interfa
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("provider '%s' is not enabled or not working", providerArg)
+			// Provider doesn't exist or isn't enabled - fallback to default behavior
+			// and log a warning instead of erroring
+			fmt.Fprintf(os.Stderr, "Warning: provider '%s' is not enabled or not working, falling back to default providers\n", providerArg)
+		} else {
+			provider, exists := s.providers[providerArg]
+			if !exists {
+				// This shouldn't happen since we checked enabledProviders, but handle gracefully
+				fmt.Fprintf(os.Stderr, "Warning: unknown search provider '%s', falling back to default providers\n", providerArg)
+			} else {
+				result, err := provider.Search(query)
+				if err != nil {
+					// Provider failed to search - fallback to default behavior
+					fmt.Fprintf(os.Stderr, "Warning: provider '%s' failed to search (%v), falling back to default providers\n", providerArg, err)
+				} else {
+					// Success - return the result
+					return result, nil
+				}
+			}
 		}
-
-		provider, exists := s.providers[providerArg]
-		if !exists {
-			return nil, fmt.Errorf("unknown search provider: %s", providerArg)
-		}
-
-		result, err := provider.Search(query)
-		if err != nil {
-			return nil, fmt.Errorf("search failed: %v", err)
-		}
-
-		return result, nil
 	}
 
 	// No specific provider requested - use configured behavior
