@@ -105,7 +105,7 @@ func (p *OpenRouterProvider) ListModels(ctx context.Context) ([]Model, error) {
 		if err := json.Unmarshal(body, &openaiResp); err == nil && len(openaiResp.Data) > 0 {
 			models := make([]Model, 0, len(openaiResp.Data))
 			for _, m := range openaiResp.Data {
-				models = append(models, Model{ID: m.ID, Name: m.ID, Provider: "openrouter", Description: "Owner: " + m.OwnedBy})
+				models = append(models, Model{ID: m.ID, Name: m.ID, Provider: "openrouter" })
 			}
 			return models, true
 		}
