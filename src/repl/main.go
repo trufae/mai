@@ -146,6 +146,13 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 	if config.UseMCP {
 		repl := &REPL{configOptions: *configOptions}
 		repl.currentClient = client
+		// Load MCP config and lazily start wmcp on first use
+		if err := repl.loadMCPConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load MCP config: %v\n", err)
+		}
+		if err := repl.ensureWMCPStarted(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to start wmcp: %v\n", err)
+		}
 		modifiedInput, err := repl.ReactLoop(messages, input)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "MCP error: %v\n", err)

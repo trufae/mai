@@ -591,6 +591,57 @@ func (r *REPL) restartMCPServer(name string) error {
 	return r.startMCPServer(name)
 }
 
+// ensureWMCPStarted lazily starts agent or daemon wmcp if not already running and mcp.use is enabled
+func (r *REPL) ensureWMCPStarted() error {
+	// Only auto-start if mcp.use is enabled
+	if !r.configOptions.GetBool("mcp.use") {
+		return nil
+	}
+
+	// If wmcp is already running, nothing to do
+	if r.wmcpProcess != nil {
+		return nil
+	}
+
+	// Try to start agent wmcp if configured
+	if r.agentConfig != nil && len(r.agentConfig.MCPS) > 0 {
+		if err := r.startAgentWMCP(); err != nil {
+			return fmt.Errorf("failed to start agent wmcp: %v", err)
+		}
+		return nil
+	}
+
+	// Try to start daemon wmcp if configured
+	if r.configOptions.GetBool("mcp.daemon") {
+		var wmcpArgs []string
+		if v := r.configOptions.Get("mcp.config"); v != "" {
+			wmcpArgs = []string{"-c", v}
+		} else if v := r.configOptions.Get("mcp.args"); v != "" {
+			wmcpArgs = parseShellArgs(v)
+		}
+
+		if len(wmcpArgs) > 0 {
+			listener, err := net.Listen("tcp", "localhost:0")
+			if err != nil {
+				return fmt.Errorf("error finding random port for wmcp: %v", err)
+			}
+			port := listener.Addr().(*net.TCPAddr).Port
+			listener.Close()
+			r.wmcpPort = port
+			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
+			os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
+			wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
+			cmd := exec.Command("mai-wmcp", wmcpArgs...)
+			if err := cmd.Start(); err != nil {
+				return fmt.Errorf("error starting wmcp: %v", err)
+			}
+			r.wmcpProcess = cmd
+		}
+	}
+
+	return nil
+}
+
 // startAgentWMCP starts mai-wmcp with agent-specific configuration
 func (r *REPL) startAgentWMCP() error {
 	// Build agent-specific config with only the required MCP servers
@@ -962,6 +1013,11 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	}
 
 	if r.configOptions.GetBool("mcp.use") {
+		// Lazily start wmcp on first use if not already running
+		if err := r.ensureWMCPStarted(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to start wmcp: %v\n", err)
+		}
+
 		StartTimer()
 		tool, err := r.ReactLoop(messages, input)
 		if err != nil {

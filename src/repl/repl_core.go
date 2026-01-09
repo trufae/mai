@@ -235,8 +235,9 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load MCP config: %v\n", err)
 	}
 
-	// Auto-start enabled MCP servers only if not running a single command
-	if repl.initialCommand == "" {
+	// Auto-start enabled MCP servers only if not running a single command and mcp.use is enabled
+	// Otherwise, defer starting until mcp.use is actually needed
+	if repl.initialCommand == "" && repl.configOptions.GetBool("mcp.use") {
 		// Start agent-specific MCP servers if agent is active
 		if repl.agentConfig != nil && len(repl.agentConfig.MCPS) > 0 {
 			// For agents, use wmcp with agent-specific config instead of individual servers
@@ -259,7 +260,8 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		}
 	}
 
-	if repl.configOptions.GetBool("mcp.daemon") {
+	// Only start mai-wmcp daemon if mcp.use is enabled
+	if repl.configOptions.GetBool("mcp.use") && repl.configOptions.GetBool("mcp.daemon") {
 		// Spawn mai-wmcp if mcp.config or mcp.args is set
 		var wmcpArgs []string
 		if v := repl.configOptions.Get("mcp.config"); v != "" {
