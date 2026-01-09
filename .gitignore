@@ -21,8 +21,6 @@ src/mcps/shell/mai-mcp-shell
 src/mcps/**/mai-mcp-*
 src/mcps/**/mytime
 src/mcps/**/mcppipe
-src/mcps/**/websearch
-src/mcps/**/websearch*
 
 # Go build cache for repl
 src/repl/.gocache/
