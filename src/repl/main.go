@@ -325,6 +325,7 @@ func showHelp() {
 -q               quit after running given actions
 -r <command>     execute command and enter REPL (allows piping input)
 -s <string>      send string directly to AI (can be used multiple times)
+-S <string>      set the system prompt string
 -t               enable tools processing
 -tt              enable tools processing with mcp.grammar=false
 -T <dsl>         execute DSL commands using tools
@@ -767,6 +768,15 @@ func main() {
 				i--
 			} else {
 				fmt.Fprintf(os.Stderr, "Error: -s requires a string argument\n")
+				os.Exit(1)
+			}
+		case "-S":
+			if i+1 < len(args) {
+				configOptions.Set("llm.systemprompt", args[i+1])
+				args = append(args[:i], args[i+2:]...)
+				i--
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: -S requires a system prompt string argument\n")
 				os.Exit(1)
 			}
 		case "-v":
