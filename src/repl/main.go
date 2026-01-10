@@ -837,8 +837,7 @@ func main() {
 		}
 
 		for _, scriptString := range scriptStrings {
-			fmt.Printf("Sending to AI: %s\n", scriptString)
-
+			// fmt.Printf("Sending to AI: %s\n", scriptString)
 			// Prepare messages from the string
 			messages := llm.PrepareMessages(scriptString, config)
 
