@@ -5,10 +5,15 @@ EXE = $(if $(filter windows,${GOOS}),.exe,)
 
 SOURCES = $(wildcard *.go)
 
+BUILD_TAGS ?=
+ifneq ($(GO_TAGS),)
+    BUILD_TAGS = -tags=$(GO_TAGS)
+endif
+
 all: mai-bot${EXE}
 
 mai-bot${EXE}: $(SOURCES)
-	go build -o $@
+	go build $(BUILD_TAGS) -o $@
 
 clean:
 	rm -f mai-bot${EXE}

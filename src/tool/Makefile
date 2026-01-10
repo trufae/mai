@@ -7,10 +7,15 @@ BIN=mai-tool
 
 SOURCES = $(wildcard *.go)
 
+BUILD_TAGS ?=
+ifneq ($(GO_TAGS),)
+    BUILD_TAGS = -tags=$(GO_TAGS)
+endif
+
 all: $(BIN)${EXE}
 
 $(BIN)${EXE}: $(SOURCES)
-	go build -o $@ .
+	go build $(BUILD_TAGS) -o $@ .
 
 clean:
 	rm -f $(BIN)${EXE}

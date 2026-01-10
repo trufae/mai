@@ -578,7 +578,7 @@ func main() {
 			i--
 		case "-N":
 			// Disable chat replies
-			configOptions.Set("chat.replies", "never")
+			configOptions.Set("chat.log", "never")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-t":

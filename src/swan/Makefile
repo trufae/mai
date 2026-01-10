@@ -2,12 +2,17 @@ include ../../config.mk
 BINARY_NAME=mai-swan
 BUILD_DIR=./cmd
 
+BUILD_TAGS ?=
+ifneq ($(GO_TAGS),)
+    BUILD_TAGS = -tags=$(GO_TAGS)
+endif
+
 .PHONY: all build clean fmt test
 
 all: build
 
 build:
-	go build -o $(BINARY_NAME) $(BUILD_DIR)
+	go build $(BUILD_TAGS) -o $(BINARY_NAME) $(BUILD_DIR)
 
 run:
 	-pkill mai-swan
