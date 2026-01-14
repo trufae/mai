@@ -36,6 +36,8 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 		apiKey = GetAPIKey("openai")
 	case "ollamacloud":
 		apiKey = GetAPIKey("ollamacloud")
+	case "opencode":
+		apiKey = GetAPIKey("opencode")
 	}
 
 	// Local OpenAI-compatible servers (LM Studio, shimmy) do not require auth.
@@ -53,6 +55,10 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 	case "ollamacloud":
 		if config.BaseURL == "" {
 			config.BaseURL = "https://ollama.com/v1"
+		}
+	case "opencode":
+		if config.BaseURL == "" {
+			config.BaseURL = "https://opencode.ai/zen/v1"
 		}
 	}
 	return &OpenAIProvider{
@@ -72,6 +78,8 @@ func (p *OpenAIProvider) GetName() string {
 		return "Shimmy"
 	case "ollamacloud":
 		return "OllamaCloud"
+	case "opencode":
+		return "OpenCode"
 	default:
 		return "OpenAI"
 	}
@@ -84,6 +92,11 @@ func (p *OpenAIProvider) DefaultModel() string {
 			return v
 		}
 		return "gpt-oss:20b"
+	case "opencode":
+		if v := os.Getenv("OPENCODE_MODEL"); v != "" {
+			return v
+		}
+		return "big-pickle"
 	case "lmstudio", "shimmy":
 		return "local-model"
 	default:
@@ -96,7 +109,7 @@ func (p *OpenAIProvider) DefaultModel() string {
 
 func (p *OpenAIProvider) IsAvailable() bool {
 	switch strings.ToLower(p.config.PROVIDER) {
-	case "openai", "ollamacloud":
+	case "openai", "ollamacloud", "opencode":
 		// Remote providers: just check API key
 		return p.apiKey != ""
 	case "lmstudio", "shimmy":

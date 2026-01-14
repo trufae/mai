@@ -285,7 +285,7 @@ func readInput(args []string) string {
 
 func showEnvHelp() {
 	fmt.Print(`
-MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | openrouter | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | openapi]
+MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | openrouter | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | opencode | openapi]
 MAI_BASEURL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
 MAI_USERAGENT=[custom user agent string for HTTP requests]
 
@@ -301,6 +301,7 @@ OPENAI_API_KEY=(or set in ~/.config/mai/keys/openai)
 CLAUDE_API_KEY=(or set in ~/.config/mai/keys/anthropic)
 DEEPSEEK_API_KEY=(or set in ~/.config/mai/keys/deepseek)
 MISTRAL_API_KEY=(or set in ~/.config/mai/keys/mistral)
+OPENCODE_API_KEY=(or set in ~/.config/mai/keys/opencode)
 
 Model Selection:
 
@@ -308,6 +309,7 @@ MAI_MODEL=[global model override]
 OPENAI_MODEL=o4-mini
 CLAUDE_MODEL=claude-3-5-sonnet-20241022
 MISTRAL_MODEL=mistral-large-latest
+OPENCODE_MODEL=big-pickle
 `)
 }
 func showHelp() {
@@ -993,7 +995,7 @@ func editAPIKeysFile() {
 
 	// Check if file exists, if not create with sample content
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		sampleContent := "# API Keys configuration file\n# Format: provider=key\n# Provider names are case-insensitive\n#\n#openai=yourapikeyhere\n#ollamacloud=yourapikeyhere\n"
+		sampleContent := "# API Keys configuration file\n# Format: provider=key\n# Provider names are case-insensitive\n#\n#openai=yourapikeyhere\n#ollamacloud=yourapikeyhere\n#opencode=yourapikeyhere\n"
 		if err := os.WriteFile(filePath, []byte(sampleContent), 0600); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating apikeys.txt: %v\n", err)
 			os.Exit(1)

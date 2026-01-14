@@ -24,6 +24,7 @@ var providerCatalog = []ProviderInfo{
 	{Name: "bedrock", Aliases: []string{"aws"}},
 	{Name: "xai"},
 	{Name: "ollamacloud"},
+	{Name: "opencode"},
 	{Name: "openapi"},
 	{Name: "llamacli"},
 }
