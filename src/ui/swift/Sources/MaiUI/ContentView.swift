@@ -197,8 +197,7 @@ struct ContentView: View {
              } else if selectedTab == "Tools" {
                  ToolsView()
              } else if selectedTab == "Prompts" {
-                Text("Prompts")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                PromptsView(mcpClient: mcpClient)
             } else if selectedTab == "Sessions" {
                 Text("Sessions")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
