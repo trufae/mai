@@ -526,8 +526,10 @@ func StartMCPServer(repl *REPL) {
 	// Create MCP server
 	server := mcplib.NewMCPServer(tools)
 
-	// Register streaming tool handler for send_message
-	server.RegisterStreamingTool("send_message", sendMessageStreamingHandler(repl))
+	// Note: Streaming handler removed to prevent "Streaming not supported over HTTP" error
+	// server.RegisterStreamingTool("send_message", sendMessageStreamingHandler(repl))
+
+	server.RegisterTool("send_message", sendMessageDSLHandler(repl))
 
 	server.RegisterTool("get_config", func(args map[string]interface{}) (interface{}, error) {
 		key, ok := args["key"].(string)

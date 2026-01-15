@@ -14,6 +14,7 @@ import SwiftUI
 struct ContentView: View {
     @AppStorage("aiProvider") private var aiProvider = "openai"
     @AppStorage("aiModel") private var aiModel = "gpt-4"
+    @AppStorage("aiStreaming") private var aiStreaming = false
     @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isWaitingForResponse = false
@@ -323,7 +324,7 @@ struct ContentView: View {
                 }
                 print("ContentView.sendMessage calling tool on MCP")
                 let response = try await mcpClient.callTool(
-                    "send_message", arguments: ["message": text, "stream": false]
+                    "send_message", arguments: ["message": text, "stream": aiStreaming]
                 )
                 await MainActor.run {
                     print("ContentView.sendMessage received response: \(response)")

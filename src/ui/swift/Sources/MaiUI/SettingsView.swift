@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("aiModel") private var aiModel = "gpt-4"
     @AppStorage("theme") private var theme = "system"
     @AppStorage("aiBaseURL") private var aiBaseURL = ""
+    @AppStorage("aiStreaming") private var aiStreaming = false
     @State private var aiDeterministic = false
 
     @State private var models: [ModelInfo] = []
@@ -58,6 +59,12 @@ struct SettingsView: View {
                     .onChange(of: aiDeterministic) { newValue in
                         print("SettingsView: Deterministic changed to \(newValue)")
                         Task { await setDeterministic(newValue) }
+                    }
+
+                Toggle("Streaming", isOn: $aiStreaming)
+                    .onChange(of: aiStreaming) { newValue in
+                        print("SettingsView: Streaming changed to \(newValue)")
+                        // Note: Streaming is handled locally, no need to send to server
                     }
             }
 
