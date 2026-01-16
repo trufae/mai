@@ -327,24 +327,20 @@ func (r *REPL) Run() error {
 		}
 	}
 
-	// Restore only CLI-provided options (they have priority over rc file)
+	// Set MAI_PROVIDER/MAI_MODEL environment variables (honor after loading mairc file)
+	if provider := os.Getenv("MAI_PROVIDER"); provider != "" {
+		r.configOptions.Set("ai.provider", provider)
+	}
+	if model := os.Getenv("MAI_MODEL"); model != "" {
+		r.configOptions.Set("ai.model", model)
+	}
+
+	// Restore only CLI-provided options (they have priority over rc file and env vars)
 	if haveCLModel {
 		r.configOptions.Set("ai.model", cmdLineModel)
 	}
 	if haveCLProvider {
 		r.configOptions.Set("ai.provider", cmdLineProvider)
-	}
-
-	// Set MAI_PROVIDER/MAI_MODEL if not set by rc file or command line
-	if r.configOptions.Get("ai.provider") == "" {
-		if provider := os.Getenv("MAI_PROVIDER"); provider != "" {
-			r.configOptions.Set("ai.provider", provider)
-		}
-	}
-	if r.configOptions.Get("ai.model") == "" {
-		if model := os.Getenv("MAI_MODEL"); model != "" {
-			r.configOptions.Set("ai.model", model)
-		}
 	}
 
 	// Execute initial command if provided
