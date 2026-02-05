@@ -95,44 +95,47 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 
 // sseHandler handles SSE connections
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
-	if s.authEnabled {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+	var internalToken string
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		if s.authEnabled && !s.authTokens[rawToken] {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if !s.authTokens[token] {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		var err error
+		internalToken, err = s.authenticate(rawToken)
+		if err != nil {
+			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
+	} else if s.authEnabled {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
-	// Get session ID from query parameter
 	sessionID := r.URL.Query().Get("sessionId")
 	if sessionID == "" {
 		http.Error(w, "Missing sessionId parameter", http.StatusBadRequest)
 		return
 	}
 
-	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
 
-	// Create a channel for this connection
 	respChan := make(chan JSONRPCResponse, 100)
 	s.sseConnections[sessionID] = respChan
+	s.sseSessions[sessionID] = &sseSession{apiToken: internalToken, respChan: respChan}
 
-	// Clean up on disconnect
 	defer func() {
 		delete(s.sseConnections, sessionID)
+		delete(s.sseSessions, sessionID)
 		close(respChan)
 	}()
 
-	// Send endpoint event
 	endpointEvent := "event: endpoint\ndata: /mcp\n\n"
 	if _, err := w.Write([]byte(endpointEvent)); err != nil {
 		return
@@ -141,7 +144,6 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
-	// Listen for responses to send
 	for resp := range respChan {
 		respData, err := json.Marshal(resp)
 		if err != nil {
@@ -163,18 +165,27 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.authEnabled {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+
+	ctx := r.Context()
+	var internalToken string
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		if s.authEnabled && !s.authTokens[rawToken] {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if !s.authTokens[token] {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		var err error
+		internalToken, err = s.authenticate(rawToken)
+		if err != nil {
+			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
+	} else if s.authEnabled {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -187,13 +198,13 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get session ID from header
 	sessionID := r.Header.Get("X-SSE-Session-ID")
 	if sessionID == "" {
-		// For non-SSE requests, respond directly
-		resp := s.processRequest(req)
+		if internalToken != "" {
+			ctx = WithAPIToken(ctx, internalToken)
+		}
+		resp := s.processRequestWithContext(ctx, req)
 		if resp.ID == nil {
-			// Notification, no response
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -208,19 +219,23 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For SSE connections, send response through the channel
-	resp := s.processRequest(req)
+	session, exists := s.sseSessions[sessionID]
+	if exists && session.apiToken != "" {
+		ctx = WithAPIToken(ctx, session.apiToken)
+	} else if internalToken != "" {
+		ctx = WithAPIToken(ctx, internalToken)
+	}
+
+	resp := s.processRequestWithContext(ctx, req)
 	if resp.ID != nil {
 		if respChan, exists := s.sseConnections[sessionID]; exists {
 			select {
 			case respChan <- resp:
 			default:
-				// Channel full, drop the response
 			}
 		}
 	}
 
-	// Acknowledge the request
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -230,18 +245,26 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.authEnabled {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+
+	ctx := r.Context()
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		if s.authEnabled && !s.authTokens[rawToken] {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if !s.authTokens[token] {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		internalToken, err := s.authenticate(rawToken)
+		if err != nil {
+			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
+		ctx = WithAPIToken(ctx, internalToken)
+	} else if s.authEnabled {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -253,9 +276,8 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	resp := s.processRequest(req)
+	resp := s.processRequestWithContext(ctx, req)
 	if resp.ID == nil {
-		// Notification, no response
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

@@ -2,6 +2,7 @@ package mcplib
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -135,27 +136,48 @@ type ToolCallParams struct {
 	Arguments map[string]interface{} `json:"arguments"`
 }
 
-// MCPServer represents an MCP server that can handle requests
-type MCPServer struct {
-	tools             []ToolDefinition
-	toolHandlers      map[string]ToolHandler
-	streamingHandlers map[string]StreamingToolHandler
-	reader            *bufio.Scanner
-	writer            io.Writer
-	prompts           []PromptDefinition
-	resources         []ResourceDefinition
-	resourceHandlers  map[string]ResourceHandler
-	logFile           io.Writer
-	bufr              *bufio.Reader
-	useHeaders        bool
-	authEnabled       bool
-	authFile          string
-	authTokens        map[string]bool
-	sseConnections    map[string]chan JSONRPCResponse // SSE connection management
+// sseSession holds per-session data including the API token
+type sseSession struct {
+	apiToken string
+	respChan chan JSONRPCResponse
 }
 
-// ToolHandler is a function that handles a tool call
+// MCPServer represents an MCP server that can handle requests
+type MCPServer struct {
+	tools               []ToolDefinition
+	toolHandlers        map[string]ToolHandler
+	toolHandlersWithCtx map[string]ToolHandlerWithContext
+	streamingHandlers   map[string]StreamingToolHandler
+	reader              *bufio.Scanner
+	writer              io.Writer
+	prompts             []PromptDefinition
+	resources           []ResourceDefinition
+	resourceHandlers    map[string]ResourceHandler
+	logFile             io.Writer
+	bufr                *bufio.Reader
+	useHeaders          bool
+	authEnabled         bool
+	authFile            string
+	authTokens          map[string]bool
+	sseConnections      map[string]chan JSONRPCResponse // SSE connection management
+	sseSessions         map[string]*sseSession          // SSE session data (token per session)
+	currentCtx          context.Context                 // Current request context (for stdio mode)
+	authenticator       AuthenticatorFunc               // Optional token validator/transformer
+}
+
+// ToolHandler is a function that handles a tool call (legacy, no context)
 type ToolHandler func(args map[string]interface{}) (interface{}, error)
+
+// ToolHandlerWithContext is a function that handles a tool call with context
+type ToolHandlerWithContext func(ctx context.Context, args map[string]interface{}) (interface{}, error)
+
+// AuthenticatorFunc is a callback that validates/transforms an incoming bearer token.
+// It receives the raw token from the Authorization header and should return:
+// - (internalToken, nil) on success: internalToken will be stored in context
+// - ("", error) on failure: request will be rejected with 401
+// This allows custom authentication logic (e.g., validating against external service,
+// exchanging public tokens for internal tokens, etc.)
+type AuthenticatorFunc func(token string) (string, error)
 
 // ToolCallResult is a convenience type for handlers to return structured content
 type ToolCallResult struct {
@@ -206,14 +228,18 @@ type Resource struct {
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {
 	s := &MCPServer{
-		tools:             tools,
-		toolHandlers:      make(map[string]ToolHandler),
-		streamingHandlers: make(map[string]StreamingToolHandler),
-		resourceHandlers:  make(map[string]ResourceHandler),
-		reader:            bufio.NewScanner(os.Stdin),
-		writer:            os.Stdout,
-		bufr:              bufio.NewReader(os.Stdin),
-		sseConnections:    make(map[string]chan JSONRPCResponse),
+		tools:               tools,
+		toolHandlers:        make(map[string]ToolHandler),
+		toolHandlersWithCtx: make(map[string]ToolHandlerWithContext),
+		streamingHandlers:   make(map[string]StreamingToolHandler),
+		resourceHandlers:    make(map[string]ResourceHandler),
+		reader:              bufio.NewScanner(os.Stdin),
+		writer:              os.Stdout,
+		bufr:                bufio.NewReader(os.Stdin),
+		resources:           make([]ResourceDefinition, 0),
+		sseConnections:      make(map[string]chan JSONRPCResponse),
+		sseSessions:         make(map[string]*sseSession),
+		currentCtx:          context.Background(),
 	}
 	if logfile := os.Getenv("MCPLIB_LOGFILE"); logfile != "" {
 		if err := s.SetLogFile(logfile); err != nil {
@@ -445,9 +471,38 @@ func (s *MCPServer) ServeTCP(addr string) error {
 	return nil
 }
 
-// RegisterTool registers a tool handler for a specific tool name
+// RegisterTool registers a tool handler for a specific tool name (legacy, no context)
 func (s *MCPServer) RegisterTool(name string, handler ToolHandler) {
 	s.toolHandlers[name] = handler
+}
+
+// RegisterToolWithContext registers a context-aware tool handler for a specific tool name
+func (s *MCPServer) RegisterToolWithContext(name string, handler ToolHandlerWithContext) {
+	s.toolHandlersWithCtx[name] = handler
+}
+
+// SetContext sets the default context for stdio mode (used to inject env token)
+func (s *MCPServer) SetContext(ctx context.Context) {
+	s.currentCtx = ctx
+}
+
+// SetAuthenticator sets a custom authentication callback that validates/transforms
+// incoming bearer tokens. The callback receives the raw token and returns either:
+// - (internalToken, nil): the internalToken is stored in context for tool handlers
+// - ("", error): the request is rejected with 401 Unauthorized
+// This enables custom auth flows like validating against external services or
+// exchanging public tokens for internal API tokens.
+func (s *MCPServer) SetAuthenticator(fn AuthenticatorFunc) {
+	s.authenticator = fn
+}
+
+// authenticate validates/transforms a token using the authenticator callback.
+// If no authenticator is set, returns the token unchanged.
+func (s *MCPServer) authenticate(token string) (string, error) {
+	if s.authenticator == nil {
+		return token, nil
+	}
+	return s.authenticator(token)
 }
 
 // RegisterStreamingTool registers a streaming tool handler for a specific tool name
@@ -462,6 +517,11 @@ func (s *MCPServer) RegisterResource(uri string, handler ResourceHandler) {
 
 // SetResources configures the server's available resources
 func (s *MCPServer) SetResources(resources []ResourceDefinition) {
+	if resources == nil {
+		// Never store nil; keep it as an empty slice so it encodes to [] not null
+		s.resources = make([]ResourceDefinition, 0)
+		return
+	}
 	s.resources = resources
 }
 
@@ -1020,6 +1080,11 @@ func (s *MCPServer) SetPrompts(prompts []PromptDefinition) {
 
 // processRequest processes a JSON-RPC request and returns the response
 func (s *MCPServer) processRequest(req JSONRPCRequest) JSONRPCResponse {
+	return s.processRequestWithContext(s.currentCtx, req)
+}
+
+// processRequestWithContext processes a JSON-RPC request with context and returns the response
+func (s *MCPServer) processRequestWithContext(ctx context.Context, req JSONRPCRequest) JSONRPCResponse {
 	switch req.Method {
 	case "initialize":
 		var initParams struct {
@@ -1064,7 +1129,7 @@ func (s *MCPServer) processRequest(req JSONRPCRequest) JSONRPCResponse {
 			},
 		}
 	case "tools/call":
-		return s.processCall(req)
+		return s.processCallWithContext(ctx, req)
 	case "prompts/list":
 		return s.processPromptsList(req)
 	case "prompts/get":
@@ -1089,6 +1154,11 @@ func (s *MCPServer) processRequest(req JSONRPCRequest) JSONRPCResponse {
 
 // processCall handles a tools/call request
 func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
+	return s.processCallWithContext(s.currentCtx, req)
+}
+
+// processCallWithContext handles a tools/call request with context
+func (s *MCPServer) processCallWithContext(ctx context.Context, req JSONRPCRequest) JSONRPCResponse {
 	var params ToolCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return JSONRPCResponse{
@@ -1105,6 +1175,12 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 			Error:   &RPCError{Code: -32000, Message: "Streaming not supported over HTTP"},
 		}
 	}
+	// Check context-aware handler first
+	if handlerCtx, exists := s.toolHandlersWithCtx[params.Name]; exists {
+		result, err := handlerCtx(ctx, params.Arguments)
+		return s.formatToolResult(req.ID, result, err)
+	}
+	// Fall back to legacy handler
 	handler, exists := s.toolHandlers[params.Name]
 	if !exists {
 		return JSONRPCResponse{
@@ -1114,10 +1190,15 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 		}
 	}
 	result, err := handler(params.Arguments)
+	return s.formatToolResult(req.ID, result, err)
+}
+
+// formatToolResult formats the tool result into a JSON-RPC response
+func (s *MCPServer) formatToolResult(id interface{}, result interface{}, err error) JSONRPCResponse {
 	if err != nil {
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
-			ID:      req.ID,
+			ID:      id,
 			Error:   &RPCError{Code: -32000, Message: err.Error()},
 		}
 	}
@@ -1125,7 +1206,7 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 	case string:
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
-			ID:      req.ID,
+			ID:      id,
 			Result: map[string]interface{}{
 				"content": []interface{}{map[string]interface{}{"type": "text", "text": v}},
 				"isError": false,
@@ -1138,7 +1219,7 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 		}
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
-			ID:      req.ID,
+			ID:      id,
 			Result:  out,
 		}
 	case map[string]interface{}:
@@ -1148,14 +1229,14 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 			}
 			return JSONRPCResponse{
 				JSONRPC: "2.0",
-				ID:      req.ID,
+				ID:      id,
 				Result:  v,
 			}
 		}
 		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
 			return JSONRPCResponse{
 				JSONRPC: "2.0",
-				ID:      req.ID,
+				ID:      id,
 				Result: map[string]interface{}{
 					"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
 					"isError": false,
@@ -1164,7 +1245,7 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 		}
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
-			ID:      req.ID,
+			ID:      id,
 			Result: map[string]interface{}{
 				"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
 				"isError": false,
@@ -1174,7 +1255,7 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
 			return JSONRPCResponse{
 				JSONRPC: "2.0",
-				ID:      req.ID,
+				ID:      id,
 				Result: map[string]interface{}{
 					"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
 					"isError": false,
@@ -1183,7 +1264,7 @@ func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
 		}
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
-			ID:      req.ID,
+			ID:      id,
 			Result: map[string]interface{}{
 				"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
 				"isError": false,
