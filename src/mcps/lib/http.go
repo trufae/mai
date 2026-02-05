@@ -97,8 +97,11 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	var internalToken string
 	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+	if authHeader == "" {
+		authHeader = r.Header.Get("Authentication")
+	}
+	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		rawToken := authHeader[7:]
 		if s.authEnabled && !s.authTokens[rawToken] {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -173,8 +176,11 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var internalToken string
 	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+	if authHeader == "" {
+		authHeader = r.Header.Get("Authentication")
+	}
+	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		rawToken := authHeader[7:]
 		if s.authEnabled && !s.authTokens[rawToken] {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -268,19 +274,39 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+	if authHeader == "" {
+		authHeader = r.Header.Get("Authentication")
+	}
+	hasToken := false
+	tokenPreview := ""
+	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		rawToken := authHeader[7:]
+		hasToken = true
+		if len(rawToken) > 8 {
+			tokenPreview = rawToken[:4] + "..." + rawToken[len(rawToken)-4:]
+		} else if len(rawToken) > 0 {
+			tokenPreview = rawToken[:1] + "..."
+		}
 		if s.authEnabled && !s.authTokens[rawToken] {
+			if s.verbose {
+				log.Printf("[HTTP] Unauthorized: token not in auth list")
+			}
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		internalToken, err := s.authenticate(rawToken)
 		if err != nil {
+			if s.verbose {
+				log.Printf("[HTTP] Unauthorized: %v", err)
+			}
 			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
 		ctx = WithAPIToken(ctx, internalToken)
 	} else if s.authEnabled {
+		if s.verbose {
+			log.Printf("[HTTP] Unauthorized: no Bearer token provided")
+		}
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -296,6 +322,44 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
+
+	if s.verbose {
+		authInfo := "no-token"
+		fullToken := ""
+		if hasToken {
+			authInfo = "token=" + tokenPreview
+			fullToken = authHeader[7:]
+		} else if authHeader != "" {
+			authInfo = fmt.Sprintf("invalid-auth-header=%q", authHeader)
+		}
+		toolName := ""
+		toolArgs := ""
+		if req.Method == "tools/call" && req.Params != nil {
+			var params struct {
+				Name      string         `json:"name"`
+				Arguments map[string]any `json:"arguments"`
+			}
+			if paramsBytes, err := json.Marshal(req.Params); err == nil {
+				if json.Unmarshal(paramsBytes, &params) == nil {
+					toolName = params.Name
+					if params.Arguments != nil {
+						if argsBytes, err := json.Marshal(params.Arguments); err == nil {
+							toolArgs = string(argsBytes)
+						}
+					}
+				}
+			}
+		}
+		if toolName != "" {
+			log.Printf("[HTTP] %s %s method=%s tool=%s args=%s %s", r.Method, r.URL.Path, req.Method, toolName, toolArgs, authInfo)
+		} else {
+			log.Printf("[HTTP] %s %s method=%s %s", r.Method, r.URL.Path, req.Method, authInfo)
+		}
+		if fullToken != "" {
+			log.Printf("[HTTP] API token: %s", fullToken)
+		}
+	}
+
 	resp := s.processRequestWithContext(ctx, req)
 	if resp.ID == nil {
 		w.WriteHeader(http.StatusNoContent)
@@ -306,6 +370,20 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	if s.verbose {
+		if resp.Error != nil {
+			log.Printf("[HTTP] Response ERROR: %s", resp.Error.Message)
+		} else if resp.Result != nil {
+			respStr, _ := json.Marshal(resp.Result)
+			if len(respStr) > 200 {
+				log.Printf("[HTTP] Response OK: %s...", string(respStr[:200]))
+			} else {
+				log.Printf("[HTTP] Response OK: %s", string(respStr))
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(respData)

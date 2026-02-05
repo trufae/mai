@@ -165,6 +165,7 @@ type MCPServer struct {
 	sseMu               sync.RWMutex                    // Protects sseConnections and sseSessions
 	currentCtx          context.Context                 // Current request context (for stdio mode)
 	authenticator       AuthenticatorFunc               // Optional token validator/transformer
+	verbose             bool                            // Enable verbose logging for HTTP mode
 }
 
 // ToolHandler is a function that handles a tool call (legacy, no context)
@@ -496,6 +497,11 @@ func (s *MCPServer) SetContext(ctx context.Context) {
 // exchanging public tokens for internal API tokens.
 func (s *MCPServer) SetAuthenticator(fn AuthenticatorFunc) {
 	s.authenticator = fn
+}
+
+// SetVerbose enables or disables verbose logging for HTTP mode
+func (s *MCPServer) SetVerbose(verbose bool) {
+	s.verbose = verbose
 }
 
 // authenticate validates/transforms a token using the authenticator callback.
