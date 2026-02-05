@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // ListenConfig represents the parsed configuration from a listen string
@@ -161,6 +162,7 @@ type MCPServer struct {
 	authTokens          map[string]bool
 	sseConnections      map[string]chan JSONRPCResponse // SSE connection management
 	sseSessions         map[string]*sseSession          // SSE session data (token per session)
+	sseMu               sync.RWMutex                    // Protects sseConnections and sseSessions
 	currentCtx          context.Context                 // Current request context (for stdio mode)
 	authenticator       AuthenticatorFunc               // Optional token validator/transformer
 }

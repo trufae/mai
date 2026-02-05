@@ -127,12 +127,16 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
 
 	respChan := make(chan JSONRPCResponse, 100)
+	s.sseMu.Lock()
 	s.sseConnections[sessionID] = respChan
 	s.sseSessions[sessionID] = &sseSession{apiToken: internalToken, respChan: respChan}
+	s.sseMu.Unlock()
 
 	defer func() {
+		s.sseMu.Lock()
 		delete(s.sseConnections, sessionID)
 		delete(s.sseSessions, sessionID)
+		s.sseMu.Unlock()
 		close(respChan)
 	}()
 
@@ -219,8 +223,21 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.sseMu.RLock()
 	session, exists := s.sseSessions[sessionID]
-	if exists && session.apiToken != "" {
+	s.sseMu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Invalid session ID", http.StatusBadRequest)
+		return
+	}
+
+	if session.apiToken != "" && internalToken != session.apiToken {
+		http.Error(w, "Session token mismatch", http.StatusUnauthorized)
+		return
+	}
+
+	if session.apiToken != "" {
 		ctx = WithAPIToken(ctx, session.apiToken)
 	} else if internalToken != "" {
 		ctx = WithAPIToken(ctx, internalToken)
@@ -228,7 +245,10 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := s.processRequestWithContext(ctx, req)
 	if resp.ID != nil {
-		if respChan, exists := s.sseConnections[sessionID]; exists {
+		s.sseMu.RLock()
+		respChan, exists := s.sseConnections[sessionID]
+		s.sseMu.RUnlock()
+		if exists {
 			select {
 			case respChan <- resp:
 			default:
