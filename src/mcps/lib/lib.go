@@ -214,6 +214,15 @@ type Tool struct {
 	Handler       ToolHandler
 }
 
+// ToolWithContext represents a complete tool definition with context-aware handler
+type ToolWithContext struct {
+	Name          string
+	Description   string
+	InputSchema   map[string]interface{}
+	UsageExamples string
+	Handler       ToolHandlerWithContext
+}
+
 // ResourceDefinition represents a resource that can be read by the MCP
 type ResourceDefinition struct {
 	URI         string `json:"uri"`
@@ -1253,6 +1262,15 @@ func (s *MCPServer) formatToolResult(id interface{}, result interface{}, err err
 			if b, e := json.MarshalIndent(v.StructuredContent, "", "  "); e == nil {
 				out["content"] = []interface{}{map[string]interface{}{"type": "text", "text": string(b)}}
 			}
+		}
+		if v.NextPageToken != "" {
+			out["next_page_token"] = v.NextPageToken
+		}
+		if v.Page > 0 {
+			out["page"] = v.Page
+		}
+		if v.TotalPages > 0 {
+			out["totalPages"] = v.TotalPages
 		}
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
