@@ -75,7 +75,35 @@ func RunDSLTests(tools []Tool, dsl string) error {
 		switch v := result.(type) {
 		case string:
 			fmt.Println(v)
+		case ToolCallResult:
+			if v.StructuredContent != nil {
+				if jsonData, err := json.MarshalIndent(v.StructuredContent, "", "  "); err == nil {
+					fmt.Println(string(jsonData))
+					continue
+				}
+			}
+			if v.Content != nil {
+				if contentSlice, ok := v.Content.([]interface{}); ok && len(contentSlice) > 0 {
+					if textMap, ok := contentSlice[0].(map[string]interface{}); ok {
+						if text, ok := textMap["text"].(string); ok {
+							fmt.Println(text)
+							continue
+						}
+					}
+				}
+				if jsonData, err := json.MarshalIndent(v.Content, "", "  "); err == nil {
+					fmt.Println(string(jsonData))
+					continue
+				}
+			}
+			fmt.Printf("%+v\n", v)
 		case map[string]interface{}:
+			if structuredContent, ok := v["structuredContent"]; ok {
+				if jsonData, err := json.MarshalIndent(structuredContent, "", "  "); err == nil {
+					fmt.Println(string(jsonData))
+					continue
+				}
+			}
 			if content, ok := v["content"]; ok {
 				if contentSlice, ok := content.([]interface{}); ok && len(contentSlice) > 0 {
 					if textMap, ok := contentSlice[0].(map[string]interface{}); ok {
@@ -86,7 +114,6 @@ func RunDSLTests(tools []Tool, dsl string) error {
 					}
 				}
 			}
-			// Fallback: marshal to JSON
 			if jsonData, err := json.MarshalIndent(v, "", "  "); err == nil {
 				fmt.Println(string(jsonData))
 			} else {

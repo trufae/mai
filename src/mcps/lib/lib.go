@@ -166,6 +166,7 @@ type MCPServer struct {
 	currentCtx          context.Context                 // Current request context (for stdio mode)
 	authenticator       AuthenticatorFunc               // Optional token validator/transformer
 	verbose             bool                            // Enable verbose logging for HTTP mode
+	responseMode        ResponseMode                    // Controls content/structuredContent in responses
 }
 
 // ToolHandler is a function that handles a tool call (legacy, no context)
@@ -182,13 +183,23 @@ type ToolHandlerWithContext func(ctx context.Context, args map[string]interface{
 // exchanging public tokens for internal tokens, etc.)
 type AuthenticatorFunc func(token string) (string, error)
 
+// ResponseMode controls how tool results are formatted in responses
+type ResponseMode int
+
+const (
+	ResponseModeContent    ResponseMode = iota // Only content (text) - default for backwards compatibility
+	ResponseModeStructured                     // Only structuredContent (JSON object)
+	ResponseModeBoth                           // Both content and structuredContent
+)
+
 // ToolCallResult is a convenience type for handlers to return structured content
 type ToolCallResult struct {
-	Content       interface{} `json:"content,omitempty"`
-	IsError       bool        `json:"isError,omitempty"`
-	Page          int         `json:"page,omitempty"`
-	TotalPages    int         `json:"totalPages,omitempty"`
-	NextPageToken string      `json:"next_page_token,omitempty"`
+	Content           interface{} `json:"content,omitempty"`
+	StructuredContent interface{} `json:"structuredContent,omitempty"`
+	IsError           bool        `json:"isError,omitempty"`
+	Page              int         `json:"page,omitempty"`
+	TotalPages        int         `json:"totalPages,omitempty"`
+	NextPageToken     string      `json:"next_page_token,omitempty"`
 }
 
 // StreamingToolHandler is a special handler that can return streaming results
@@ -502,6 +513,14 @@ func (s *MCPServer) SetAuthenticator(fn AuthenticatorFunc) {
 // SetVerbose enables or disables verbose logging for HTTP mode
 func (s *MCPServer) SetVerbose(verbose bool) {
 	s.verbose = verbose
+}
+
+// SetResponseMode sets how tool results are formatted in responses:
+// - ResponseModeContent: only content (text) - default for backwards compatibility
+// - ResponseModeStructured: only structuredContent (JSON object)
+// - ResponseModeBoth: both content and structuredContent
+func (s *MCPServer) SetResponseMode(mode ResponseMode) {
+	s.responseMode = mode
 }
 
 // authenticate validates/transforms a token using the authenticator callback.
@@ -853,6 +872,9 @@ func (c *MCPClient) CallTool(name string, args map[string]interface{}) (ToolCall
 	}
 	if content, ok := result["content"]; ok {
 		toolResult.Content = content
+	}
+	if structuredContent, ok := result["structuredContent"]; ok {
+		toolResult.StructuredContent = structuredContent
 	}
 	if nextPageToken, ok := result["next_page_token"].(string); ok {
 		toolResult.NextPageToken = nextPageToken
@@ -1212,18 +1234,25 @@ func (s *MCPServer) formatToolResult(id interface{}, result interface{}, err err
 	}
 	switch v := result.(type) {
 	case string:
-		return JSONRPCResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]interface{}{
-				"content": []interface{}{map[string]interface{}{"type": "text", "text": v}},
-				"isError": false,
-			},
-		}
+		return s.buildToolResponse(id, v, v, false)
 	case ToolCallResult:
 		out := map[string]interface{}{"isError": v.IsError}
-		if v.Content != nil {
-			out["content"] = v.Content
+		if s.responseMode == ResponseModeStructured || s.responseMode == ResponseModeBoth {
+			if v.StructuredContent != nil {
+				out["structuredContent"] = v.StructuredContent
+			} else if v.Content != nil {
+				out["structuredContent"] = v.Content
+			}
+		}
+		if s.responseMode == ResponseModeContent || s.responseMode == ResponseModeBoth {
+			if v.Content != nil {
+				out["content"] = v.Content
+			}
+		}
+		if s.responseMode == ResponseModeContent && v.Content == nil && v.StructuredContent != nil {
+			if b, e := json.MarshalIndent(v.StructuredContent, "", "  "); e == nil {
+				out["content"] = []interface{}{map[string]interface{}{"type": "text", "text": string(b)}}
+			}
 		}
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
@@ -1231,52 +1260,48 @@ func (s *MCPServer) formatToolResult(id interface{}, result interface{}, err err
 			Result:  out,
 		}
 	case map[string]interface{}:
-		if _, ok := v["content"]; ok {
+		if content, ok := v["content"]; ok {
 			if _, eok := v["isError"]; !eok {
 				v["isError"] = false
 			}
-			return JSONRPCResponse{
-				JSONRPC: "2.0",
-				ID:      id,
-				Result:  v,
+			if structuredContent, sok := v["structuredContent"]; sok {
+				return s.buildToolResponseFromParts(id, content, structuredContent, false)
 			}
+			return s.buildToolResponseFromParts(id, content, v, false)
 		}
 		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
-			return JSONRPCResponse{
-				JSONRPC: "2.0",
-				ID:      id,
-				Result: map[string]interface{}{
-					"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
-					"isError": false,
-				},
-			}
+			return s.buildToolResponse(id, string(b), v, false)
 		}
-		return JSONRPCResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]interface{}{
-				"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
-				"isError": false,
-			},
-		}
+		return s.buildToolResponse(id, fmt.Sprintf("%v", v), v, false)
 	default:
 		if b, e := json.MarshalIndent(v, "", "  "); e == nil {
-			return JSONRPCResponse{
-				JSONRPC: "2.0",
-				ID:      id,
-				Result: map[string]interface{}{
-					"content": []interface{}{map[string]interface{}{"type": "text", "text": string(b)}},
-					"isError": false,
-				},
-			}
+			return s.buildToolResponse(id, string(b), v, false)
 		}
-		return JSONRPCResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]interface{}{
-				"content": []interface{}{map[string]interface{}{"type": "text", "text": fmt.Sprintf("%v", v)}},
-				"isError": false,
-			},
-		}
+		return s.buildToolResponse(id, fmt.Sprintf("%v", v), v, false)
+	}
+}
+
+// buildToolResponse creates a tool response with content and/or structuredContent based on responseMode
+func (s *MCPServer) buildToolResponse(id interface{}, textContent string, structuredData interface{}, isError bool) JSONRPCResponse {
+	content := []interface{}{map[string]interface{}{"type": "text", "text": textContent}}
+	return s.buildToolResponseFromParts(id, content, structuredData, isError)
+}
+
+// buildToolResponseFromParts creates a tool response from pre-built content and structuredContent
+func (s *MCPServer) buildToolResponseFromParts(id interface{}, content interface{}, structuredData interface{}, isError bool) JSONRPCResponse {
+	out := map[string]interface{}{"isError": isError}
+	switch s.responseMode {
+	case ResponseModeStructured:
+		out["structuredContent"] = structuredData
+	case ResponseModeBoth:
+		out["content"] = content
+		out["structuredContent"] = structuredData
+	default: // ResponseModeContent
+		out["content"] = content
+	}
+	return JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  out,
 	}
 }
