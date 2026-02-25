@@ -191,13 +191,22 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 		fmt.Fprintf(os.Stderr, "Attaching image: %s (%d bytes)\n", config.ImagePath, len(imageData))
 	}
 
-	// Send to LLM without streaming (for stdin mode)
+	// Send to LLM with streaming based on config (for stdin mode)
 	var tools []llm.OpenAITool
 	if config.MCPNative {
 		// TODO: get tools
 		tools = nil
 	}
-	res, err := client.SendMessage(messages, false, images, tools)
+	
+	// Send to LLM with streaming based on config (for stdin mode)
+	// Previously, stdin mode always passed false for streaming, ignoring user's --llm.stream setting
+	streamEnabled := configOptions.GetBool("llm.stream") && !config.NoStream
+	
+	// Apply TPS setting from ui.stats to config for stdin mode
+	// This ensures TPS stats are displayed when user requests them via -c ui.stats=true
+	config.ShowTPS = configOptions.GetBool("ui.stats")
+	
+	res, err := client.SendMessage(messages, streamEnabled, images, tools)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
 		os.Exit(1)
