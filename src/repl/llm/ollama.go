@@ -638,7 +638,11 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		}
 		// Format for printing only, keep raw for storage
 		formatted := FormatStreamingChunk(toPrint, markdownEnabled)
-		fmt.Print(formatted)
+		// Don't print during streaming in stdin mode to avoid double output
+		// Stdin mode will print the complete response after streaming finishes
+		if !p.config.IsStdinMode {
+			fmt.Print(formatted)
+		}
 		if toPrint != "" {
 			printed = true
 		}
@@ -659,18 +663,24 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
-				fmt.Print(trimmed)
+				if !p.config.IsStdinMode {
+					fmt.Print(trimmed)
+				}
 			} else {
 				trimmed := TrimLeadingThink(final)
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
-				fmt.Print(trimmed)
+				if !p.config.IsStdinMode {
+					fmt.Print(trimmed)
+				}
 			}
 		}
 	}
 
-	fmt.Println()
+	if !p.config.IsStdinMode {
+		fmt.Println()
+	}
 
 	// Call stream end callback for timing
 	sd.OnStreamEnd()
