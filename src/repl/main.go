@@ -197,15 +197,15 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 		// TODO: get tools
 		tools = nil
 	}
-	
+
 	// Send to LLM with streaming based on config (for stdin mode)
 	// Previously, stdin mode always passed false for streaming, ignoring user's --llm.stream setting
 	streamEnabled := configOptions.GetBool("llm.stream") && !config.NoStream
-	
+
 	// Apply TPS setting from ui.stats to config for stdin mode
 	// This ensures TPS stats are displayed when user requests them via -c ui.stats=true
 	config.ShowTPS = configOptions.GetBool("ui.stats")
-	
+
 	res, err := client.SendMessage(messages, streamEnabled, images, tools)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)

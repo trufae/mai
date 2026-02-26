@@ -223,11 +223,16 @@ type MCPServer struct {
 	Resources     []Resource
 	EnabledTools  map[string]bool // Tool name -> enabled status (nil means all enabled)
 	SessionID     string
+	SSEURL        string // Original SSE endpoint URL for receiving responses
+	SSEConnected  bool   // Whether SSE connection is established
 	mutex         sync.RWMutex
 	stderrDone    chan struct{}
 	stderrActive  bool
 	monitorDone   chan struct{}
 	monitorActive bool
+	// SSE response handling
+	sseResponseChan chan *JSONRPCResponse
+	sseRequestID    chan string
 }
 
 // MCPService manages multiple MCP servers

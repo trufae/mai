@@ -51,6 +51,12 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 	isHTTP := strings.HasPrefix(command, "http://") || strings.HasPrefix(command, "https://")
 	isSSE := strings.HasPrefix(command, "sse://") || strings.HasPrefix(command, "sses://")
 
+	// Check if URL path ends with /sse (SSE endpoint)
+	if isHTTP && strings.HasSuffix(command, "/sse") {
+		isSSE = true
+		isHTTP = false
+	}
+
 	if isHTTP || isSSE {
 		// HTTP or SSE server
 		server := &MCPServer{
@@ -71,6 +77,10 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 
 		s.servers[name] = server
 
+		// Initialize SSE response channels
+		server.sseResponseChan = make(chan *JSONRPCResponse, 10)
+		server.sseRequestID = make(chan string, 1)
+
 		// For SSE servers, first establish SSE connection to get endpoint URL
 		if isSSE {
 			endpointURL, err := s.connectSSE(server)
@@ -78,9 +88,37 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 				delete(s.servers, name)
 				return fmt.Errorf("failed to connect to SSE server: %v", err)
 			}
+			// Extract session_id from endpoint URL if present
+			if strings.Contains(endpointURL, "session_id=") {
+				u, _ := url.Parse(endpointURL)
+				if u != nil {
+					sessionID := u.Query().Get("session_id")
+					if sessionID != "" {
+						server.SessionID = sessionID
+						debugLog(s.debugMode, "Extracted session ID: %s", sessionID)
+					}
+				}
+			}
+			// If endpoint is relative, combine with base URL
+			if strings.HasPrefix(endpointURL, "/") {
+				// Get base URL (without the /sse suffix)
+				baseURL := server.URL
+				if strings.HasSuffix(baseURL, "/sse") {
+					baseURL = strings.TrimSuffix(baseURL, "/sse")
+				} else if strings.HasPrefix(baseURL, "sse://") {
+					baseURL = strings.Replace(baseURL, "sse://", "http://", 1)
+				} else if strings.HasPrefix(baseURL, "sses://") {
+					baseURL = strings.Replace(baseURL, "sses://", "https://", 1)
+				}
+				endpointURL = baseURL + endpointURL
+			}
 			server.URL = endpointURL
 			server.IsHTTP = true // Now treat as HTTP server
 			server.IsSSE = false
+			server.SSEConnected = true
+
+			// Start SSE listener in background
+			go s.listenSSEResponses(server)
 		}
 
 		// Initialize the server (handshake)
@@ -592,10 +630,21 @@ func (s *MCPService) StopAllServers() {
 }
 
 // connectSSE establishes an SSE connection and returns the endpoint URL
+// It also starts a goroutine to listen for responses on this connection
 func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
 	// Convert sse:// to http:// for the connection
 	sseURL := strings.Replace(server.URL, "sse://", "http://", 1)
 	sseURL = strings.Replace(sseURL, "sses://", "https://", 1)
+
+	// If URL ends with /sse, strip it to get base URL for SSE connection
+	baseURL := sseURL
+	if strings.HasSuffix(sseURL, "/sse") {
+		baseURL = strings.TrimSuffix(sseURL, "/sse")
+		sseURL = baseURL + "/sse"
+	}
+
+	// Store the SSE URL for later use
+	server.SSEURL = sseURL
 
 	debugLog(s.debugMode, "Connecting to SSE endpoint: %s", sseURL)
 
@@ -613,18 +662,16 @@ func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("SSE connection failed: %v", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("SSE connection failed with status %d", resp.StatusCode)
-	}
+	// Store the response body for the listener to use
+	server.Stdout = resp.Body
 
-	// Read SSE events to find the endpoint
+	// Read SSE events to find the endpoint (blocking until we get it)
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -632,6 +679,7 @@ func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
 
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimPrefix(line, "data: ")
+			// Try JSON format first: {"endpoint": "/mcp"}
 			if strings.HasPrefix(data, "{\"endpoint\":\"") {
 				// Parse the endpoint from the JSON data
 				var eventData map[string]string
@@ -642,6 +690,10 @@ func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
 					debugLog(s.debugMode, "Received SSE endpoint: %s", endpoint)
 					return endpoint, nil
 				}
+			} else if strings.HasPrefix(data, "/") {
+				// Plain endpoint path (e.g., /messages/?session_id=xxx)
+				debugLog(s.debugMode, "Received SSE endpoint: %s", data)
+				return data, nil
 			}
 		}
 	}
@@ -653,8 +705,171 @@ func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
 	return "", fmt.Errorf("no endpoint received from SSE server")
 }
 
+// sendHTTPRequestViaSSE sends a request via HTTP and gets response from SSE stream
+func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
+	reqBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	requestID := fmt.Sprintf("%v", request.ID)
+
+	debugLog(s.debugMode, "Sending SSE request to %s (ID: %s): %s", server.URL, requestID, string(reqBytes))
+
+	httpReq, err := http.NewRequest("POST", server.URL, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %v", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+
+	server.mutex.RLock()
+	sessionID := server.SessionID
+	server.mutex.RUnlock()
+	if sessionID != "" {
+		httpReq.Header.Set("Mcp-Session-Id", sessionID)
+		httpReq.Header.Set("X-SSE-Session-ID", sessionID)
+	}
+
+	if token := s.GetBearerToken(server); token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+		debugLog(s.debugMode, "Using bearer token for %s", server.URL)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+
+	// Read the response body regardless of status
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	debugLog(s.debugMode, "HTTP response status: %d, body: %s", resp.StatusCode, string(respBytes))
+
+	// Accept both 200 OK and 202 Accepted (SSE may return 202)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		return nil, fmt.Errorf("HTTP request failed with status %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	// Try to parse the response body as JSON-RPC
+	var response JSONRPCResponse
+	if err := json.Unmarshal(respBytes, &response); err != nil {
+		// If direct parsing fails, try to get response from SSE channel
+		debugLog(s.debugMode, "Direct response parse failed, waiting for SSE response")
+
+		// Wait for response from SSE channel
+		timeout := 30 * time.Second
+		select {
+		case response := <-server.sseResponseChan:
+			debugLog(s.debugMode, "Received SSE response for ID %v", response.ID)
+			return response, nil
+		case <-time.After(timeout):
+			return nil, fmt.Errorf("timeout waiting for SSE response, HTTP body: %s", string(respBytes))
+		}
+	}
+
+	return &response, nil
+}
+
+// listenSSEResponses listens for responses from the already-established SSE connection
+func (s *MCPService) listenSSEResponses(server *MCPServer) {
+	// Use the existing SSE connection stored in Stdout
+	if server.Stdout == nil {
+		log.Printf("ERROR: SSE listener: no SSE connection available")
+		return
+	}
+
+	debugLog(s.debugMode, "SSE listener using existing connection, waiting for responses")
+
+	scanner := bufio.NewScanner(server.Stdout)
+	var dataBuffer bytes.Buffer
+	var currentEvent string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "event: ") {
+			currentEvent = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			if dataBuffer.Len() > 0 {
+				dataBuffer.WriteByte('\n')
+			}
+			dataBuffer.WriteString(data)
+		}
+
+		if line == "" && dataBuffer.Len() > 0 {
+			payload := dataBuffer.String()
+			dataBuffer.Reset()
+
+			debugLog(s.debugMode, "SSE listener received event=%s data=%s", currentEvent, payload)
+
+			// Only process message events as responses, or if no event is specified
+			if currentEvent == "message" || currentEvent == "" {
+				// Try to parse as JSON-RPC response
+				var response JSONRPCResponse
+				if err := json.Unmarshal([]byte(payload), &response); err != nil {
+					// If it's not a JSON-RPC response, it might be an endpoint or other data
+					if currentEvent == "message" {
+						debugLog(s.debugMode, "SSE listener: failed to unmarshal message: %v", err)
+					}
+					// For empty event (default), just log but don't fail
+					if currentEvent == "" && strings.HasPrefix(payload, "{") {
+						debugLog(s.debugMode, "SSE listener: failed to unmarshal: %v", err)
+					}
+					continue
+				}
+
+				// Only send if it's a valid response (has JSONRPC field)
+				if response.JSONRPC != "" {
+					// Send response to the waiting request handler
+					select {
+					case server.sseResponseChan <- &response:
+						debugLog(s.debugMode, "SSE listener: sent response for ID %v", response.ID)
+					default:
+						debugLog(s.debugMode, "SSE listener: channel full, dropped response")
+					}
+				}
+			} else if currentEvent == "endpoint" {
+				// New endpoint - extract session ID if present
+				if strings.Contains(payload, "session_id=") {
+					u, _ := url.Parse(payload)
+					if u != nil {
+						newSessionID := u.Query().Get("session_id")
+						if newSessionID != "" && newSessionID != server.SessionID {
+							server.mutex.Lock()
+							server.SessionID = newSessionID
+							server.mutex.Unlock()
+							debugLog(s.debugMode, "SSE listener: updated session ID to %s", newSessionID)
+						}
+					}
+				}
+			}
+			currentEvent = ""
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("ERROR: SSE listener scanner error: %v", err)
+	}
+}
+
 // sendHTTPRequest sends a JSONRPC request to an HTTP MCP server
 func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
+	// For SSE-connected servers, use the SSE channel to get responses
+	if server.SSEConnected && server.sseResponseChan != nil {
+		return s.sendHTTPRequestViaSSE(server, request)
+	}
+
 	reqBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
@@ -676,6 +891,8 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	server.mutex.RUnlock()
 	if sessionID != "" {
 		httpReq.Header.Set("Mcp-Session-Id", sessionID)
+		// Also set X-SSE-Session-ID for SSE servers
+		httpReq.Header.Set("X-SSE-Session-ID", sessionID)
 	}
 
 	// Add bearer token if available
@@ -693,7 +910,8 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// Accept both 200 OK and 202 Accepted (SSE may return 202)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return nil, fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
 	}
 
