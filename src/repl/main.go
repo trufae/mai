@@ -307,6 +307,7 @@ Other:
 
 GEMINI_API_KEY=(or set in ~/.config/mai/keys/gemini)
 OPENAI_API_KEY=(or set in ~/.config/mai/keys/openai)
+OPENAI_ACCESS_TOKEN=(Auth0 access token; managed via /auth login)
 CLAUDE_API_KEY=(or set in ~/.config/mai/keys/anthropic)
 DEEPSEEK_API_KEY=(or set in ~/.config/mai/keys/deepseek)
 MISTRAL_API_KEY=(or set in ~/.config/mai/keys/mistral)
@@ -361,6 +362,7 @@ Files:
 ~/.config/mai/prompts                 : directory containing custom prompts
 ./share/mai/prompts                   : directory containing system prompts
 ~/.config/mai/apikeys.txt             : API keys configuration file (provider=key format)
+~/.config/mai/openai_auth.json        : OpenAI Auth0 token cache used by /auth
 `)
 }
 

@@ -34,6 +34,11 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 	switch strings.ToLower(config.PROVIDER) {
 	case "openai":
 		apiKey = GetAPIKey("openai")
+		if apiKey == "" {
+			if token, _ := GetOpenAIAccessToken(false); token != "" {
+				apiKey = token
+			}
+		}
 	case "ollamacloud":
 		apiKey = GetAPIKey("ollamacloud")
 	case "opencode":
@@ -68,6 +73,22 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 			ctx:    ctx,
 		},
 	}
+}
+
+func (p *OpenAIProvider) resolveAuthTokenForRequest() string {
+	provider := strings.ToLower(p.config.PROVIDER)
+	if provider == "openai" {
+		// Explicit API key always wins if set.
+		if apiKey := GetAPIKey("openai"); apiKey != "" {
+			p.apiKey = apiKey
+			return apiKey
+		}
+		if token, _ := GetOpenAIAccessToken(true); token != "" {
+			p.apiKey = token
+			return token
+		}
+	}
+	return p.apiKey
 }
 
 func (p *OpenAIProvider) GetName() string {
@@ -109,7 +130,14 @@ func (p *OpenAIProvider) DefaultModel() string {
 
 func (p *OpenAIProvider) IsAvailable() bool {
 	switch strings.ToLower(p.config.PROVIDER) {
-	case "openai", "ollamacloud", "opencode":
+	case "openai":
+		// OpenAI can use either API keys or Auth0-issued access tokens.
+		if GetAPIKey("openai") != "" {
+			return true
+		}
+		token, _ := GetOpenAIAccessToken(false)
+		return strings.TrimSpace(token) != ""
+	case "ollamacloud", "opencode":
 		// Remote providers: just check API key
 		return p.apiKey != ""
 	case "lmstudio", "shimmy":
@@ -143,8 +171,8 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	if p.apiKey != "" {
-		headers["Authorization"] = "Bearer " + p.apiKey
+	if token := p.resolveAuthTokenForRequest(); token != "" {
+		headers["Authorization"] = "Bearer " + token
 	}
 
 	respBody, err := llmMakeRequest(ctx, "GET", apiURL, headers, nil)
@@ -298,8 +326,8 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	if p.apiKey != "" {
-		headers["Authorization"] = "Bearer " + p.apiKey
+	if token := p.resolveAuthTokenForRequest(); token != "" {
+		headers["Authorization"] = "Bearer " + token
 	}
 
 	// Build chat completions endpoint URL
@@ -379,8 +407,8 @@ func (p *OpenAIProvider) Embed(input string) ([]float64, error) {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 	}
-	if p.apiKey != "" {
-		headers["Authorization"] = "Bearer " + p.apiKey
+	if token := p.resolveAuthTokenForRequest(); token != "" {
+		headers["Authorization"] = "Bearer " + token
 	}
 
 	// Build embeddings endpoint URL

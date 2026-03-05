@@ -91,6 +91,7 @@ func (r *REPL) handleCommand(input string, redirectType, redirectTarget string) 
 func (r *REPL) initCommands() {
 	// Register command groups
 	registerHelpCommands(r)
+	registerAuthCommands(r)
 	registerFileCommands(r)
 	registerChatCommands(r)
 	registerExitCommands(r)
