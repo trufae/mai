@@ -2,54 +2,14 @@ package mcplib
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 )
-
-// loadAuthTokens loads bearer tokens from the auth file
-func (s *MCPServer) loadAuthTokens() error {
-	if strings.TrimSpace(s.authFile) == "" {
-		s.authTokens = make(map[string]bool)
-		return nil
-	}
-	data, err := os.ReadFile(s.authFile)
-	if err != nil {
-		return fmt.Errorf("failed to read auth file: %v", err)
-	}
-	s.authTokens = make(map[string]bool)
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		token := strings.TrimSpace(line)
-		if token != "" {
-			s.authTokens[token] = true
-		}
-	}
-	return nil
-}
-
-func (s *MCPServer) isValidToken(candidate string) bool {
-	if len(s.authTokens) == 0 {
-		return false
-	}
-
-	match := 0
-	candidateBytes := []byte(candidate)
-	for token := range s.authTokens {
-		match |= subtle.ConstantTimeCompare([]byte(token), candidateBytes)
-	}
-	return match == 1
-}
-
-func sameToken(a string, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
-}
 
 func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (JSONRPCRequest, bool) {
 	defer func() { _ = r.Body.Close() }()
@@ -75,22 +35,7 @@ func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (
 }
 
 func (s *MCPServer) authorizeToken(ctx context.Context, rawToken string) (*AuthResult, error) {
-	if !s.authEnabled {
-		authResult, err := s.authenticate(ctx, rawToken)
-		if err != nil {
-			return nil, fmt.Errorf("unauthorized")
-		}
-		if authResult == nil {
-			return nil, fmt.Errorf("unauthorized")
-		}
-		return authResult, nil
-	}
-
-	if len(s.authTokens) > 0 && !s.isValidToken(rawToken) {
-		return nil, fmt.Errorf("unauthorized")
-	}
-
-	if len(s.authTokens) == 0 && s.authenticator == nil {
+	if s.authEnabled && s.authenticator == nil {
 		return nil, fmt.Errorf("unauthorized")
 	}
 
@@ -104,15 +49,10 @@ func (s *MCPServer) authorizeToken(ctx context.Context, rawToken string) (*AuthR
 	return authResult, nil
 }
 
-// ServeHTTP starts an HTTP server on the specified port with optional Bearer authentication
-func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, authFile string) error {
+// ServeHTTP starts an HTTP server on the specified port with optional Bearer authentication.
+// When authEnabled is true, token verification is delegated to the configured authenticator.
+func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, _ string) error {
 	s.authEnabled = authEnabled
-	s.authFile = authFile
-	if authEnabled {
-		if err := s.loadAuthTokens(); err != nil {
-			return err
-		}
-	}
 	if basePath == "" {
 		basePath = "/"
 	}
@@ -121,15 +61,10 @@ func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, au
 	return http.ListenAndServe(":"+port, nil)
 }
 
-// ServeSSE starts an HTTP server with Server-Sent Events support for MCP
-func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, authFile string) error {
+// ServeSSE starts an HTTP server with Server-Sent Events support for MCP.
+// When authEnabled is true, each request must provide a Bearer token accepted by the authenticator.
+func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, _ string) error {
 	s.authEnabled = authEnabled
-	s.authFile = authFile
-	if authEnabled {
-		if err := s.loadAuthTokens(); err != nil {
-			return err
-		}
-	}
 	if basePath == "" {
 		basePath = "/"
 	}
@@ -147,7 +82,8 @@ func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, aut
 
 // ListenAndServe starts the MCP server based on the listen string.
 // It supports TCP (default), HTTP, and SSE protocols.
-// For HTTP and SSE protocols, authEnabled and authFile control Bearer token authentication.
+// For HTTP and SSE protocols, authEnabled controls Bearer token authentication.
+// The third argument is kept for compatibility and is ignored.
 func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile string) error {
 	if listen == "" {
 		// Default stdin/stdout mode
@@ -172,14 +108,9 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 
 // sseHandler handles SSE connections
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
-	var authResult *AuthResult
-	var rawToken string
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		rawToken = authHeader[7:]
-		var err error
-		authResult, err = s.authorizeToken(r.Context(), rawToken)
-		if err != nil {
+		if _, err := s.authorizeToken(r.Context(), authHeader[7:]); err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -203,13 +134,11 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	respChan := make(chan JSONRPCResponse, 100)
 	s.sseMu.Lock()
 	s.sseConnections[sessionID] = respChan
-	s.sseSessions[sessionID] = &sseSession{bearerToken: rawToken, authResult: authResult, respChan: respChan}
 	s.sseMu.Unlock()
 
 	defer func() {
 		s.sseMu.Lock()
 		delete(s.sseConnections, sessionID)
-		delete(s.sseSessions, sessionID)
 		s.sseMu.Unlock()
 		close(respChan)
 	}()
@@ -288,7 +217,7 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.sseMu.RLock()
-	session, exists := s.sseSessions[sessionID]
+	_, exists := s.sseConnections[sessionID]
 	s.sseMu.RUnlock()
 
 	if !exists {
@@ -296,20 +225,8 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if session.bearerToken != "" && !sameToken(rawToken, session.bearerToken) {
-		http.Error(w, "Session token mismatch", http.StatusUnauthorized)
-		return
-	}
-
 	if authResult != nil {
-		s.sseMu.Lock()
-		if current, ok := s.sseSessions[sessionID]; ok {
-			current.authResult = authResult
-		}
-		s.sseMu.Unlock()
 		ctx = authResult.Apply(ctx)
-	} else if session.authResult != nil {
-		ctx = session.authResult.Apply(ctx)
 	}
 
 	resp := s.processRequestWithContext(ctx, req)

@@ -137,13 +137,6 @@ type ToolCallParams struct {
 	Arguments map[string]interface{} `json:"arguments"`
 }
 
-// sseSession holds per-session data including the API token
-type sseSession struct {
-	bearerToken string
-	authResult  *AuthResult
-	respChan    chan JSONRPCResponse
-}
-
 // MCPServer represents an MCP server that can handle requests
 type MCPServer struct {
 	tools                  []ToolDefinition
@@ -159,11 +152,8 @@ type MCPServer struct {
 	bufr                   *bufio.Reader
 	useHeaders             bool
 	authEnabled            bool
-	authFile               string
-	authTokens             map[string]bool
 	sseConnections         map[string]chan JSONRPCResponse // SSE connection management
-	sseSessions            map[string]*sseSession          // SSE session data (token per session)
-	sseMu                  sync.RWMutex                    // Protects sseConnections and sseSessions
+	sseMu                  sync.RWMutex                    // Protects sseConnections
 	currentCtx             context.Context                 // Current request context (for stdio mode)
 	authenticator          AuthenticatorFunc               // Optional token validator/transformer
 	verbose                bool                            // Enable verbose logging for HTTP mode
@@ -282,7 +272,6 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		bufr:                   bufio.NewReader(os.Stdin),
 		resources:              make([]ResourceDefinition, 0),
 		sseConnections:         make(map[string]chan JSONRPCResponse),
-		sseSessions:            make(map[string]*sseSession),
 		currentCtx:             context.Background(),
 		maxHTTPRequestBodySize: defaultMaxHTTPRequestBodySize,
 	}
@@ -582,7 +571,7 @@ func (s *MCPServer) SetResponseMode(mode ResponseMode) {
 }
 
 // authenticate validates/transforms a token using the authenticator callback.
-// If no authenticator is set, the raw token is stored as the API token.
+// If no authenticator is set, the raw token is forwarded as the API token.
 func (s *MCPServer) authenticate(ctx context.Context, token string) (*AuthResult, error) {
 	if s.authenticator == nil {
 		return &AuthResult{APIToken: token}, nil
