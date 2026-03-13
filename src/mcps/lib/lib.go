@@ -146,28 +146,29 @@ type sseSession struct {
 
 // MCPServer represents an MCP server that can handle requests
 type MCPServer struct {
-	tools               []ToolDefinition
-	toolHandlers        map[string]ToolHandler
-	toolHandlersWithCtx map[string]ToolHandlerWithContext
-	streamingHandlers   map[string]StreamingToolHandler
-	reader              *bufio.Scanner
-	writer              io.Writer
-	prompts             []PromptDefinition
-	resources           []ResourceDefinition
-	resourceHandlers    map[string]ResourceHandler
-	logFile             io.Writer
-	bufr                *bufio.Reader
-	useHeaders          bool
-	authEnabled         bool
-	authFile            string
-	authTokens          map[string]bool
-	sseConnections      map[string]chan JSONRPCResponse // SSE connection management
-	sseSessions         map[string]*sseSession          // SSE session data (token per session)
-	sseMu               sync.RWMutex                    // Protects sseConnections and sseSessions
-	currentCtx          context.Context                 // Current request context (for stdio mode)
-	authenticator       AuthenticatorFunc               // Optional token validator/transformer
-	verbose             bool                            // Enable verbose logging for HTTP mode
-	responseMode        ResponseMode                    // Controls content/structuredContent in responses
+	tools                  []ToolDefinition
+	toolHandlers           map[string]ToolHandler
+	toolHandlersWithCtx    map[string]ToolHandlerWithContext
+	streamingHandlers      map[string]StreamingToolHandler
+	reader                 *bufio.Scanner
+	writer                 io.Writer
+	prompts                []PromptDefinition
+	resources              []ResourceDefinition
+	resourceHandlers       map[string]ResourceHandler
+	logFile                io.Writer
+	bufr                   *bufio.Reader
+	useHeaders             bool
+	authEnabled            bool
+	authFile               string
+	authTokens             map[string]bool
+	sseConnections         map[string]chan JSONRPCResponse // SSE connection management
+	sseSessions            map[string]*sseSession          // SSE session data (token per session)
+	sseMu                  sync.RWMutex                    // Protects sseConnections and sseSessions
+	currentCtx             context.Context                 // Current request context (for stdio mode)
+	authenticator          AuthenticatorFunc               // Optional token validator/transformer
+	verbose                bool                            // Enable verbose logging for HTTP mode
+	responseMode           ResponseMode                    // Controls content/structuredContent in responses
+	maxHTTPRequestBodySize int64                           // Maximum allowed HTTP request body size in bytes
 }
 
 // ToolHandler is a function that handles a tool call (legacy, no context)
@@ -209,6 +210,8 @@ const (
 	ResponseModeStructured                     // Only structuredContent (JSON object)
 	ResponseModeBoth                           // Both content and structuredContent
 )
+
+const defaultMaxHTTPRequestBodySize int64 = 1024 * 1024
 
 // ToolCallResult is a convenience type for handlers to return structured content
 type ToolCallResult struct {
@@ -269,18 +272,19 @@ type Resource struct {
 // NewMCPServer creates a new MCP server with the given tools
 func NewMCPServer(tools []ToolDefinition) *MCPServer {
 	s := &MCPServer{
-		tools:               tools,
-		toolHandlers:        make(map[string]ToolHandler),
-		toolHandlersWithCtx: make(map[string]ToolHandlerWithContext),
-		streamingHandlers:   make(map[string]StreamingToolHandler),
-		resourceHandlers:    make(map[string]ResourceHandler),
-		reader:              bufio.NewScanner(os.Stdin),
-		writer:              os.Stdout,
-		bufr:                bufio.NewReader(os.Stdin),
-		resources:           make([]ResourceDefinition, 0),
-		sseConnections:      make(map[string]chan JSONRPCResponse),
-		sseSessions:         make(map[string]*sseSession),
-		currentCtx:          context.Background(),
+		tools:                  tools,
+		toolHandlers:           make(map[string]ToolHandler),
+		toolHandlersWithCtx:    make(map[string]ToolHandlerWithContext),
+		streamingHandlers:      make(map[string]StreamingToolHandler),
+		resourceHandlers:       make(map[string]ResourceHandler),
+		reader:                 bufio.NewScanner(os.Stdin),
+		writer:                 os.Stdout,
+		bufr:                   bufio.NewReader(os.Stdin),
+		resources:              make([]ResourceDefinition, 0),
+		sseConnections:         make(map[string]chan JSONRPCResponse),
+		sseSessions:            make(map[string]*sseSession),
+		currentCtx:             context.Background(),
+		maxHTTPRequestBodySize: defaultMaxHTTPRequestBodySize,
 	}
 	if logfile := os.Getenv("MCPLIB_LOGFILE"); logfile != "" {
 		if err := s.SetLogFile(logfile); err != nil {
@@ -557,6 +561,16 @@ func (s *MCPServer) SetAuthenticatorWithContext(fn AuthenticatorFunc) {
 // SetVerbose enables or disables verbose logging for HTTP mode
 func (s *MCPServer) SetVerbose(verbose bool) {
 	s.verbose = verbose
+}
+
+// SetMaxHTTPRequestBodySize sets the maximum accepted HTTP request body size in bytes.
+// Non-positive values restore the default limit of 1 MiB.
+func (s *MCPServer) SetMaxHTTPRequestBodySize(limit int64) {
+	if limit <= 0 {
+		s.maxHTTPRequestBodySize = defaultMaxHTTPRequestBodySize
+		return
+	}
+	s.maxHTTPRequestBodySize = limit
 }
 
 // SetResponseMode sets how tool results are formatted in responses:

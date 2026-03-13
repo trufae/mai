@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -48,6 +49,29 @@ func (s *MCPServer) isValidToken(candidate string) bool {
 
 func sameToken(a string, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (JSONRPCRequest, bool) {
+	defer func() { _ = r.Body.Close() }()
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxHTTPRequestBodySize)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			return JSONRPCRequest{}, false
+		}
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return JSONRPCRequest{}, false
+	}
+
+	var req JSONRPCRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return JSONRPCRequest{}, false
+	}
+
+	return req, true
 }
 
 func (s *MCPServer) authorizeToken(ctx context.Context, rawToken string) (*AuthResult, error) {
@@ -237,16 +261,8 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() { _ = r.Body.Close() }()
-	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10MB limit
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	var req JSONRPCRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+	req, ok := s.readJSONRPCRequest(w, r)
+	if !ok {
 		return
 	}
 
@@ -344,16 +360,8 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() { _ = r.Body.Close() }()
-	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10MB limit
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	var req JSONRPCRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+	req, ok := s.readJSONRPCRequest(w, r)
+	if !ok {
 		return
 	}
 
