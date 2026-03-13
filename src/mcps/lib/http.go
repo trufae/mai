@@ -2,6 +2,7 @@ package mcplib
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,10 @@ import (
 	"net/http"
 	"strings"
 )
+
+func sameToken(a string, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
 
 func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (JSONRPCRequest, bool) {
 	defer func() { _ = r.Body.Close() }()
@@ -108,9 +113,14 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 
 // sseHandler handles SSE connections
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
+	var authResult *AuthResult
+	var rawToken string
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		if _, err := s.authorizeToken(r.Context(), authHeader[7:]); err != nil {
+		rawToken = authHeader[7:]
+		var err error
+		authResult, err = s.authorizeToken(r.Context(), rawToken)
+		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -134,11 +144,17 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	respChan := make(chan JSONRPCResponse, 100)
 	s.sseMu.Lock()
 	s.sseConnections[sessionID] = respChan
+	s.sseSessions[sessionID] = &sseSession{
+		bearerToken: rawToken,
+		authResult:  authResult,
+		respChan:    respChan,
+	}
 	s.sseMu.Unlock()
 
 	defer func() {
 		s.sseMu.Lock()
 		delete(s.sseConnections, sessionID)
+		delete(s.sseSessions, sessionID)
 		s.sseMu.Unlock()
 		close(respChan)
 	}()
@@ -185,9 +201,6 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-	} else if s.authEnabled {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
 	}
 
 	req, ok := s.readJSONRPCRequest(w, r)
@@ -197,6 +210,10 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := r.Header.Get("X-SSE-Session-ID")
 	if sessionID == "" {
+		if s.authEnabled && authResult == nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 		if authResult != nil {
 			ctx = authResult.Apply(ctx)
 		}
@@ -217,7 +234,7 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.sseMu.RLock()
-	_, exists := s.sseConnections[sessionID]
+	session, exists := s.sseSessions[sessionID]
 	s.sseMu.RUnlock()
 
 	if !exists {
@@ -225,8 +242,26 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if rawToken != "" {
+		if session.bearerToken != "" && !sameToken(rawToken, session.bearerToken) {
+			http.Error(w, "Session token mismatch", http.StatusUnauthorized)
+			return
+		}
+		s.sseMu.Lock()
+		if current, ok := s.sseSessions[sessionID]; ok {
+			current.bearerToken = rawToken
+			current.authResult = authResult
+		}
+		s.sseMu.Unlock()
+	}
+
 	if authResult != nil {
 		ctx = authResult.Apply(ctx)
+	} else if session.authResult != nil {
+		ctx = session.authResult.Apply(ctx)
+	} else if s.authEnabled {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	resp := s.processRequestWithContext(ctx, req)

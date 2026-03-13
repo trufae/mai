@@ -137,6 +137,13 @@ type ToolCallParams struct {
 	Arguments map[string]interface{} `json:"arguments"`
 }
 
+// sseSession keeps the reusable state for an active SSE session.
+type sseSession struct {
+	bearerToken string
+	authResult  *AuthResult
+	respChan    chan JSONRPCResponse
+}
+
 // MCPServer represents an MCP server that can handle requests
 type MCPServer struct {
 	tools                  []ToolDefinition
@@ -153,7 +160,8 @@ type MCPServer struct {
 	useHeaders             bool
 	authEnabled            bool
 	sseConnections         map[string]chan JSONRPCResponse // SSE connection management
-	sseMu                  sync.RWMutex                    // Protects sseConnections
+	sseSessions            map[string]*sseSession          // Reusable SSE session state
+	sseMu                  sync.RWMutex                    // Protects SSE connection/session state
 	currentCtx             context.Context                 // Current request context (for stdio mode)
 	authenticator          AuthenticatorFunc               // Optional token validator/transformer
 	verbose                bool                            // Enable verbose logging for HTTP mode
@@ -272,6 +280,7 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		bufr:                   bufio.NewReader(os.Stdin),
 		resources:              make([]ResourceDefinition, 0),
 		sseConnections:         make(map[string]chan JSONRPCResponse),
+		sseSessions:            make(map[string]*sseSession),
 		currentCtx:             context.Background(),
 		maxHTTPRequestBodySize: defaultMaxHTTPRequestBodySize,
 	}
