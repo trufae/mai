@@ -190,12 +190,13 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer func() { _ = r.Body.Close() }()
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10MB limit
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	defer func() { _ = r.Body.Close() }()
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -302,12 +303,13 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer func() { _ = r.Body.Close() }()
+	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024) // 10MB limit
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	defer func() { _ = r.Body.Close() }()
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
