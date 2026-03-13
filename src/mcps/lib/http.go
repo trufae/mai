@@ -322,15 +322,11 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	authHeader := r.Header.Get("Authorization")
 	hasToken := false
-	tokenPreview := ""
+	tokenPreview := "NoAuth"
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
 		rawToken := authHeader[7:]
 		hasToken = true
-		if len(rawToken) > 8 {
-			tokenPreview = rawToken[:4] + "..." + rawToken[len(rawToken)-4:]
-		} else if len(rawToken) > 0 {
-			tokenPreview = rawToken[:1] + "..."
-		}
+		tokenPreview = "Authorized"
 		authResult, err := s.authorizeToken(ctx, rawToken)
 		if err != nil {
 			if s.verbose {
