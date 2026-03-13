@@ -1,6 +1,7 @@
 package mcplib
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,10 @@ import (
 
 // loadAuthTokens loads bearer tokens from the auth file
 func (s *MCPServer) loadAuthTokens() error {
+	if strings.TrimSpace(s.authFile) == "" {
+		s.authTokens = make(map[string]bool)
+		return nil
+	}
 	data, err := os.ReadFile(s.authFile)
 	if err != nil {
 		return fmt.Errorf("failed to read auth file: %v", err)
@@ -41,16 +46,38 @@ func (s *MCPServer) isValidToken(candidate string) bool {
 	return match == 1
 }
 
-func (s *MCPServer) authorizeToken(rawToken string) (string, error) {
-	if s.authEnabled && !s.isValidToken(rawToken) {
-		return "", fmt.Errorf("unauthorized")
+func sameToken(a string, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func (s *MCPServer) authorizeToken(ctx context.Context, rawToken string) (*AuthResult, error) {
+	if !s.authEnabled {
+		authResult, err := s.authenticate(ctx, rawToken)
+		if err != nil {
+			return nil, fmt.Errorf("unauthorized")
+		}
+		if authResult == nil {
+			return nil, fmt.Errorf("unauthorized")
+		}
+		return authResult, nil
 	}
 
-	internalToken, err := s.authenticate(rawToken)
-	if err != nil {
-		return "", fmt.Errorf("unauthorized")
+	if len(s.authTokens) > 0 && !s.isValidToken(rawToken) {
+		return nil, fmt.Errorf("unauthorized")
 	}
-	return internalToken, nil
+
+	if len(s.authTokens) == 0 && s.authenticator == nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	authResult, err := s.authenticate(ctx, rawToken)
+	if err != nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+	if authResult == nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+	return authResult, nil
 }
 
 // ServeHTTP starts an HTTP server on the specified port with optional Bearer authentication
@@ -121,12 +148,13 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 
 // sseHandler handles SSE connections
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
-	var internalToken string
+	var authResult *AuthResult
+	var rawToken string
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		rawToken := authHeader[7:]
+		rawToken = authHeader[7:]
 		var err error
-		internalToken, err = s.authorizeToken(rawToken)
+		authResult, err = s.authorizeToken(r.Context(), rawToken)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -151,7 +179,7 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	respChan := make(chan JSONRPCResponse, 100)
 	s.sseMu.Lock()
 	s.sseConnections[sessionID] = respChan
-	s.sseSessions[sessionID] = &sseSession{apiToken: internalToken, respChan: respChan}
+	s.sseSessions[sessionID] = &sseSession{bearerToken: rawToken, authResult: authResult, respChan: respChan}
 	s.sseMu.Unlock()
 
 	defer func() {
@@ -193,12 +221,13 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	var internalToken string
+	var authResult *AuthResult
+	var rawToken string
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		rawToken := authHeader[7:]
+		rawToken = authHeader[7:]
 		var err error
-		internalToken, err = s.authorizeToken(rawToken)
+		authResult, err = s.authorizeToken(ctx, rawToken)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -223,8 +252,8 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := r.Header.Get("X-SSE-Session-ID")
 	if sessionID == "" {
-		if internalToken != "" {
-			ctx = WithAPIToken(ctx, internalToken)
+		if authResult != nil {
+			ctx = authResult.Apply(ctx)
 		}
 		resp := s.processRequestWithContext(ctx, req)
 		if resp.ID == nil {
@@ -251,15 +280,20 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if session.apiToken != "" && internalToken != session.apiToken {
+	if session.bearerToken != "" && !sameToken(rawToken, session.bearerToken) {
 		http.Error(w, "Session token mismatch", http.StatusUnauthorized)
 		return
 	}
 
-	if session.apiToken != "" {
-		ctx = WithAPIToken(ctx, session.apiToken)
-	} else if internalToken != "" {
-		ctx = WithAPIToken(ctx, internalToken)
+	if authResult != nil {
+		s.sseMu.Lock()
+		if current, ok := s.sseSessions[sessionID]; ok {
+			current.authResult = authResult
+		}
+		s.sseMu.Unlock()
+		ctx = authResult.Apply(ctx)
+	} else if session.authResult != nil {
+		ctx = session.authResult.Apply(ctx)
 	}
 
 	resp := s.processRequestWithContext(ctx, req)
@@ -297,7 +331,7 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		} else if len(rawToken) > 0 {
 			tokenPreview = rawToken[:1] + "..."
 		}
-		internalToken, err := s.authorizeToken(rawToken)
+		authResult, err := s.authorizeToken(ctx, rawToken)
 		if err != nil {
 			if s.verbose {
 				log.Printf("[HTTP] Unauthorized: token rejected")
@@ -305,7 +339,7 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		ctx = WithAPIToken(ctx, internalToken)
+		ctx = authResult.Apply(ctx)
 	} else if s.authEnabled {
 		if s.verbose {
 			log.Printf("[HTTP] Unauthorized: no Bearer token provided")

@@ -139,8 +139,9 @@ type ToolCallParams struct {
 
 // sseSession holds per-session data including the API token
 type sseSession struct {
-	apiToken string
-	respChan chan JSONRPCResponse
+	bearerToken string
+	authResult  *AuthResult
+	respChan    chan JSONRPCResponse
 }
 
 // MCPServer represents an MCP server that can handle requests
@@ -176,12 +177,29 @@ type ToolHandler func(args map[string]interface{}) (interface{}, error)
 type ToolHandlerWithContext func(ctx context.Context, args map[string]interface{}) (interface{}, error)
 
 // AuthenticatorFunc is a callback that validates/transforms an incoming bearer token.
-// It receives the raw token from the Authorization header and should return:
-// - (internalToken, nil) on success: internalToken will be stored in context
-// - ("", error) on failure: request will be rejected with 401
+// It receives the request context and raw token from the Authorization header and should return:
+// - (*AuthResult, nil) on success: auth state will be attached to the request context
+// - (nil, error) on failure: request will be rejected with 401
 // This allows custom authentication logic (e.g., validating against external service,
 // exchanging public tokens for internal tokens, etc.)
-type AuthenticatorFunc func(token string) (string, error)
+type AuthenticatorFunc func(ctx context.Context, token string) (*AuthResult, error)
+
+// LegacyAuthenticatorFunc is the older authenticator signature without context.
+// Use SetAuthenticatorWithContext for new integrations.
+type LegacyAuthenticatorFunc func(token string) (string, error)
+
+// AuthContextValue describes a context key/value pair to attach after authentication.
+type AuthContextValue struct {
+	Key   any
+	Value any
+}
+
+// AuthResult contains the auth-derived values that should be attached to the request context.
+// APIToken is also exported via GetAPIToken for tool handlers that consume bearer tokens.
+type AuthResult struct {
+	APIToken      string
+	ContextValues []AuthContextValue
+}
 
 // ResponseMode controls how tool results are formatted in responses
 type ResponseMode int
@@ -510,12 +528,29 @@ func (s *MCPServer) SetContext(ctx context.Context) {
 }
 
 // SetAuthenticator sets a custom authentication callback that validates/transforms
-// incoming bearer tokens. The callback receives the raw token and returns either:
-// - (internalToken, nil): the internalToken is stored in context for tool handlers
-// - ("", error): the request is rejected with 401 Unauthorized
+// incoming bearer tokens. This compatibility wrapper adapts the legacy signature.
+// Use SetAuthenticatorWithContext for request-scoped authentication flows.
+func (s *MCPServer) SetAuthenticator(fn LegacyAuthenticatorFunc) {
+	if fn == nil {
+		s.authenticator = nil
+		return
+	}
+	s.authenticator = func(ctx context.Context, token string) (*AuthResult, error) {
+		internalToken, err := fn(token)
+		if err != nil {
+			return nil, err
+		}
+		return &AuthResult{APIToken: internalToken}, nil
+	}
+}
+
+// SetAuthenticatorWithContext sets a custom authentication callback that validates/transforms
+// incoming bearer tokens. The callback receives the request context and raw token and returns either:
+// - (*AuthResult, nil): auth state is attached to the request context for tool handlers
+// - (nil, error): the request is rejected with 401 Unauthorized
 // This enables custom auth flows like validating against external services or
 // exchanging public tokens for internal API tokens.
-func (s *MCPServer) SetAuthenticator(fn AuthenticatorFunc) {
+func (s *MCPServer) SetAuthenticatorWithContext(fn AuthenticatorFunc) {
 	s.authenticator = fn
 }
 
@@ -533,12 +568,12 @@ func (s *MCPServer) SetResponseMode(mode ResponseMode) {
 }
 
 // authenticate validates/transforms a token using the authenticator callback.
-// If no authenticator is set, returns the token unchanged.
-func (s *MCPServer) authenticate(token string) (string, error) {
+// If no authenticator is set, the raw token is stored as the API token.
+func (s *MCPServer) authenticate(ctx context.Context, token string) (*AuthResult, error) {
 	if s.authenticator == nil {
-		return token, nil
+		return &AuthResult{APIToken: token}, nil
 	}
-	return s.authenticator(token)
+	return s.authenticator(ctx, token)
 }
 
 // RegisterStreamingTool registers a streaming tool handler for a specific tool name
