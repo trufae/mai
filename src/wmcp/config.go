@@ -16,6 +16,7 @@ type MaiOptions struct {
 	DrunkMode      bool   `json:"drunkMode,omitempty"`
 	NoPrompts      bool   `json:"noPrompts,omitempty"`
 	NonInteractive bool   `json:"nonInteractive,omitempty"`
+	SessionMode    bool   `json:"sessionMode,omitempty"` // Enable session ID in bridge responses (disabled by default)
 }
 
 // Config represents the main configuration structure
@@ -26,12 +27,13 @@ type Config struct {
 
 // MCPServerConfig represents the configuration for a single MCP server
 type MCPServerConfig struct {
-	Type    string            `json:"type"`              // "stdio", "http", or "sse"
-	Command string            `json:"command,omitempty"` // for stdio type
-	Args    []string          `json:"args,omitempty"`    // for stdio type
-	URL     string            `json:"url,omitempty"`     // for http or sse type
-	Env     map[string]string `json:"env,omitempty"`
-	Tools   map[string]bool   `json:"tools,omitempty"` // Tool name -> enabled status
+	Type        string            `json:"type"`              // "stdio", "http", or "sse"
+	Command     string            `json:"command,omitempty"` // for stdio type
+	Args        []string          `json:"args,omitempty"`    // for stdio type
+	URL         string            `json:"url,omitempty"`     // for http or sse type
+	Env         map[string]string `json:"env,omitempty"`
+	Tools       map[string]bool   `json:"tools,omitempty"`       // Tool name -> enabled status
+	SessionMode bool              `json:"sessionMode,omitempty"` // Enable session ID tracking (disabled by default to prevent SSE hijacking)
 }
 
 // LoadConfigFromJSON loads the configuration from a JSON string
@@ -222,8 +224,8 @@ func StartMCPServersFromConfig(service *MCPService, config *Config) {
 	for name, cmdStr := range commands {
 		serverConfig := config.MCPServers[name]
 
-		// Start server with environment variables and tool filtering
-		if err := service.StartServerWithEnvAndTools(name, cmdStr, serverConfig.Env, serverConfig.Tools); err != nil {
+		// Start server with environment variables, tool filtering, and session mode
+		if err := service.StartServerWithEnvAndTools(name, cmdStr, serverConfig.Env, serverConfig.Tools, serverConfig.SessionMode); err != nil {
 			fmt.Printf("Failed to start server %s: %v\n", name, err)
 		}
 	}

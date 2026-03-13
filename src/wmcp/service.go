@@ -14,13 +14,14 @@ import (
 	"time"
 )
 
-func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool, nonInteractive bool) *MCPService {
+func NewMCPService(yoloMode bool, drunkMode bool, reportFile string, noPrompts bool, nonInteractive bool, sessionMode bool) *MCPService {
 	return &MCPService{
 		servers:              make(map[string]*MCPServer),
 		yoloMode:             yoloMode,
 		drunkMode:            drunkMode,
 		noPrompts:            noPrompts,
 		nonInteractive:       nonInteractive,
+		sessionMode:          sessionMode,
 		yoloToolNotFoundMode: false,
 		toolPerms:            make(map[string]ToolPermission),
 		promptPerms:          make(map[string]PromptPermission),

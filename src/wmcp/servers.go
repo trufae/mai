@@ -34,16 +34,16 @@ func GetServerNameFromCommand(command string) string {
 
 // StartServer starts an MCP server process or connects to HTTP endpoint
 func (s *MCPService) StartServer(name, command string) error {
-	return s.StartServerWithEnvAndTools(name, command, nil, nil)
+	return s.StartServerWithEnvAndTools(name, command, nil, nil, false)
 }
 
 // StartServerWithEnv starts an MCP server process with custom environment variables or connects to HTTP endpoint
 func (s *MCPService) StartServerWithEnv(name, command string, env map[string]string) error {
-	return s.StartServerWithEnvAndTools(name, command, env, nil)
+	return s.StartServerWithEnvAndTools(name, command, env, nil, false)
 }
 
 // StartServerWithEnvAndTools starts an MCP server process with custom environment variables and tool filtering
-func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[string]string, enabledTools map[string]bool) error {
+func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[string]string, enabledTools map[string]bool, sessionMode bool) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -69,6 +69,7 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 			Prompts:       []Prompt{},
 			Resources:     []Resource{},
 			EnabledTools:  enabledTools,
+			UseSession:    sessionMode,
 			stderrDone:    make(chan struct{}),
 			stderrActive:  false, // no stderr for HTTP/SSE
 			monitorDone:   make(chan struct{}),
@@ -88,8 +89,8 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 				delete(s.servers, name)
 				return fmt.Errorf("failed to connect to SSE server: %v", err)
 			}
-			// Extract session_id from endpoint URL if present
-			if strings.Contains(endpointURL, "session_id=") {
+			// Extract session_id from endpoint URL if present (only when sessionMode is enabled)
+			if server.UseSession && strings.Contains(endpointURL, "session_id=") {
 				u, _ := url.Parse(endpointURL)
 				if u != nil {
 					sessionID := u.Query().Get("session_id")
@@ -204,6 +205,7 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 		Stderr:        stderr,
 		Tools:         []Tool{},
 		EnabledTools:  enabledTools,
+		UseSession:    sessionMode,
 		stderrDone:    make(chan struct{}),
 		stderrActive:  true,
 		monitorDone:   make(chan struct{}),
@@ -303,11 +305,13 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-		server.mutex.RLock()
-		sessionID := server.SessionID
-		server.mutex.RUnlock()
-		if sessionID != "" {
-			httpReq.Header.Set("Mcp-Session-Id", sessionID)
+		if server.UseSession {
+			server.mutex.RLock()
+			sessionID := server.SessionID
+			server.mutex.RUnlock()
+			if sessionID != "" {
+				httpReq.Header.Set("Mcp-Session-Id", sessionID)
+			}
 		}
 
 		if token := s.GetBearerToken(server); token != "" {
@@ -318,10 +322,12 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		if err != nil {
 			return fmt.Errorf("notification request failed: %v", err)
 		}
-		if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
-			server.mutex.Lock()
-			server.SessionID = newSessionID
-			server.mutex.Unlock()
+		if server.UseSession {
+			if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+				server.mutex.Lock()
+				server.SessionID = newSessionID
+				server.mutex.Unlock()
+			}
 		}
 		resp.Body.Close() // Ignore response
 	} else {
@@ -724,12 +730,14 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-	server.mutex.RLock()
-	sessionID := server.SessionID
-	server.mutex.RUnlock()
-	if sessionID != "" {
-		httpReq.Header.Set("Mcp-Session-Id", sessionID)
-		httpReq.Header.Set("X-SSE-Session-ID", sessionID)
+	if server.UseSession {
+		server.mutex.RLock()
+		sessionID := server.SessionID
+		server.mutex.RUnlock()
+		if sessionID != "" {
+			httpReq.Header.Set("Mcp-Session-Id", sessionID)
+			httpReq.Header.Set("X-SSE-Session-ID", sessionID)
+		}
 	}
 
 	if token := s.GetBearerToken(server); token != "" {
@@ -840,8 +848,8 @@ func (s *MCPService) listenSSEResponses(server *MCPServer) {
 					}
 				}
 			} else if currentEvent == "endpoint" {
-				// New endpoint - extract session ID if present
-				if strings.Contains(payload, "session_id=") {
+				// New endpoint - extract session ID if present (only when sessionMode is enabled)
+				if server.UseSession && strings.Contains(payload, "session_id=") {
 					u, _ := url.Parse(payload)
 					if u != nil {
 						newSessionID := u.Query().Get("session_id")
@@ -885,14 +893,15 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-	// Reuse existing session if available
-	server.mutex.RLock()
-	sessionID := server.SessionID
-	server.mutex.RUnlock()
-	if sessionID != "" {
-		httpReq.Header.Set("Mcp-Session-Id", sessionID)
-		// Also set X-SSE-Session-ID for SSE servers
-		httpReq.Header.Set("X-SSE-Session-ID", sessionID)
+	// Reuse existing session if available (only when sessionMode is enabled)
+	if server.UseSession {
+		server.mutex.RLock()
+		sessionID := server.SessionID
+		server.mutex.RUnlock()
+		if sessionID != "" {
+			httpReq.Header.Set("Mcp-Session-Id", sessionID)
+			httpReq.Header.Set("X-SSE-Session-ID", sessionID)
+		}
 	}
 
 	// Add bearer token if available
@@ -915,10 +924,12 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 		return nil, fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
 	}
 
-	if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
-		server.mutex.Lock()
-		server.SessionID = newSessionID
-		server.mutex.Unlock()
+	if server.UseSession {
+		if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+			server.mutex.Lock()
+			server.SessionID = newSessionID
+			server.mutex.Unlock()
+		}
 	}
 
 	contentType := resp.Header.Get("Content-Type")

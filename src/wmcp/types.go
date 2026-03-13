@@ -222,6 +222,7 @@ type MCPServer struct {
 	Prompts       []Prompt
 	Resources     []Resource
 	EnabledTools  map[string]bool // Tool name -> enabled status (nil means all enabled)
+	UseSession    bool            // Whether to track/send session IDs (opt-in per server)
 	SessionID     string
 	SSEURL        string // Original SSE endpoint URL for receiving responses
 	SSEConnected  bool   // Whether SSE connection is established
@@ -253,6 +254,7 @@ type MCPService struct {
 	reportFile           string
 	report               Report
 	reportLock           sync.RWMutex
+	sessionMode          bool // Whether the bridge emits session IDs in its own responses
 	sessionLock          sync.Mutex
 	sessionID            string
 }

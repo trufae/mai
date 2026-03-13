@@ -53,7 +53,10 @@ func writeJSONRPCError(w http.ResponseWriter, sessionID string, id interface{}, 
 }
 
 func (s *MCPService) mcpJSONRPCHandler(w http.ResponseWriter, r *http.Request) {
-	sessionID := s.ensureSessionID()
+	sessionID := ""
+	if s.sessionMode {
+		sessionID = s.ensureSessionID()
+	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

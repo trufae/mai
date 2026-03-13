@@ -31,6 +31,7 @@ func showHelp() {
      -n       Skip loading config file
      -o FILE  Output report to FILE
      -p       Skip loading prompts (only expose tools)
+     -s       Enable session ID tracking (disabled by default to prevent SSE hijacking)
      -t       Load MCP servers and list tools, prompts, and resources, then quit
      -v       Show version information
      -y       Yolo mode (skip tool confirmations)
@@ -307,6 +308,10 @@ func main() {
 	if config != nil {
 		noPromptsMode = config.MaiOptions.NoPrompts
 	}
+	sessionMode := false
+	if config != nil {
+		sessionMode = config.MaiOptions.SessionMode
+	}
 
 	// Second pass: process other command line arguments (can override config)
 	for i := 0; i < len(args); i++ {
@@ -359,6 +364,8 @@ func main() {
 				os.Exit(0)
 			case "-p":
 				noPromptsMode = true
+			case "-s":
+				sessionMode = true
 			case "-c":
 				// Already handled in first pass
 				i++ // Skip the value
@@ -428,7 +435,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := NewMCPService(yoloMode, drunkMode, outputReport, noPromptsMode, nonInteractiveMode)
+	service := NewMCPService(yoloMode, drunkMode, outputReport, noPromptsMode, nonInteractiveMode, sessionMode)
 
 	// Set debug flag
 	service.debugMode = debugMode
