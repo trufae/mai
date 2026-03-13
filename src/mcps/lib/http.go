@@ -97,9 +97,6 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	var internalToken string
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		authHeader = r.Header.Get("Authentication")
-	}
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
 		rawToken := authHeader[7:]
 		if s.authEnabled && !s.authTokens[rawToken] {
@@ -176,9 +173,6 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var internalToken string
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		authHeader = r.Header.Get("Authentication")
-	}
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
 		rawToken := authHeader[7:]
 		if s.authEnabled && !s.authTokens[rawToken] {
@@ -274,9 +268,6 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		authHeader = r.Header.Get("Authentication")
-	}
 	hasToken := false
 	tokenPreview := ""
 	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
@@ -325,10 +316,8 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 
 	if s.verbose {
 		authInfo := "no-token"
-		fullToken := ""
 		if hasToken {
 			authInfo = "token=" + tokenPreview
-			fullToken = authHeader[7:]
 		} else if authHeader != "" {
 			authInfo = fmt.Sprintf("invalid-auth-header=%q", authHeader)
 		}
@@ -354,9 +343,6 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[HTTP] %s %s method=%s tool=%s args=%s %s", r.Method, r.URL.Path, req.Method, toolName, toolArgs, authInfo)
 		} else {
 			log.Printf("[HTTP] %s %s method=%s %s", r.Method, r.URL.Path, req.Method, authInfo)
-		}
-		if fullToken != "" {
-			log.Printf("[HTTP] API token: %s", fullToken)
 		}
 	}
 
