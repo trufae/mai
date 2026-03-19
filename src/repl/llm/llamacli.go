@@ -154,7 +154,7 @@ func (p *LlamaCliProvider) streamResponse(stdout io.ReadCloser, stdin io.WriteCl
 		if toPrint != "" {
 			printed = true
 		}
-		fullResponse.WriteString(raw)
+		appendResponseText(&fullResponse, p.ctx, raw)
 	}
 
 	if markdownEnabled {

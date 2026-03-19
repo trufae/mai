@@ -326,7 +326,7 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		// Centralized demo handling and then format/print the content
 		sd.OnToken(chunk)
 		toPrint := chunk
-		if p.config.DemoMode || thinkDropLeading {
+		if thinkHideEnabled || thinkDropLeading {
 			toPrint = FilterOutThinkForOutput(toPrint)
 		}
 		// Trim leading whitespace/newlines on first visible output in demo mode
@@ -337,7 +337,7 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		if toPrint != "" {
 			printed = true
 		}
-		fullResponse.WriteString(chunk)
+		appendResponseText(&fullResponse, p.ctx, chunk)
 	}
 
 	// Flush any remaining content in the stream renderer buffer

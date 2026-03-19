@@ -276,7 +276,7 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			if toPrint != "" {
 				printed = true
 			}
-			fullResponse.WriteString(raw)
+			appendResponseText(&fullResponse, p.ctx, raw)
 		}
 	}
 

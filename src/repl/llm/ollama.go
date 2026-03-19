@@ -236,6 +236,9 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 			fmt.Printf("DEBUG: Ollama response: content=%q thinking=%q\n", response.Message.Content, response.Message.Thinking)
 		}
 
+		accountResponseText(p.ctx, response.Message.Thinking)
+		accountResponseText(p.ctx, response.Message.Content)
+
 		// Handle tool_calls if content is empty
 		if len(response.Message.ToolCalls) > 0 {
 			// Construct JSON response for tool calling
@@ -564,21 +567,13 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			if data == "[DONE]" {
 				break
 			}
-
-			var response struct {
-				Choices []struct {
-					Delta struct {
-						Content string `json:"content""`
-					} `json:"delta""`
-				} `json:"choices""`
+			content, reasoning := extractOpenAIStreamDelta(data)
+			for _, text := range reasoning {
+				sd.OnToken(text)
+				accountResponseText(p.ctx, text)
 			}
-
-			if err := json.Unmarshal([]byte(data), &response); err != nil {
-				continue
-			}
-
-			if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
-				raw = response.Choices[0].Delta.Content
+			if content != "" {
+				raw = content
 			}
 			// OpenAI-style doesn't have a done flag, so we continue until [DONE]
 			isDone = false
@@ -610,10 +605,13 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			if response.Response != "" {
 				raw = response.Response
 			} else if response.Message.Thinking != "" {
-				if !thinkHideEnabled {
+				sd.OnToken(response.Message.Thinking)
+				if thinkHideEnabled {
+					accountResponseText(p.ctx, response.Message.Thinking)
+				} else {
 					raw = response.Message.Thinking
 					isThinkingChunk = true
-				} // else skip thinking
+				}
 			} else {
 				raw = response.Message.Content
 			}
@@ -621,7 +619,9 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		}
 
 		// Centralized demo handling
-		sd.OnToken(raw)
+		if raw != "" {
+			sd.OnToken(raw)
+		}
 		// Filter out <think> regions from printed output in demo mode
 		// or when we are dropping a leading think block for this request.
 		toPrint := raw
@@ -646,7 +646,7 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		if toPrint != "" {
 			printed = true
 		}
-		fullResponse.WriteString(raw)
+		appendResponseText(&fullResponse, p.ctx, raw)
 
 		if isDone {
 			break

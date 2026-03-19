@@ -166,6 +166,12 @@ func (p *XAIProvider) SendMessage(messages []Message, stream bool, images []stri
 	if err != nil {
 		return "", err
 	}
+	if content, reasoning := extractOpenAIResponseMessage(respBody); content != "" || len(reasoning) > 0 {
+		accountResponseText(p.ctx, content)
+		for _, text := range reasoning {
+			accountResponseText(p.ctx, text)
+		}
+	}
 
 	var response struct {
 		Choices []struct {
@@ -229,20 +235,15 @@ func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firs
 			break
 		}
 
-		var response struct {
-			Choices []struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-			} `json:"choices"`
-		}
-
-		if err := json.Unmarshal([]byte(data), &response); err != nil {
+		raw, reasoning := extractOpenAIStreamDelta(data)
+		if raw == "" && len(reasoning) == 0 {
 			continue
 		}
-
-		if len(response.Choices) > 0 && response.Choices[0].Delta.Content != "" {
-			raw := response.Choices[0].Delta.Content
+		for _, text := range reasoning {
+			sd.OnToken(text)
+			accountResponseText(p.ctx, text)
+		}
+		if raw != "" {
 			// Centralized demo handling
 			sd.OnToken(raw)
 			// Filter out <think> regions from printed output in demo mode or when
@@ -261,7 +262,7 @@ func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firs
 			if toPrint != "" {
 				printed = true
 			}
-			fullResponse.WriteString(raw)
+			appendResponseText(&fullResponse, p.ctx, raw)
 		}
 	}
 

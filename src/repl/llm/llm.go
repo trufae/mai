@@ -332,8 +332,9 @@ type LLMClient struct {
 	// Optional callback to notify when the first streaming token arrives
 	responseStopCallback func()
 	// Timing callbacks for TPS statistics
-	firstTokenCallback func()
-	streamEndCallback  func()
+	firstTokenCallback  func()
+	streamEndCallback   func()
+	accountTextCallback func(string)
 }
 
 // ListModelsResult contains the list of available models with optional error
@@ -393,6 +394,7 @@ func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
 	// Include timing callbacks for TPS statistics
 	ctx = context.WithValue(ctx, "first_token_callback", c.firstTokenCallback)
 	ctx = context.WithValue(ctx, "stream_end_callback", c.streamEndCallback)
+	ctx = context.WithValue(ctx, "account_text_callback", c.accountTextCallback)
 	ctx, cancel := context.WithCancel(ctx)
 	c.responseCancel = cancel
 	return ctx, cancel
@@ -456,10 +458,14 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	var firstTokenTime time.Time
 	var streamEndTime time.Time
 	var firstTokenReceived bool
+	var responseChars int
 
 	// Set up timing callbacks if TPS is enabled
 	if c.Config != nil && c.Config.ShowTPS {
 		requestStart = time.Now()
+		c.accountTextCallback = func(text string) {
+			responseChars += len(text)
+		}
 		// Set up timing callbacks
 		c.SetTimingCallbacks(
 			func() {
@@ -470,6 +476,8 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 			},
 			nil, // Stream end callback will be set after we know the streaming mode
 		)
+	} else {
+		c.accountTextCallback = nil
 	}
 
 	// Apply conversation message limit if configured: only keep the last N messages
@@ -540,7 +548,14 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	// Single entry point for all providers; providers handle images support.
 	// Delegate to provider and capture response so we can debug-print it
 	isStreaming := stream && !c.Config.NoStream
-	
+	ctx, cancel := c.newContext()
+	defer cancel()
+	provider, err := CreateProvider(c.Config, ctx)
+	if err != nil {
+		return "", err
+	}
+	c.provider = provider
+
 	// Set up stream end callback for streaming responses if TPS is enabled
 	if c.Config != nil && c.Config.ShowTPS && isStreaming {
 		c.SetTimingCallbacks(
@@ -550,11 +565,11 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 			},
 		)
 	}
-	
-	resp, err := c.provider.SendMessage(messagesToSend, isStreaming, images, tools)
+
+	resp, err := provider.SendMessage(messagesToSend, isStreaming, images, tools)
 
 	// For non-streaming responses, simulate timing callbacks
-	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && resp != "" {
+	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && (resp != "" || responseChars > 0) {
 		firstTokenTime = time.Now()
 		streamEndTime = firstTokenTime
 		firstTokenReceived = true
@@ -579,9 +594,10 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 		art.DebugBanner("LLM Response From "+c.Config.PROVIDER, buf.String())
 	}
 
-	// Store original response for TPS calculation before any filtering
-	originalResp := resp
-	
+	if responseChars == 0 {
+		responseChars = len(resp)
+	}
+
 	// For non-streaming responses, only remove <think> sections when the
 	// client requested hiding of think-regions. When hiding is disabled,
 	// preserve the tags and their content so the UI can show them.
@@ -595,31 +611,30 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	}
 
 	// Display TPS statistics for non-streaming responses
-	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && originalResp != "" {
-		c.displayTPSStats(requestStart, firstTokenTime, streamEndTime, originalResp)
+	if c.Config != nil && c.Config.ShowTPS && !isStreaming && err == nil && responseChars > 0 {
+		c.displayTPSStats(requestStart, firstTokenTime, streamEndTime, responseChars)
 	}
 
 	// For streaming responses, display TPS stats if we have timing data
 	// Note: In some stdin mode scenarios, streaming callbacks might not be properly called
 	// so we display stats here if we have the necessary timing data
-	if c.Config != nil && c.Config.ShowTPS && isStreaming && err == nil && originalResp != "" {
+	if c.Config != nil && c.Config.ShowTPS && isStreaming && err == nil && responseChars > 0 {
 		if !requestStart.IsZero() && !firstTokenTime.IsZero() && streamEndTime.IsZero() {
 			// Stream completed but callback wasn't called - set end time now
 			streamEndTime = time.Now()
 		}
-		
+
 		if !requestStart.IsZero() && !firstTokenTime.IsZero() && !streamEndTime.IsZero() {
 			// Complete timing data available - display full stats
-			c.displayTPSStats(requestStart, firstTokenTime, streamEndTime, originalResp)
+			c.displayTPSStats(requestStart, firstTokenTime, streamEndTime, responseChars)
 		} else if !requestStart.IsZero() && streamEndTime.IsZero() {
 			// Only have start time - simulate completion time and show basic stats
 			totalTime := time.Since(requestStart).Seconds()
 			if totalTime > 0 {
-				responseLength := len(originalResp)
-				tokens := float64(responseLength) / 4.0 // rough estimate: 4 chars per token
+				tokens := float64(responseChars) / 4.0 // rough estimate: 4 chars per token
 				tokensPerSec := tokens / totalTime
-				charsPerSec := float64(responseLength) / totalTime
-				fmt.Printf("[TPS] Total time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f (streaming)\n", 
+				charsPerSec := float64(responseChars) / totalTime
+				fmt.Printf("[TPS] Total time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f (streaming)\n",
 					totalTime, tokensPerSec, charsPerSec)
 			}
 		}
@@ -629,12 +644,10 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 }
 
 // displayTPSStats calculates and displays timing statistics for LLM responses
-func (c *LLMClient) displayTPSStats(requestStart, firstTokenTime, streamEndTime time.Time, response string) {
+func (c *LLMClient) displayTPSStats(requestStart, firstTokenTime, streamEndTime time.Time, responseChars int) {
 	if requestStart.IsZero() {
 		return
 	}
-
-	responseLength := len(response)
 
 	// For streaming responses
 	if !firstTokenTime.IsZero() && !streamEndTime.IsZero() {
@@ -645,14 +658,14 @@ func (c *LLMClient) displayTPSStats(requestStart, firstTokenTime, streamEndTime 
 		generationTime := streamEndTime.Sub(firstTokenTime)
 
 		// Calculate tokens/second and chars/second based on generation time
-		charsPerSec := float64(responseLength) / generationTime.Seconds()
-		estimatedTokens := responseLength / 4
+		charsPerSec := float64(responseChars) / generationTime.Seconds()
+		estimatedTokens := responseChars / 4
 		tokensPerSec := float64(estimatedTokens) / generationTime.Seconds()
 
 		// For very short generation times, the stats might not be meaningful
-		if generationTime == 0 || responseLength < 200 {
+		if generationTime == 0 || responseChars < 200 {
 			totalTime := streamEndTime.Sub(requestStart)
-			charsPerSec = float64(responseLength) / totalTime.Seconds()
+			charsPerSec = float64(responseChars) / totalTime.Seconds()
 			tokensPerSec = float64(estimatedTokens) / totalTime.Seconds()
 			fmt.Fprintf(os.Stderr, "\n[TPS] Time to first token: %.2fs, Total time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f\n",
 				timeToFirstToken.Seconds(), totalTime.Seconds(), tokensPerSec, charsPerSec)
@@ -663,8 +676,8 @@ func (c *LLMClient) displayTPSStats(requestStart, firstTokenTime, streamEndTime 
 	} else if !streamEndTime.IsZero() {
 		// For non-streaming responses (firstTokenTime and streamEndTime are the same)
 		totalTime := streamEndTime.Sub(requestStart)
-		charsPerSec := float64(responseLength) / totalTime.Seconds()
-		estimatedTokens := responseLength / 4
+		charsPerSec := float64(responseChars) / totalTime.Seconds()
+		estimatedTokens := responseChars / 4
 		tokensPerSec := float64(estimatedTokens) / totalTime.Seconds()
 		fmt.Fprintf(os.Stderr, "\n[TPS] Total time: %.2fs, Tokens/sec: %.1f, Chars/sec: %.1f\n",
 			totalTime.Seconds(), tokensPerSec, charsPerSec)
