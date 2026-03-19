@@ -210,6 +210,7 @@ func AskYesNo(question string, defaultVal rune) bool {
 	// Read one byte
 	var buf [1]byte
 	n, err := os.Stdin.Read(buf[:])
+	fmt.Println()
 	if err != nil || n == 0 {
 		return dv == 'y'
 	}
