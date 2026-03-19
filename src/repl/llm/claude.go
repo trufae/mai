@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -213,7 +212,6 @@ func (p *ClaudeProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 }
 
 func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
-	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
@@ -226,23 +224,14 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		ResetStreamRenderer()
 	}
 	printed := false
-	for {
-		select {
-		case <-p.ctx.Done():
-			return "", p.ctx.Err()
-		default:
-		}
-		if !scanner.Scan() {
-			break
-		}
-		line := scanner.Text()
+	streamErr := streamEachLine(p.ctx, reader, func(line string) (bool, error) {
 		if !strings.HasPrefix(line, "data: ") {
-			continue
+			return false, nil
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
-			break
+			return true, nil
 		}
 
 		var response struct {
@@ -253,7 +242,7 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		}
 
 		if err := json.Unmarshal([]byte(data), &response); err != nil {
-			continue
+			return false, nil
 		}
 
 		if response.Type == "content_block_delta" && response.Delta.Text != "" {
@@ -278,6 +267,10 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			}
 			appendResponseText(&fullResponse, p.ctx, raw)
 		}
+		return false, nil
+	})
+	if p.ctx != nil && p.ctx.Err() != nil && streamErr == p.ctx.Err() {
+		return "", streamErr
 	}
 
 	// Flush any remaining content in the stream renderer buffer
@@ -306,8 +299,8 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 	// Call stream end callback for timing
 	sd.OnStreamEnd()
 
-	if err := scanner.Err(); err != nil {
-		return fullResponse.String(), err
+	if streamErr != nil {
+		return fullResponse.String(), streamErr
 	}
 
 	return fullResponse.String(), nil

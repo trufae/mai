@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -526,7 +525,6 @@ func (p *OllamaProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 }
 
 func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
-	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
@@ -539,18 +537,9 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		ResetStreamRenderer()
 	}
 	printed := false
-	for {
-		select {
-		case <-p.ctx.Done():
-			return "", p.ctx.Err()
-		default:
-		}
-		if !scanner.Scan() {
-			break
-		}
-		line := scanner.Text()
+	streamErr := streamEachLine(p.ctx, reader, func(line string) (bool, error) {
 		if line == "" {
-			continue
+			return false, nil
 		}
 		if p.config.Debug {
 			fmt.Println("")
@@ -562,10 +551,10 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		isThinkingChunk := false
 
 		// Check for OpenAI-style streaming (data: prefix)
-		if strings.Contains(line, "data: ") {
-			data := strings.Split(line, "data: ")[1]
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
-				break
+				return true, nil
 			}
 			content, reasoning := extractOpenAIStreamDelta(data)
 			for _, text := range reasoning {
@@ -584,7 +573,7 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			}
 
 			if err := json.Unmarshal([]byte(line), &response); err != nil {
-				continue
+				return false, nil
 			}
 
 			raw = response.Response
@@ -600,7 +589,7 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			}
 
 			if err := json.Unmarshal([]byte(line), &response); err != nil {
-				continue
+				return false, nil
 			}
 			if response.Response != "" {
 				raw = response.Response
@@ -638,19 +627,19 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		}
 		// Format for printing only, keep raw for storage
 		formatted := FormatStreamingChunk(toPrint, markdownEnabled)
-		// Don't print during streaming in stdin mode to avoid double output
-		// Stdin mode will print the complete response after streaming finishes
-		if !p.config.IsStdinMode {
-			fmt.Print(formatted)
-		}
+		fmt.Print(formatted)
 		if toPrint != "" {
 			printed = true
 		}
 		appendResponseText(&fullResponse, p.ctx, raw)
 
 		if isDone {
-			break
+			return true, nil
 		}
+		return false, nil
+	})
+	if p.ctx != nil && p.ctx.Err() != nil && streamErr == p.ctx.Err() {
+		return "", streamErr
 	}
 
 	// Flush any remaining content in the stream renderer buffer
@@ -663,30 +652,24 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
-				if !p.config.IsStdinMode {
-					fmt.Print(trimmed)
-				}
+				fmt.Print(trimmed)
 			} else {
 				trimmed := TrimLeadingThink(final)
 				if !printed {
 					trimmed = strings.TrimLeft(trimmed, " \t\r\n")
 				}
-				if !p.config.IsStdinMode {
-					fmt.Print(trimmed)
-				}
+				fmt.Print(trimmed)
 			}
 		}
 	}
 
-	if !p.config.IsStdinMode {
-		fmt.Println()
-	}
+	fmt.Println()
 
 	// Call stream end callback for timing
 	sd.OnStreamEnd()
 
-	if err := scanner.Err(); err != nil {
-		return fullResponse.String(), err
+	if streamErr != nil {
+		return fullResponse.String(), streamErr
 	}
 
 	if p.config.Debug {

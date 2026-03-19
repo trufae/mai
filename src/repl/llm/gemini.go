@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -237,7 +236,6 @@ func (p *GeminiProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 }
 
 func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
-	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
@@ -251,23 +249,14 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 	}
 
 	printed := false
-	for {
-		select {
-		case <-p.ctx.Done():
-			return "", p.ctx.Err()
-		default:
-		}
-		if !scanner.Scan() {
-			break
-		}
-		line := scanner.Text()
+	streamErr := streamEachLine(p.ctx, reader, func(line string) (bool, error) {
 		if line == "" {
-			continue
+			return false, nil
 		}
 		if strings.HasPrefix(line, "data: ") {
 			line = strings.TrimPrefix(line, "data: ")
 			if line == "[DONE]" {
-				break
+				return true, nil
 			}
 		}
 
@@ -275,14 +264,14 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		var obj map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &obj); err != nil {
 			// not JSON, skip
-			continue
+			return false, nil
 		}
 
 		// If the event contains an error object, return it as an error immediately.
 		if errObj, ok := obj["error"].(map[string]interface{}); ok {
 			if msg, ok := errObj["message"].(string); ok && msg != "" {
 				// Return any collected response along with the error message
-				return fullResponse.String(), fmt.Errorf("%s", msg)
+				return false, fmt.Errorf("%s", msg)
 			}
 		}
 
@@ -320,7 +309,7 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 
 		if chunk == "" {
 			// Nothing extracted from this event
-			continue
+			return false, nil
 		}
 
 		// Centralized demo handling and then format/print the content
@@ -338,6 +327,10 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			printed = true
 		}
 		appendResponseText(&fullResponse, p.ctx, chunk)
+		return false, nil
+	})
+	if p.ctx != nil && p.ctx.Err() != nil && streamErr == p.ctx.Err() {
+		return "", streamErr
 	}
 
 	// Flush any remaining content in the stream renderer buffer
@@ -366,8 +359,8 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 	// Call stream end callback for timing
 	sd.OnStreamEnd()
 
-	if err := scanner.Err(); err != nil {
-		return fullResponse.String(), err
+	if streamErr != nil {
+		return fullResponse.String(), streamErr
 	}
 
 	return fullResponse.String(), nil

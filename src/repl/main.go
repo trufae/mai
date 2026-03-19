@@ -212,7 +212,9 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 		os.Exit(1)
 	}
 
-	fmt.Println(res)
+	if !streamEnabled {
+		fmt.Println(res)
+	}
 }
 
 // runEmbedMode handles embedding text and outputting vectors

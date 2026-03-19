@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -462,7 +461,6 @@ func (p *OpenAIProvider) parseStreamWithCallback(reader io.Reader, stopCallback 
 }
 
 func (p *OpenAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firstTokenCallback, streamEndCallback func()) (string, error) {
-	scanner := bufio.NewScanner(reader)
 	var fullResponse strings.Builder
 	sd := NewStreamDemo(stopCallback, firstTokenCallback, streamEndCallback)
 
@@ -475,28 +473,19 @@ func (p *OpenAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		ResetStreamRenderer()
 	}
 	printed := false
-	for {
-		select {
-		case <-p.ctx.Done():
-			return "", p.ctx.Err()
-		default:
-		}
-		if !scanner.Scan() {
-			break
-		}
-		line := scanner.Text()
+	streamErr := streamEachLine(p.ctx, reader, func(line string) (bool, error) {
 		if !strings.HasPrefix(line, "data: ") {
-			continue
+			return false, nil
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
-			break
+			return true, nil
 		}
 
 		raw, reasoning := extractOpenAIStreamDelta(data)
 		if raw == "" && len(reasoning) == 0 {
-			continue
+			return false, nil
 		}
 		for _, text := range reasoning {
 			sd.OnToken(text)
@@ -524,6 +513,10 @@ func (p *OpenAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			}
 			appendResponseText(&fullResponse, p.ctx, raw)
 		}
+		return false, nil
+	})
+	if p.ctx != nil && p.ctx.Err() != nil && streamErr == p.ctx.Err() {
+		return "", streamErr
 	}
 
 	// Flush any remaining content in the stream renderer buffer
@@ -555,8 +548,8 @@ func (p *OpenAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 	// Call stream end callback for timing
 	sd.OnStreamEnd()
 
-	if err := scanner.Err(); err != nil {
-		return fullResponse.String(), err
+	if streamErr != nil {
+		return fullResponse.String(), streamErr
 	}
 
 	return fullResponse.String(), nil

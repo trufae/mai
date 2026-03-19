@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -271,6 +272,37 @@ func (sd *StreamDemo) OnToken(raw string) {
 func (sd *StreamDemo) OnStreamEnd() {
 	if sd != nil && sd.streamEndCallback != nil {
 		sd.streamEndCallback()
+	}
+}
+
+func streamEachLine(ctx context.Context, reader io.Reader, handle func(string) (bool, error)) error {
+	br := bufio.NewReader(reader)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line, err := br.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line != "" {
+			done, handleErr := handle(line)
+			if handleErr != nil {
+				return handleErr
+			}
+			if done {
+				return nil
+			}
+		}
+
+		if err == io.EOF {
+			return nil
+		}
 	}
 }
 
