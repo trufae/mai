@@ -131,12 +131,24 @@ func editAgentsFile() {
 // runStdinMode handles sending messages to LLM in stdin mode.
 func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []string) {
 	input := readInput(args)
+	ctx, cancel := context.WithCancel(context.Background())
+	repl := &REPL{
+		configOptions: *configOptions,
+		ctx:           ctx,
+		cancel:        cancel,
+		mcpProcesses:  make(map[string]*MCPProcess),
+	}
+	defer repl.cleanup()
+	fail := func(format string, args ...interface{}) {
+		fmt.Fprintf(os.Stderr, format, args...)
+		repl.cleanup()
+		os.Exit(1)
+	}
 
 	// Create LLM client
-	client, err := llm.NewLLMClient(config, context.Background())
+	client, err := llm.NewLLMClient(config, ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
-		os.Exit(1)
+		fail("Error initializing LLM client: %v\n", err)
 	}
 
 	// Prepare messages from input
@@ -144,7 +156,6 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 
 	// Run MCP ReactLoop if enabled
 	if config.UseMCP {
-		repl := &REPL{configOptions: *configOptions}
 		repl.currentClient = client
 		// Load MCP config and lazily start wmcp on first use
 		if err := repl.loadMCPConfig(); err != nil {
@@ -155,8 +166,7 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 		}
 		modifiedInput, err := repl.ReactLoop(messages, input)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "MCP error: %v\n", err)
-			os.Exit(1)
+			fail("MCP error: %v\n", err)
 		}
 		input = modifiedInput
 		messages = llm.PrepareMessages(input, config)
@@ -164,12 +174,10 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 
 	// Run native tool calling if enabled
 	if config.MCPNative {
-		repl := &REPL{configOptions: *configOptions}
 		repl.currentClient = client
 		result, err := repl.NativeToolLoop(messages, input)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Native tool calling error: %v\n", err)
-			os.Exit(1)
+			fail("Native tool calling error: %v\n", err)
 		}
 		fmt.Println(result)
 		return
@@ -180,8 +188,7 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 	if config.ImagePath != "" {
 		imageData, err := os.ReadFile(config.ImagePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading image file: %v\n", err)
-			os.Exit(1)
+			fail("Error reading image file: %v\n", err)
 		}
 
 		encoded := base64.StdEncoding.EncodeToString(imageData)
@@ -208,8 +215,7 @@ func runStdinMode(config *llm.Config, configOptions *ConfigOptions, args []strin
 
 	res, err := client.SendMessage(messages, streamEnabled, images, tools)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "REPL error: %v\n", err)
-		os.Exit(1)
+		fail("REPL error: %v\n", err)
 	}
 
 	if !streamEnabled {

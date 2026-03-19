@@ -210,6 +210,11 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 			art.DebugBanner("REPL Debug", "REPL internal debug logging disabled")
 		}
 	})
+	repl.configOptions.RegisterOptionListener("repl.skillsdir", func(value string) {
+		if _, err := repl.reloadSkillRegistry(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to reload skills: %v\n", err)
+		}
+	})
 
 	// Initialize command registry
 	repl.initCommands()
