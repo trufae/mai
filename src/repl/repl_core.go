@@ -103,20 +103,11 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
-	// Load Claude Skills
-	repl.skillRegistry = NewSkillRegistry()
-	skillsDir, err := getSkillsDirForConfig(repl.configOptions)
-	if err != nil {
+	// Load local skills
+	if skillDirs, err := repl.reloadSkillRegistry(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to determine skills directory: %v\n", err)
-	} else {
-		if err := repl.skillRegistry.LoadSkills(skillsDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to load skills: %v\n", err)
-		} else {
-			skills := repl.skillRegistry.ListSkills()
-			if len(skills) > 0 {
-				fmt.Fprintf(os.Stderr, "Loaded %d Claude Skills\n", len(skills))
-			}
-		}
+	} else if skillCount := len(repl.skillRegistry.ListSkills()); skillCount > 0 {
+		fmt.Fprintf(os.Stderr, "Loaded %d skills from %d location(s)\n", skillCount, len(skillDirs))
 	}
 
 	// Set the stop demo callback to transition out of the "thinking" action

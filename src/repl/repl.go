@@ -960,6 +960,14 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	if skillsPrompt := r.buildSkillsPrompt(); skillsPrompt != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: skillsPrompt})
 	}
+	if r.configOptions.GetBool("repl.skilluse") {
+		skillContext, err := r.prepareSkillContext(input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Skill selection error: %v\n", err)
+		} else if skillContext != "" {
+			messages = append(messages, llm.Message{Role: "system", Content: skillContext})
+		}
+	}
 
 	// Add user details if enabled
 	if userDetails := r.buildUserDetails(); userDetails != "" {
@@ -1587,7 +1595,7 @@ func (r *REPL) handlePromptCommand(input string) error {
 			fmt.Printf("%v\r\n", err)
 			return nil
 		}
-		fmt.Printf("Available prompts (use # followed by name):\r\n")
+		fmt.Printf("Available prompts and skills (use # followed by name):\r\n")
 		for _, name := range prompts {
 			fmt.Printf("  %s\r\n", name)
 		}

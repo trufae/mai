@@ -27,8 +27,8 @@ func (r *REPL) showCommands() string {
 
 	// Display special commands that aren't in the registry
 	output.WriteString("  @<path>         - File path with tab completion (anywhere in input)\r\n")
-	output.WriteString("  #               - List available prompt files (.md)\r\n")
-	output.WriteString("  #<n> <text>     - Use content from prompt file with text\r\n")
+	output.WriteString("  #               - List available prompt files and skill markdown\r\n")
+	output.WriteString("  #<n> <text>     - Use content from a prompt or skill with text\r\n")
 	output.WriteString("  %               - List available template files\r\n")
 	output.WriteString("  %<n> <text>     - Use template with interactive prompts and optional text\r\n")
 	output.WriteString("  $<text>         - Prompt the model with shell backticks, redirections and prompts\r\n")

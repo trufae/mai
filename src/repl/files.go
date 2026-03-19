@@ -107,6 +107,25 @@ func findFileUpwards(filename string) (string, error) {
 	return "", nil
 }
 
+func findDirUpwards(relPath string) (string, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %v", err)
+	}
+	for {
+		candidate := filepath.Join(currentDir, relPath)
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(currentDir)
+		if parent == currentDir {
+			break
+		}
+		currentDir = parent
+	}
+	return "", nil
+}
+
 func (r *REPL) loadAgentsFile() error {
 	fname := r.configOptions.Get("llm.agentfile")
 	if fname == "" {

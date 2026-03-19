@@ -2,20 +2,24 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/trufae/mai/src/repl/llm"
 )
 
-// Skill represents a Claude Skill with its metadata and content
+// Skill represents a local skill with its metadata and content.
 type Skill struct {
 	Name        string
 	Description string
-	Path        string // Full path to the skill directory
+	Path        string // Full path to the skill directory or markdown file
 	Metadata    map[string]string
 	Content     string // Full content of SKILL.md
+	IsFile      bool   // True when the skill was loaded from a standalone markdown file
 }
 
 // SkillRegistry manages all available skills
@@ -30,7 +34,10 @@ func NewSkillRegistry() *SkillRegistry {
 	}
 }
 
-// LoadSkills discovers and loads all skills from the specified skills directory
+// LoadSkills discovers and loads all skills from the specified skills directory.
+// A skill entry can be either:
+// - a directory containing SKILL.md/skill.md/skills.md
+// - a standalone .md file, treated as a prompt-backed skill
 func (sr *SkillRegistry) LoadSkills(skillsDir string) error {
 	// Use default directory if none specified
 	if skillsDir == "" {
@@ -41,34 +48,30 @@ func (sr *SkillRegistry) LoadSkills(skillsDir string) error {
 		}
 	}
 
-	// Check if directory exists
-	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
-		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(skillsDir, 0755); err != nil {
-			return fmt.Errorf("failed to create skills directory: %v", err)
-		}
-		return nil // No skills to load yet
+	// Missing directories are not an error; some search roots are optional.
+	fi, err := os.Stat(skillsDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to stat skills directory: %v", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("skills path is not a directory: %s", skillsDir)
 	}
 
-	// Read all subdirectories in skills directory
 	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read skills directory: %v", err)
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
 		skillPath := filepath.Join(skillsDir, entry.Name())
-		skill, err := sr.loadSkill(skillPath)
+		skill, err := sr.loadSkillEntry(skillPath, entry)
 		if err != nil {
-			// Log error but continue loading other skills
 			fmt.Fprintf(os.Stderr, "Warning: failed to load skill %s: %v\n", entry.Name(), err)
 			continue
 		}
-
 		if skill != nil {
 			sr.skills[skill.Name] = skill
 		}
@@ -77,27 +80,56 @@ func (sr *SkillRegistry) LoadSkills(skillsDir string) error {
 	return nil
 }
 
-// loadSkill loads a single skill from its directory
-func (sr *SkillRegistry) loadSkill(skillPath string) (*Skill, error) {
-	skillMdPath := filepath.Join(skillPath, "SKILL.md")
-	if _, err := os.Stat(skillMdPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("SKILL.md not found in %s", skillPath)
+func (sr *SkillRegistry) loadSkillEntry(skillPath string, entry os.DirEntry) (*Skill, error) {
+	if entry.IsDir() {
+		return sr.loadSkillDir(skillPath)
 	}
+	if strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
+		return sr.loadSkillFile(skillPath)
+	}
+	return nil, nil
+}
 
-	// Read the SKILL.md file
-	content, err := os.ReadFile(skillMdPath)
+func (sr *SkillRegistry) loadSkillDir(skillPath string) (*Skill, error) {
+	skillMdPath, err := findSkillMarkdown(skillPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read SKILL.md: %v", err)
+		return nil, err
+	}
+	return sr.loadSkillMarkdown(skillMdPath, skillPath, false, true)
+}
+
+func (sr *SkillRegistry) loadSkillFile(skillPath string) (*Skill, error) {
+	return sr.loadSkillMarkdown(skillPath, skillPath, true, false)
+}
+
+func findSkillMarkdown(skillPath string) (string, error) {
+	candidates := []string{"SKILL.md", "skill.md", "skills.md"}
+	for _, name := range candidates {
+		path := filepath.Join(skillPath, name)
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("skill markdown not found in %s", skillPath)
+}
+
+func (sr *SkillRegistry) loadSkillMarkdown(contentPath, sourcePath string, isFile bool, strict bool) (*Skill, error) {
+	content, err := os.ReadFile(contentPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read skill markdown: %v", err)
 	}
 
-	// Parse YAML frontmatter
 	skill, err := sr.parseSkillFile(string(content))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse SKILL.md: %v", err)
+		if strict {
+			return nil, fmt.Errorf("failed to parse skill markdown: %v", err)
+		}
+		skill = sr.parseLooseSkillFile(contentPath, string(content))
 	}
 
-	skill.Path = skillPath
+	skill.Path = sourcePath
 	skill.Content = string(content)
+	skill.IsFile = isFile
 
 	return skill, nil
 }
@@ -184,6 +216,50 @@ func (sr *SkillRegistry) parseSkillFile(content string) (*Skill, error) {
 	return skill, nil
 }
 
+func (sr *SkillRegistry) parseLooseSkillFile(path, content string) *Skill {
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	return &Skill{
+		Name:        base,
+		Description: inferSkillDescription(content),
+		Metadata:    map[string]string{"source": "markdown"},
+	}
+}
+
+func inferSkillDescription(content string) string {
+	body := skillBody(content)
+	lines := strings.Split(body, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			trimmed = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+			if trimmed != "" {
+				return trimmed
+			}
+			continue
+		}
+		if len(trimmed) > 120 {
+			return trimmed[:120] + "..."
+		}
+		return trimmed
+	}
+	return "Reusable markdown prompt"
+}
+
+func skillBody(content string) string {
+	parts := strings.SplitN(content, "---", 3)
+	if len(parts) >= 3 {
+		return strings.TrimSpace(parts[2])
+	}
+	return strings.TrimSpace(content)
+}
+
+func (s *Skill) Body() string {
+	return skillBody(s.Content)
+}
+
 // isValidSkillName validates skill name format
 func isValidSkillName(name string) bool {
 	if len(name) == 0 || len(name) > 64 {
@@ -227,23 +303,74 @@ func getDefaultSkillsDir() (string, error) {
 	return filepath.Join(configDir, "mai", "skills"), nil
 }
 
-// getSkillsDirForConfig returns the path to the skills directory for given config options
-func getSkillsDirForConfig(configOptions ConfigOptions) (string, error) {
-	// Check for custom skills directory configuration
-	if skillsDir := configOptions.Get("repl.skillsdir"); skillsDir != "" {
-		// Expand ~ to home directory if present
-		if strings.HasPrefix(skillsDir, "~") {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
-			}
-			skillsDir = filepath.Join(homeDir, skillsDir[1:])
+func expandSkillDir(skillsDir string) (string, error) {
+	if strings.HasPrefix(skillsDir, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
 		}
-		return skillsDir, nil
+		skillsDir = filepath.Join(homeDir, skillsDir[1:])
 	}
+	return skillsDir, nil
+}
 
-	// Use default
-	return getDefaultSkillsDir()
+func dedupePaths(paths []string) []string {
+	seen := make(map[string]struct{})
+	var result []string
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		result = append(result, path)
+	}
+	return result
+}
+
+// getSkillsDirsForConfig returns all skill search directories in ascending precedence.
+// Later directories override earlier ones when skill names collide.
+func getSkillsDirsForConfig(configOptions ConfigOptions) ([]string, error) {
+	var dirs []string
+
+	defaultDir, err := getDefaultSkillsDir()
+	if err != nil {
+		return nil, err
+	}
+	dirs = append(dirs, defaultDir)
+
+	if claudeDir, err := findDirUpwards(".claude/skills"); err == nil && claudeDir != "" {
+		dirs = append(dirs, claudeDir)
+	}
+	if maiDir, err := findDirUpwards(".mai/skills"); err == nil && maiDir != "" {
+		dirs = append(dirs, maiDir)
+	}
+	if skillsDir := configOptions.Get("repl.skillsdir"); skillsDir != "" {
+		expanded, err := expandSkillDir(skillsDir)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, expanded)
+	}
+	return dedupePaths(dirs), nil
+}
+
+func (r *REPL) reloadSkillRegistry() ([]string, error) {
+	dirs, err := getSkillsDirsForConfig(r.configOptions)
+	if err != nil {
+		return nil, err
+	}
+	registry := NewSkillRegistry()
+	for _, dir := range dirs {
+		if err := registry.LoadSkills(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to load skills from %s: %v\n", dir, err)
+		}
+	}
+	r.skillRegistry = registry
+	return dirs, nil
 }
 
 // ExecuteSkill executes a skill by running its instructions
@@ -264,21 +391,20 @@ func (r *REPL) ExecuteSkill(skillName string, args []string) error {
 	fmt.Printf("Executing skill: %s\r\n", skill.Name)
 	fmt.Printf("Description: %s\r\n\r\n", skill.Description)
 
-	// Display the skill content (excluding frontmatter)
-	contentParts := strings.SplitN(skill.Content, "---", 3)
-	if len(contentParts) >= 3 {
-		body := strings.TrimSpace(contentParts[2])
+	body := skill.Body()
+	if body != "" {
 		fmt.Printf("%s\r\n\r\n", body)
 	}
 
-	// Check for executable scripts in the skill directory
-	scripts, err := r.skillRegistry.findExecutableScripts(skill.Path)
-	if err == nil && len(scripts) > 0 {
-		fmt.Printf("Available scripts in this skill:\r\n")
-		for _, script := range scripts {
-			fmt.Printf("  %s\r\n", script)
+	if !skill.IsFile {
+		scripts, err := r.skillRegistry.findExecutableScripts(skill.Path)
+		if err == nil && len(scripts) > 0 {
+			fmt.Printf("Available scripts in this skill:\r\n")
+			for _, script := range scripts {
+				fmt.Printf("  %s\r\n", script)
+			}
+			fmt.Printf("\r\n")
 		}
-		fmt.Printf("\r\n")
 	}
 
 	return nil
@@ -287,8 +413,15 @@ func (r *REPL) ExecuteSkill(skillName string, args []string) error {
 // findExecutableScripts finds executable scripts in a skill directory
 func (r *SkillRegistry) findExecutableScripts(skillPath string) ([]string, error) {
 	var scripts []string
+	info, err := os.Stat(skillPath)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return scripts, nil
+	}
 
-	err := filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(skillPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -354,11 +487,8 @@ func (r *REPL) buildSkillsPrompt() string {
 
 	var prompt strings.Builder
 	prompt.WriteString("# AVAILABLE SKILLS\n\n")
-	prompt.WriteString("You have access to the following specialized skills. Each skill is in a directory and contains instructions and resources.\n\n")
-	prompt.WriteString("Skills are triggered by request content. When a user request matches a skill's purpose, you should:\n")
-	prompt.WriteString("1. Mention which skill you'll use\n")
-	prompt.WriteString("2. Read the full SKILL.md from the skill's directory\n")
-	prompt.WriteString("3. Follow the instructions and use referenced files\n\n")
+	prompt.WriteString("The host can inject the full instructions for these local skills when they are relevant to the task.\n\n")
+	prompt.WriteString("Use the descriptions below to identify matching skills.\n\n")
 
 	for _, skill := range skills {
 		prompt.WriteString(fmt.Sprintf("**%s**: %s\n", skill.Name, skill.Description))
@@ -396,12 +526,7 @@ func (sr *SkillRegistry) SearchSkills(query string) []*Skill {
 // handleSkillsCommand handles the /skills command
 func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 	if r.skillRegistry == nil {
-		r.skillRegistry = NewSkillRegistry()
-		skillsDir, err := getSkillsDirForConfig(r.configOptions)
-		if err != nil {
-			return fmt.Sprintf("Error determining skills directory: %v\n", err), nil
-		}
-		if err := r.skillRegistry.LoadSkills(skillsDir); err != nil {
+		if _, err := r.reloadSkillRegistry(); err != nil {
 			return fmt.Sprintf("Error loading skills: %v\n", err), nil
 		}
 	}
@@ -410,8 +535,8 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 		// List all skills
 		skills := r.skillRegistry.ListSkills()
 		if len(skills) == 0 {
-			skillsDir, _ := getSkillsDirForConfig(r.configOptions)
-			return fmt.Sprintf("No skills found.\n\nSkills directory: %s\n\nCreate a directory with a SKILL.md file to add a skill.\n", skillsDir), nil
+			skillDirs, _ := getSkillsDirsForConfig(r.configOptions)
+			return fmt.Sprintf("No skills found.\n\nSearched directories:\n%s\n\nAdd markdown files or skill directories to one of these locations.\n", formatSkillDirs(skillDirs)), nil
 		}
 
 		var output strings.Builder
@@ -487,9 +612,8 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 		}
 
 		// Show content preview
-		contentParts := strings.SplitN(skill.Content, "---", 3)
-		if len(contentParts) >= 3 {
-			body := strings.TrimSpace(contentParts[2])
+		body := skill.Body()
+		if body != "" {
 			scanner := bufio.NewScanner(strings.NewReader(body))
 			lineCount := 0
 			output.WriteString("\nContent preview:\n")
@@ -505,25 +629,138 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 		return output.String(), nil
 
 	case "dir":
-		skillsDir, err := getSkillsDirForConfig(r.configOptions)
+		skillDirs, err := getSkillsDirsForConfig(r.configOptions)
 		if err != nil {
 			return fmt.Sprintf("Error: %v\n", err), nil
 		}
-		return fmt.Sprintf("Skills directory: %s\n", skillsDir), nil
+		return fmt.Sprintf("Skill search directories:\n%s\n", formatSkillDirs(skillDirs)), nil
 
 	case "reload":
-		r.skillRegistry = NewSkillRegistry()
-		skillsDir, err := getSkillsDirForConfig(r.configOptions)
+		skillDirs, err := r.reloadSkillRegistry()
 		if err != nil {
-			return fmt.Sprintf("Error determining skills directory: %v\n", err), nil
-		}
-		if err := r.skillRegistry.LoadSkills(skillsDir); err != nil {
 			return fmt.Sprintf("Error reloading skills: %v\n", err), nil
 		}
 		skills := r.skillRegistry.ListSkills()
-		return fmt.Sprintf("Skills reloaded successfully. Loaded %d skill(s).\n", len(skills)), nil
+		return fmt.Sprintf("Skills reloaded successfully. Loaded %d skill(s).\n\nDirectories:\n%s\n", len(skills), formatSkillDirs(skillDirs)), nil
 
 	default:
 		return fmt.Sprintf("Unknown action: %s\n\nAvailable actions:\n  list, show, search, dir, reload\n", action), nil
 	}
+}
+
+func formatSkillDirs(skillDirs []string) string {
+	if len(skillDirs) == 0 {
+		return "  (none)"
+	}
+	var out strings.Builder
+	for _, dir := range skillDirs {
+		out.WriteString("  ")
+		out.WriteString(dir)
+		out.WriteString("\n")
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+type skillChoice struct {
+	Skills    []string `json:"skills"`
+	Reasoning string   `json:"reasoning"`
+}
+
+func (r *REPL) prepareSkillContext(userInput string) (string, error) {
+	if r.skillRegistry == nil {
+		return "", nil
+	}
+	skills := r.skillRegistry.ListSkills()
+	if len(skills) == 0 {
+		return "", nil
+	}
+
+	client := r.currentClient
+	if client == nil {
+		var err error
+		client, err = llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to create LLM client for skill selection: %v", err)
+		}
+	}
+
+	var catalog strings.Builder
+	for _, skill := range skills {
+		catalog.WriteString("- ")
+		catalog.WriteString(skill.Name)
+		catalog.WriteString(": ")
+		catalog.WriteString(skill.Description)
+		catalog.WriteString("\n")
+	}
+
+	selectionInstruction := `You are selecting which local skills should be loaded for the user's request.
+Return a JSON object only, with this shape:
+{"skills":["skill-name"],"reasoning":"why these skills fit"}
+Rules:
+- Choose at most 3 skills.
+- Only choose skills from the provided catalog.
+- Return an empty array when no skill is needed.`
+
+	var query strings.Builder
+	query.WriteString(selectionInstruction)
+	query.WriteString("\n<skills>\n")
+	query.WriteString(catalog.String())
+	query.WriteString("</skills>\n<query>\n")
+	query.WriteString(userInput)
+	query.WriteString("\n</query>")
+
+	resp, err := client.SendMessage([]llm.Message{{Role: "user", Content: query.String()}}, false, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("skill selection query failed: %w", err)
+	}
+
+	resp = llm.TrimLeadingThink(resp)
+	jsonText, _ := extractJSONBlock(resp)
+	if strings.TrimSpace(jsonText) == "" {
+		return "", nil
+	}
+
+	var choice skillChoice
+	if err := json.Unmarshal([]byte(jsonText), &choice); err != nil {
+		return "", err
+	}
+
+	seen := make(map[string]struct{})
+	var selected []*Skill
+	for _, name := range choice.Skills {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		skill, ok := r.skillRegistry.GetSkill(name)
+		if !ok {
+			continue
+		}
+		selected = append(selected, skill)
+		if len(selected) >= 3 {
+			break
+		}
+	}
+	if len(selected) == 0 {
+		return "", nil
+	}
+
+	var context strings.Builder
+	context.WriteString("# LOADED SKILLS\n\n")
+	for _, skill := range selected {
+		context.WriteString("## ")
+		context.WriteString(skill.Name)
+		context.WriteString("\n")
+		if skill.Description != "" {
+			context.WriteString(skill.Description)
+			context.WriteString("\n\n")
+		}
+		context.WriteString(skill.Body())
+		context.WriteString("\n\n")
+	}
+	return strings.TrimSpace(context.String()), nil
 }

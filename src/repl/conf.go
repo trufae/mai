@@ -113,6 +113,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("repl.history", BooleanOption, "Enable REPL history", "true")
 	co.RegisterOption("repl.prompt", StringOption, "Main prompt string for input", ">>>")
 	co.RegisterOption("repl.prompt2", StringOption, "Prompt string for heredoc/continuation lines", "...")
+	co.RegisterOption("repl.skilluse", BooleanOption, "Automatically select and load matching skills for each request", "false")
 	co.RegisterOption("repl.skiprc", BooleanOption, "Skip loading rc file on start", "false")
 	co.RegisterOption("repl.skillsdir", StringOption, "Custom directory path for Claude Skills (supports ~ expansion)", "")
 

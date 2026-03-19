@@ -255,30 +255,13 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		}
 
 		if needFreshOptions {
-			// Determine prompt directory
-			promptDir := r.configOptions.Get("dir.prompt")
-			if promptDir == "" {
-				for _, loc := range []string{"./share/mai/prompts", "../share/mai/prompts"} {
-					if _, err := os.Stat(loc); err == nil {
-						promptDir = loc
-						break
-					}
-				}
-				if promptDir == "" {
-					return
-				}
-			}
-			// Read prompt files
-			files, err := os.ReadDir(promptDir)
+			prompts, err := r.listPrompts()
 			if err != nil {
 				return
 			}
 			var allPrompts []string
-			for _, f := range files {
-				if !f.IsDir() && strings.HasSuffix(f.Name(), ".md") {
-					name := strings.TrimSuffix(f.Name(), ".md")
-					allPrompts = append(allPrompts, "#"+name)
-				}
+			for _, name := range prompts {
+				allPrompts = append(allPrompts, "#"+name)
 			}
 			sort.Strings(allPrompts)
 			r.completePrefix = input

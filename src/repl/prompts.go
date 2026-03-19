@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -22,79 +23,94 @@ func (r *REPL) loadPrompt(promptName, extra string) (string, error) {
 	}
 
 	promptPath, err := r.resolvePromptPath(promptName)
-	if err != nil {
-		return "", err
+	if err == nil {
+		promptContent, err := os.ReadFile(promptPath)
+		if err != nil {
+			return "", err
+		}
+
+		expandedInput := string(promptContent)
+		if extra != "" {
+			expandedInput += "\n\n" + extra
+		}
+
+		return expandedInput, nil
 	}
 
-	promptContent, err := os.ReadFile(promptPath)
-	if err != nil {
-		return "", err
+	if r.skillRegistry != nil {
+		if skill, ok := r.skillRegistry.GetSkill(promptName); ok {
+			expandedInput := skill.Body()
+			if extra != "" {
+				expandedInput += "\n\n" + extra
+			}
+			return expandedInput, nil
+		}
 	}
-
-	expandedInput := string(promptContent)
-	if extra != "" {
-		expandedInput += "\n\n" + extra
-	}
-
-	return expandedInput, nil
+	return "", err
 }
 
-// listPrompts lists all .md files in the promptdir and MCP prompts
-func (r *REPL) listPrompts() ([]string, error) {
-	// Get the prompt directory from config
-	promptDir := r.configOptions.Get("dir.prompt")
-	if promptDir == "" {
-		// Try common locations
-		commonLocations := []string{
-			"./share/mai/prompts",
-			"../share/mai/prompts",
-		}
-
-		found := false
-		for _, loc := range commonLocations {
-			if _, err := os.Stat(loc); err == nil {
-				promptDir = loc
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			return nil, fmt.Errorf("No prompt directory found. Set one with /set promptdir <path>")
-		}
-	}
-
-	// List all .md files in the directory
+func addPromptNames(names map[string]struct{}, promptDir string) error {
 	files, err := os.ReadDir(promptDir)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading prompt directory: %w", err)
+		return err
 	}
-
-	// Filter for .md files and display
-	mdFiles := []string{}
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".md") {
 			baseName := strings.TrimSuffix(file.Name(), ".md")
-			mdFiles = append(mdFiles, baseName)
+			names[baseName] = struct{}{}
+		}
+	}
+	return nil
+}
+
+// listPrompts lists all .md files in the promptdir, skill-backed markdown, and MCP prompts.
+func (r *REPL) listPrompts() ([]string, error) {
+	names := make(map[string]struct{})
+
+	promptDir := r.configOptions.Get("dir.prompt")
+	if promptDir == "" {
+		for _, loc := range []string{
+			"./share/mai/prompts",
+			"../share/mai/prompts",
+		} {
+			if _, err := os.Stat(loc); err == nil {
+				promptDir = loc
+				break
+			}
+		}
+	}
+	if promptDir != "" {
+		if err := addPromptNames(names, promptDir); err != nil {
+			return nil, fmt.Errorf("error reading prompt directory: %w", err)
 		}
 	}
 
-	// Get MCP prompts
+	if r.skillRegistry != nil {
+		for _, skill := range r.skillRegistry.ListSkills() {
+			names[skill.Name] = struct{}{}
+		}
+	}
+
 	mcpPromptsStr, err := GetAvailableMCPrompts(Quiet)
 	if err == nil {
 		lines := strings.Split(mcpPromptsStr, "\n")
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
 			if trimmed != "" && trimmed != "# Prompts Catalog" && strings.Contains(trimmed, "/") {
-				mdFiles = append(mdFiles, trimmed)
+				names[trimmed] = struct{}{}
 			}
 		}
 	}
 
-	if len(mdFiles) == 0 {
-		return nil, fmt.Errorf("No prompt files (.md) found in %s", promptDir)
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no prompt or skill markdown found")
 	}
 
+	var mdFiles []string
+	for name := range names {
+		mdFiles = append(mdFiles, name)
+	}
+	sort.Strings(mdFiles)
 	return mdFiles, nil
 }
 
