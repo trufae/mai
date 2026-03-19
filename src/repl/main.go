@@ -294,7 +294,7 @@ func readInput(args []string) string {
 
 func showEnvHelp() {
 	fmt.Print(`
-MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | openrouter | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | opencode | openapi]
+MAI_PROVIDER=[ollama | lmstudio | openai | shimmy | openrouter | claude | gemini | mistral | deepseek | bedrock | xai | ollamacloud | opencode | openapi | llamacpp]
 MAI_BASEURL=[custom API base URL (e.g., https://api.moonshot.ai/anthropic)]
 MAI_USERAGENT=[custom user agent string for HTTP requests]
 
@@ -302,6 +302,7 @@ Local:
 
 OLLAMA_MODEL=gemma3:1b
 OLLAMA_MODEL=mannix/jan-nano:latest
+LLAMACPP_MODEL=[optional override for llama.cpp-server; default is server-side]
 
 Other:
 

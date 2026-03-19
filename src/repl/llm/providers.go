@@ -26,6 +26,7 @@ var providerCatalog = []ProviderInfo{
 	{Name: "ollamacloud"},
 	{Name: "opencode"},
 	{Name: "openapi"},
+	{Name: "llamacpp", Aliases: []string{"llama.cpp"}},
 	{Name: "llamacli"},
 }
 
