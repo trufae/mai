@@ -22,29 +22,6 @@ type ListenConfig struct {
 	BasePath string // For HTTP/SSE: the base path (e.g., "/mcp")
 }
 
-func parseURLListenConfig(protocol string, listen string) (ListenConfig, error) {
-	parts := strings.SplitN(listen, "://", 2)
-	if len(parts) != 2 {
-		return ListenConfig{}, fmt.Errorf("invalid %s URL format", strings.ToUpper(protocol))
-	}
-	hostAndPath := parts[1]
-	hostPort := hostAndPath
-	basePath := "/"
-	if idx := strings.Index(hostAndPath, "/"); idx != -1 {
-		hostPort = hostAndPath[:idx]
-		basePath = hostAndPath[idx:]
-	}
-	port := "80"
-	if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
-		port = hostPort[idx+1:]
-	}
-	return ListenConfig{
-		Protocol: protocol,
-		Port:     port,
-		BasePath: basePath,
-	}, nil
-}
-
 // ParseListenString parses a listen string into protocol, address/port, and base path
 func ParseListenString(listen string) (ListenConfig, error) {
 	if listen == "" {
@@ -52,16 +29,76 @@ func ParseListenString(listen string) (ListenConfig, error) {
 	}
 
 	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
-		return parseURLListenConfig("http", listen)
+		// HTTP mode
+		url := listen
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			url = "http://" + url
+		}
+		// Parse URL to extract host, port, and path
+		if !strings.Contains(url, "://") {
+			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
+		}
+		parts := strings.SplitN(url, "://", 2)
+		if len(parts) != 2 {
+			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
+		}
+		hostAndPath := parts[1]
+		var hostPort, basePath string
+		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
+			hostPort = hostAndPath[:idx]
+			basePath = hostAndPath[idx:]
+		} else {
+			hostPort = hostAndPath
+			basePath = "/"
+		}
+		// Extract port from hostPort
+		var port string
+		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+			port = hostPort[idx+1:]
+		} else {
+			port = "80" // default HTTP port
+		}
+		return ListenConfig{
+			Protocol: "http",
+			Port:     port,
+			BasePath: basePath,
+		}, nil
+	} else if strings.HasPrefix(listen, "sse://") {
+		// SSE mode
+		url := listen
+		// Parse URL to extract host, port, and path
+		parts := strings.SplitN(url, "://", 2)
+		if len(parts) != 2 {
+			return ListenConfig{}, fmt.Errorf("invalid SSE URL format")
+		}
+		hostAndPath := parts[1]
+		var hostPort, basePath string
+		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
+			hostPort = hostAndPath[:idx]
+			basePath = hostAndPath[idx:]
+		} else {
+			hostPort = hostAndPath
+			basePath = "/"
+		}
+		// Extract port from hostPort
+		var port string
+		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+			port = hostPort[idx+1:]
+		} else {
+			port = "80" // default HTTP port
+		}
+		return ListenConfig{
+			Protocol: "sse",
+			Port:     port,
+			BasePath: basePath,
+		}, nil
+	} else {
+		// TCP mode (default)
+		return ListenConfig{
+			Protocol: "tcp",
+			Address:  listen,
+		}, nil
 	}
-	if strings.HasPrefix(listen, "sse://") {
-		return parseURLListenConfig("sse", listen)
-	}
-	// TCP mode (default)
-	return ListenConfig{
-		Protocol: "tcp",
-		Address:  listen,
-	}, nil
 }
 
 // JSONRPCRequest represents a JSON-RPC 2.0 request
@@ -210,6 +247,7 @@ type MCPServer struct {
 	verbose                bool                            // Enable verbose logging for HTTP mode
 	responseMode           ResponseMode                    // Controls content/structuredContent in responses
 	maxHTTPRequestBodySize int64                           // Maximum allowed HTTP request body size in bytes
+	writeMu                sync.Mutex                      // Serializes stdio/TCP response writes
 }
 
 // ToolHandler is a function that handles a tool call (legacy, no context)
@@ -534,29 +572,6 @@ func (s *MCPServer) ensureDefaultIO() {
 	}
 }
 
-func (s *MCPServer) newConnectionServer(rw io.ReadWriter) *MCPServer {
-	connServer := &MCPServer{
-		tools:                  s.tools,
-		toolHandlers:           s.toolHandlers,
-		toolHandlersWithCtx:    s.toolHandlersWithCtx,
-		streamingHandlers:      s.streamingHandlers,
-		prompts:                s.prompts,
-		resources:              s.resources,
-		resourceHandlers:       s.resourceHandlers,
-		logFile:                s.logFile,
-		authEnabled:            s.authEnabled,
-		sseConnections:         make(map[string]chan JSONRPCResponse),
-		sseSessions:            make(map[string]*sseSession),
-		currentCtx:             s.currentCtx,
-		authenticator:          s.authenticator,
-		verbose:                s.verbose,
-		responseMode:           s.responseMode,
-		maxHTTPRequestBodySize: s.maxHTTPRequestBodySize,
-	}
-	connServer.SetIO(rw, rw)
-	return connServer
-}
-
 // SetLogFile sets the logfile for appending raw communications.
 // Pass an empty string to disable logging.
 func (s *MCPServer) SetLogFile(path string) error {
@@ -572,24 +587,25 @@ func (s *MCPServer) SetLogFile(path string) error {
 	return nil
 }
 
-// ServeTCP listens on the provided TCP address (host:port) and serves MCP
-// requests for each accepted TCP connection until the listener fails.
+// ServeTCP listens on the provided TCP address (host:port), accepts a
+// single connection and serves MCP requests over that connection.
+// Returns when the connection closes or on error.
 func (s *MCPServer) ServeTCP(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return err
-		}
-		go func(conn net.Conn) {
-			defer func() { _ = conn.Close() }()
-			s.newConnectionServer(conn).Start()
-		}(conn)
+	conn, err := ln.Accept()
+	if err != nil {
+		return err
 	}
+	defer func() { _ = conn.Close() }()
+	// Use the connection for both read/write
+	s.SetIO(conn, conn)
+	// This will block until the connection is closed
+	s.Start()
+	return nil
 }
 
 // RegisterTool registers a tool handler for a specific tool name (legacy, no context)
@@ -741,16 +757,13 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 	errObj := RPCError{Code: code, Message: message}
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &errObj}
 	data, _ := json.Marshal(resp)
-	if s.logFile != nil {
-		if _, err := s.logFile.Write(append(data, '\n')); err != nil {
-			log.Printf("Failed to write to log file: %v", err)
-		}
-	}
-	s.writeFramed(data)
+	s.writeResponse(data)
 }
 
 // writeFramed writes JSON payload using header framing if enabled, else newline JSON.
 func (s *MCPServer) writeFramed(data []byte) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.messageFramer().writeFramed(data)
 }
 
@@ -762,12 +775,18 @@ func (s *MCPServer) sendResponse(resp JSONRPCResponse) {
 		s.sendError(nil, -32700, "Failed to marshal response")
 		return
 	}
+	s.writeResponse(data)
+}
+
+func (s *MCPServer) writeResponse(data []byte) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if s.logFile != nil {
 		if _, err := s.logFile.Write(append(data, '\n')); err != nil {
 			log.Printf("Failed to write to log file: %v", err)
 		}
 	}
-	s.writeFramed(data)
+	s.messageFramer().writeFramed(data)
 }
 
 // -------------------- MCP Client support --------------------
