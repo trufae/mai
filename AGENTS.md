@@ -13,6 +13,9 @@
 ## Coding Rules
 
 - Keep changes minimal and take smart decisions
+- Do not duplicate logic, try to reduce LOCs if possible
+- Refactor before over-engineering
+- Do not use third-party libraries
 
 ## Actions
 
