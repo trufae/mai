@@ -12,10 +12,11 @@
 
 ## Coding Rules
 
-- Keep changes minimal and take smart decisions
+- Keep changes clean, minimal and take smart decisions
 - Do not duplicate logic, try to reduce LOCs if possible
 - Refactor before over-engineering
 - Do not use third-party libraries
+- Reason hard, study the callers and context and choose the best option
 
 ## Actions
 

@@ -571,6 +571,29 @@ func (s *MCPServer) ensureDefaultIO() {
 	}
 }
 
+func (s *MCPServer) newConnectionServer(rw io.ReadWriter) *MCPServer {
+	connServer := &MCPServer{
+		tools:                  s.tools,
+		toolHandlers:           s.toolHandlers,
+		toolHandlersWithCtx:    s.toolHandlersWithCtx,
+		streamingHandlers:      s.streamingHandlers,
+		prompts:                s.prompts,
+		resources:              s.resources,
+		resourceHandlers:       s.resourceHandlers,
+		logFile:                s.logFile,
+		authEnabled:            s.authEnabled,
+		sseConnections:         make(map[string]chan JSONRPCResponse),
+		sseSessions:            make(map[string]*sseSession),
+		currentCtx:             s.currentCtx,
+		authenticator:          s.authenticator,
+		verbose:                s.verbose,
+		responseMode:           s.responseMode,
+		maxHTTPRequestBodySize: s.maxHTTPRequestBodySize,
+	}
+	connServer.SetIO(rw, rw)
+	return connServer
+}
+
 // SetLogFile sets the logfile for appending raw communications.
 // Pass an empty string to disable logging.
 func (s *MCPServer) SetLogFile(path string) error {
@@ -586,25 +609,24 @@ func (s *MCPServer) SetLogFile(path string) error {
 	return nil
 }
 
-// ServeTCP listens on the provided TCP address (host:port), accepts a
-// single connection and serves MCP requests over that connection.
-// Returns when the connection closes or on error.
+// ServeTCP listens on the provided TCP address (host:port) and serves MCP
+// requests for each accepted TCP connection until the listener fails.
 func (s *MCPServer) ServeTCP(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
-	conn, err := ln.Accept()
-	if err != nil {
-		return err
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return err
+		}
+		go func(conn net.Conn) {
+			defer func() { _ = conn.Close() }()
+			s.newConnectionServer(conn).Start()
+		}(conn)
 	}
-	defer func() { _ = conn.Close() }()
-	// Use the connection for both read/write
-	s.SetIO(conn, conn)
-	// This will block until the connection is closed
-	s.Start()
-	return nil
 }
 
 // RegisterTool registers a tool handler for a specific tool name (legacy, no context)
