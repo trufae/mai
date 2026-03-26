@@ -23,7 +23,9 @@ func (r *AuthResult) Apply(ctx context.Context) context.Context {
 
 func GetAPIToken(ctx context.Context) string {
 	if v := ctx.Value(ContextKeyAPIToken); v != nil {
-		return v.(string)
+		if s, ok := v.(string); ok {
+			return s
+		}
 	}
 	return ""
 }
