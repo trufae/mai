@@ -14,7 +14,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-const MaiVersion = "1.2.8"
+const MaiVersion = "1.3.0"
 
 func showHelp() {
 	fmt.Println(`Usage: mai-wmcp [options] "server1" "server2" ...
