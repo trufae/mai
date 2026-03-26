@@ -25,7 +25,7 @@ func main() {
 	server.RegisterTool("get_moon_phase", MoonToolHandler(weatherService))
 
 	// Start the server
-	if err := server.ListenAndServe(*listen, false, ""); err != nil {
+	if err := server.ListenAndServe(*listen, false); err != nil {
 		log.Fatalln("ListenAndServe:", err)
 	}
 }

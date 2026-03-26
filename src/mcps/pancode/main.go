@@ -55,7 +55,7 @@ func main() {
 	server.SetPrompts(getSamplePrompts())
 
 	// Start the server - this will block until the server is stopped
-	if err := server.ListenAndServe(*listen, false, ""); err != nil {
+	if err := server.ListenAndServe(*listen, false); err != nil {
 		log.Fatalln("ListenAndServe:", err)
 	}
 }

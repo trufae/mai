@@ -56,7 +56,7 @@ func (s *MCPServer) authorizeToken(ctx context.Context, rawToken string) (*AuthR
 
 // ServeHTTP starts an HTTP server on the specified port with optional Bearer authentication.
 // When authEnabled is true, token verification is delegated to the configured authenticator.
-func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, _ string) error {
+func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool) error {
 	s.authEnabled = authEnabled
 	if basePath == "" {
 		basePath = "/"
@@ -68,7 +68,7 @@ func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, _ 
 
 // ServeSSE starts an HTTP server with Server-Sent Events support for MCP.
 // When authEnabled is true, each request must provide a Bearer token accepted by the authenticator.
-func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, _ string) error {
+func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool) error {
 	s.authEnabled = authEnabled
 	if basePath == "" {
 		basePath = "/"
@@ -88,8 +88,7 @@ func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, _ s
 // ListenAndServe starts the MCP server based on the listen string.
 // It supports TCP (default), HTTP, and SSE protocols.
 // For HTTP and SSE protocols, authEnabled controls Bearer token authentication.
-// The third argument is kept for compatibility and is ignored.
-func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile string) error {
+func (s *MCPServer) ListenAndServe(listen string, authEnabled bool) error {
 	if listen == "" {
 		// Default stdin/stdout mode
 		s.Start()
@@ -103,9 +102,9 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool, authFile str
 
 	switch config.Protocol {
 	case "http":
-		return s.ServeHTTP(config.Port, config.BasePath, authEnabled, authFile)
+		return s.ServeHTTP(config.Port, config.BasePath, authEnabled)
 	case "sse":
-		return s.ServeSSE(config.Port, config.BasePath, authEnabled, authFile)
+		return s.ServeSSE(config.Port, config.BasePath, authEnabled)
 	default: // "tcp"
 		return s.ServeTCP(config.Address)
 	}
