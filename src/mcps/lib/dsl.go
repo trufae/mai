@@ -8,16 +8,6 @@ import (
 	"strings"
 )
 
-func printIndentedJSON(value interface{}) bool {
-	jsonData, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return false
-	}
-
-	fmt.Println(string(jsonData))
-	return true
-}
-
 // RunDSLTests executes DSL commands for testing tools
 func RunDSLTests(tools []Tool, dsl string) error {
 	// Create a map of tool names to handlers for quick lookup
@@ -87,27 +77,30 @@ func RunDSLTests(tools []Tool, dsl string) error {
 			fmt.Println(v)
 		case ToolCallResult:
 			if v.StructuredContent != nil {
-				if printIndentedJSON(v.StructuredContent) {
+				if jsonData, err := json.MarshalIndent(v.StructuredContent, "", "  "); err == nil {
+					fmt.Println(string(jsonData))
 					continue
 				}
 			}
 			if v.Content != nil {
-				if contentSlice, ok := v.Content.([]any{}); ok && len(contentSlice) > 0 {
-					if textMap, ok := contentSlice[0].(map[string]any{}); ok {
+				if contentSlice, ok := v.Content.([]interface{}); ok && len(contentSlice) > 0 {
+					if textMap, ok := contentSlice[0].(map[string]interface{}); ok {
 						if text, ok := textMap["text"].(string); ok {
 							fmt.Println(text)
 							continue
 						}
 					}
 				}
-				if printIndentedJSON(v.Content) {
+				if jsonData, err := json.MarshalIndent(v.Content, "", "  "); err == nil {
+					fmt.Println(string(jsonData))
 					continue
 				}
 			}
 			fmt.Printf("%+v\n", v)
-		case map[string]any{}:
+		case map[string]interface{}:
 			if structuredContent, ok := v["structuredContent"]; ok {
-				if printIndentedJSON(structuredContent) {
+				if jsonData, err := json.MarshalIndent(structuredContent, "", "  "); err == nil {
+					fmt.Println(string(jsonData))
 					continue
 				}
 			}
@@ -121,12 +114,14 @@ func RunDSLTests(tools []Tool, dsl string) error {
 					}
 				}
 			}
-			if printIndentedJSON(v) {
+			if jsonData, err := json.MarshalIndent(v, "", "  "); err == nil {
+				fmt.Println(string(jsonData))
 			} else {
 				fmt.Println(v)
 			}
 		default:
-			if printIndentedJSON(v) {
+			if jsonData, err := json.MarshalIndent(v, "", "  "); err == nil {
+				fmt.Println(string(jsonData))
 			} else {
 				fmt.Println(v)
 			}

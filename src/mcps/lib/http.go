@@ -16,23 +16,6 @@ func sameToken(a string, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func parseBearerToken(authHeader string) (string, bool) {
-	if authHeader == "" {
-		return "", false
-	}
-
-	parts := strings.Fields(authHeader)
-	if len(parts) != 2 {
-		return "", false
-	}
-
-	if !strings.EqualFold(parts[0], "Bearer") {
-		return "", false
-	}
-
-	return parts[1], true
-}
-
 func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (JSONRPCRequest, bool) {
 	defer func() { _ = r.Body.Close() }()
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxHTTPRequestBodySize)
@@ -133,8 +116,8 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	var authResult *AuthResult
 	var rawToken string
 	authHeader := r.Header.Get("Authorization")
-	if token, ok := parseBearerToken(authHeader); ok {
-		rawToken = token
+	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		rawToken = authHeader[7:]
 		var err error
 		authResult, err = s.authorizeToken(r.Context(), rawToken)
 		if err != nil {
@@ -210,8 +193,8 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	var authResult *AuthResult
 	var rawToken string
 	authHeader := r.Header.Get("Authorization")
-	if token, ok := parseBearerToken(authHeader); ok {
-		rawToken = token
+	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		rawToken = authHeader[7:]
 		var err error
 		authResult, err = s.authorizeToken(ctx, rawToken)
 		if err != nil {
@@ -308,7 +291,8 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	hasToken := false
 	tokenPreview := "NoAuth"
-	if rawToken, ok := parseBearerToken(authHeader); ok {
+	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
+		rawToken := authHeader[7:]
 		hasToken = true
 		tokenPreview = "Authorized"
 		authResult, err := s.authorizeToken(ctx, rawToken)
