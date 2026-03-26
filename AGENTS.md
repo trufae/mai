@@ -17,6 +17,7 @@
 - Refactor before over-engineering
 - Do not use third-party libraries
 - Reason hard, study the callers and context and choose the best option
+- At the end of each task give me a commit message suggestion
 
 ## Actions
 
