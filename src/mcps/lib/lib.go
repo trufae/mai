@@ -236,6 +236,7 @@ type MCPServer struct {
 	resources              []ResourceDefinition
 	resourceHandlers       map[string]ResourceHandler
 	logFile                io.Writer
+	logFileCloser          io.Closer
 	bufr                   *bufio.Reader
 	useHeaders             bool
 	authEnabled            bool
@@ -564,15 +565,33 @@ func (s *MCPServer) SetIO(r io.Reader, w io.Writer) {
 // Pass an empty string to disable logging.
 func (s *MCPServer) SetLogFile(path string) error {
 	if path == "" {
-		s.logFile = nil
-		return nil
+		return s.setLogFile(nil, nil)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
-	s.logFile = file
+	if err := s.setLogFile(file, file); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *MCPServer) setLogFile(w io.Writer, closer io.Closer) error {
+	oldCloser := s.logFileCloser
+	s.logFile = w
+	s.logFileCloser = closer
+	if oldCloser != nil {
+		if err := oldCloser.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Close releases any resources owned by the server.
+func (s *MCPServer) Close() error {
+	return s.setLogFile(nil, nil)
 }
 
 // ServeTCP listens on the provided TCP address (host:port), accepts a
@@ -692,6 +711,11 @@ func (s *MCPServer) SetResources(resources []ResourceDefinition) {
 
 // Start starts the MCP server and begins processing requests
 func (s *MCPServer) Start() {
+	defer func() {
+		if err := s.Close(); err != nil {
+			log.Printf("Failed to close MCPServer resources: %v", err)
+		}
+	}()
 	for {
 		payload, err := s.readNextMessage()
 		if err == io.EOF {
