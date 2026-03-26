@@ -22,6 +22,29 @@ type ListenConfig struct {
 	BasePath string // For HTTP/SSE: the base path (e.g., "/mcp")
 }
 
+func parseURLListenConfig(protocol string, listen string) (ListenConfig, error) {
+	parts := strings.SplitN(listen, "://", 2)
+	if len(parts) != 2 {
+		return ListenConfig{}, fmt.Errorf("invalid %s URL format", strings.ToUpper(protocol))
+	}
+	hostAndPath := parts[1]
+	hostPort := hostAndPath
+	basePath := "/"
+	if idx := strings.Index(hostAndPath, "/"); idx != -1 {
+		hostPort = hostAndPath[:idx]
+		basePath = hostAndPath[idx:]
+	}
+	port := "80"
+	if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+		port = hostPort[idx+1:]
+	}
+	return ListenConfig{
+		Protocol: protocol,
+		Port:     port,
+		BasePath: basePath,
+	}, nil
+}
+
 // ParseListenString parses a listen string into protocol, address/port, and base path
 func ParseListenString(listen string) (ListenConfig, error) {
 	if listen == "" {
@@ -29,76 +52,16 @@ func ParseListenString(listen string) (ListenConfig, error) {
 	}
 
 	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
-		// HTTP mode
-		url := listen
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			url = "http://" + url
-		}
-		// Parse URL to extract host, port, and path
-		if !strings.Contains(url, "://") {
-			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
-		}
-		parts := strings.SplitN(url, "://", 2)
-		if len(parts) != 2 {
-			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
-		}
-		hostAndPath := parts[1]
-		var hostPort, basePath string
-		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
-			hostPort = hostAndPath[:idx]
-			basePath = hostAndPath[idx:]
-		} else {
-			hostPort = hostAndPath
-			basePath = "/"
-		}
-		// Extract port from hostPort
-		var port string
-		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
-			port = hostPort[idx+1:]
-		} else {
-			port = "80" // default HTTP port
-		}
-		return ListenConfig{
-			Protocol: "http",
-			Port:     port,
-			BasePath: basePath,
-		}, nil
-	} else if strings.HasPrefix(listen, "sse://") {
-		// SSE mode
-		url := listen
-		// Parse URL to extract host, port, and path
-		parts := strings.SplitN(url, "://", 2)
-		if len(parts) != 2 {
-			return ListenConfig{}, fmt.Errorf("invalid SSE URL format")
-		}
-		hostAndPath := parts[1]
-		var hostPort, basePath string
-		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
-			hostPort = hostAndPath[:idx]
-			basePath = hostAndPath[idx:]
-		} else {
-			hostPort = hostAndPath
-			basePath = "/"
-		}
-		// Extract port from hostPort
-		var port string
-		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
-			port = hostPort[idx+1:]
-		} else {
-			port = "80" // default HTTP port
-		}
-		return ListenConfig{
-			Protocol: "sse",
-			Port:     port,
-			BasePath: basePath,
-		}, nil
-	} else {
-		// TCP mode (default)
-		return ListenConfig{
-			Protocol: "tcp",
-			Address:  listen,
-		}, nil
+		return parseURLListenConfig("http", listen)
 	}
+	if strings.HasPrefix(listen, "sse://") {
+		return parseURLListenConfig("sse", listen)
+	}
+	// TCP mode (default)
+	return ListenConfig{
+		Protocol: "tcp",
+		Address:  listen,
+	}, nil
 }
 
 // JSONRPCRequest represents a JSON-RPC 2.0 request
