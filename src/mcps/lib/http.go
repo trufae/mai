@@ -25,7 +25,7 @@ func sameToken(a string, b string) bool {
 
 func (s *MCPServer) enqueueSSEResponse(sessionID string, resp JSONRPCResponse) error {
 	s.sseMu.RLock()
-	respChan, exists := s.sseConnections[sessionID]
+	session, exists := s.sseSessions[sessionID]
 	s.sseMu.RUnlock()
 	if !exists {
 		return errSSEConnectionUnavailable
@@ -33,10 +33,12 @@ func (s *MCPServer) enqueueSSEResponse(sessionID string, resp JSONRPCResponse) e
 	timer := time.NewTimer(sseResponseEnqueueTimeout)
 	defer timer.Stop()
 	select {
-	case respChan <- resp:
+	case session.respChan <- resp:
 		return nil
 	case <-timer.C:
 		return errSSEBackpressure
+	case <-session.done:
+		return errSSEConnectionUnavailable
 	}
 }
 
@@ -136,6 +138,13 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool) error {
 
 // sseHandler handles SSE connections
 func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
+	if s.httpSecurityCheck(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var authResult *AuthResult
 	var rawToken string
 	authHeader := r.Header.Get("Authorization")
@@ -158,28 +167,44 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.httpSecurity.MaxSessions > 0 {
+		s.sseMu.RLock()
+		n := len(s.sseSessions)
+		s.sseMu.RUnlock()
+		if n >= s.httpSecurity.MaxSessions {
+			http.Error(w, "Too Many Sessions", http.StatusServiceUnavailable)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
 
 	respChan := make(chan JSONRPCResponse, 100)
-	s.sseMu.Lock()
-	s.sseConnections[sessionID] = respChan
-	s.sseSessions[sessionID] = &sseSession{
+	session := &sseSession{
 		bearerToken: rawToken,
 		authResult:  authResult,
 		respChan:    respChan,
+		done:        make(chan struct{}),
 	}
+	if s.httpSecurity.SessionTimeout > 0 {
+		session.timer = time.AfterFunc(s.httpSecurity.SessionTimeout, func() {
+			session.doneOnce.Do(func() { close(session.done) })
+		})
+	}
+	s.sseMu.Lock()
+	s.sseSessions[sessionID] = session
 	s.sseMu.Unlock()
 
 	defer func() {
 		s.sseMu.Lock()
-		delete(s.sseConnections, sessionID)
 		delete(s.sseSessions, sessionID)
 		s.sseMu.Unlock()
-		close(respChan)
+		session.doneOnce.Do(func() { close(session.done) })
+		if session.timer != nil {
+			session.timer.Stop()
+		}
 	}()
 
 	endpointEvent := "event: endpoint\ndata: /mcp\n\n"
@@ -190,23 +215,33 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
-	for resp := range respChan {
-		respData, err := json.Marshal(resp)
-		if err != nil {
-			continue
-		}
-		event := fmt.Sprintf("event: message\ndata: %s\n\n", respData)
-		if _, err := w.Write([]byte(event)); err != nil {
+	for {
+		select {
+		case resp := <-respChan:
+			respData, err := json.Marshal(resp)
+			if err != nil {
+				continue
+			}
+			event := fmt.Sprintf("event: message\ndata: %s\n\n", respData)
+			if _, err := w.Write([]byte(event)); err != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case <-session.done:
 			return
-		}
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
+		case <-r.Context().Done():
+			return
 		}
 	}
 }
 
 // sseMCPHandler handles MCP requests over HTTP for SSE connections
 func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
+	if s.httpSecurityCheck(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -287,6 +322,9 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if session.timer != nil && s.httpSecurity.SessionTimeout > 0 {
+		session.timer.Reset(s.httpSecurity.SessionTimeout)
+	}
 	resp := s.processRequestWithContext(ctx, req)
 	if resp.ID != nil {
 		if err := s.enqueueSSEResponse(sessionID, resp); err != nil {
@@ -308,6 +346,9 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 
 // httpHandler handles HTTP requests for MCP
 func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
+	if s.httpSecurityCheck(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

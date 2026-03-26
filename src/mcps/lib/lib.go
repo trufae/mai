@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ListenConfig represents the parsed configuration from a listen string
@@ -117,6 +118,9 @@ type sseSession struct {
 	bearerToken string
 	authResult  *AuthResult
 	respChan    chan JSONRPCResponse
+	done        chan struct{}
+	doneOnce    sync.Once
+	timer       *time.Timer
 }
 
 // messageFramer centralizes JSON-RPC transport framing shared by server and client.
@@ -214,15 +218,16 @@ type MCPServer struct {
 	bufr                   *bufio.Reader
 	useHeaders             bool
 	authEnabled            bool
-	sseConnections         map[string]chan JSONRPCResponse // SSE connection management
-	sseSessions            map[string]*sseSession          // Reusable SSE session state
-	sseMu                  sync.RWMutex                    // Protects SSE connection/session state
-	currentCtx             context.Context                 // Current request context (for stdio mode)
-	authenticator          AuthenticatorFunc               // Optional token validator/transformer
-	verbose                bool                            // Enable verbose logging for HTTP mode
-	responseMode           ResponseMode                    // Controls content/structuredContent in responses
-	maxHTTPRequestBodySize int64                           // Maximum allowed HTTP request body size in bytes
-	writeMu                sync.Mutex                      // Serializes stdio/TCP response writes
+	sseSessions            map[string]*sseSession // SSE session state
+	httpSecurity           HTTPSecurity           // HTTP security configuration
+	limiter                *rateLimiter           // Per-IP rate limiter (nil = unlimited)
+	sseMu                  sync.RWMutex           // Protects SSE connection/session state
+	currentCtx             context.Context        // Current request context (for stdio mode)
+	authenticator          AuthenticatorFunc      // Optional token validator/transformer
+	verbose                bool                   // Enable verbose logging for HTTP mode
+	responseMode           ResponseMode           // Controls content/structuredContent in responses
+	maxHTTPRequestBodySize int64                  // Maximum allowed HTTP request body size in bytes
+	writeMu                sync.Mutex             // Serializes stdio/TCP response writes
 }
 
 // ToolHandler is a function that handles a tool call (legacy, no context)
@@ -332,7 +337,6 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		streamingHandlers:      make(map[string]StreamingToolHandler),
 		resourceHandlers:       make(map[string]ResourceHandler),
 		resources:              make([]ResourceDefinition, 0),
-		sseConnections:         make(map[string]chan JSONRPCResponse),
 		sseSessions:            make(map[string]*sseSession),
 		currentCtx:             context.Background(),
 		maxHTTPRequestBodySize: defaultMaxHTTPRequestBodySize,
