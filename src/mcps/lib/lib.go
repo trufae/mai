@@ -29,34 +29,9 @@ func ParseListenString(listen string) (ListenConfig, error) {
 	}
 
 	if strings.HasPrefix(listen, "http://") || strings.HasPrefix(listen, "https://") {
-		// HTTP mode
-		url := listen
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			url = "http://" + url
-		}
-		// Parse URL to extract host, port, and path
-		if !strings.Contains(url, "://") {
+		port, basePath, err := parseListenURL(listen)
+		if err != nil {
 			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
-		}
-		parts := strings.SplitN(url, "://", 2)
-		if len(parts) != 2 {
-			return ListenConfig{}, fmt.Errorf("invalid HTTP URL format")
-		}
-		hostAndPath := parts[1]
-		var hostPort, basePath string
-		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
-			hostPort = hostAndPath[:idx]
-			basePath = hostAndPath[idx:]
-		} else {
-			hostPort = hostAndPath
-			basePath = "/"
-		}
-		// Extract port from hostPort
-		var port string
-		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
-			port = hostPort[idx+1:]
-		} else {
-			port = "80" // default HTTP port
 		}
 		return ListenConfig{
 			Protocol: "http",
@@ -64,28 +39,9 @@ func ParseListenString(listen string) (ListenConfig, error) {
 			BasePath: basePath,
 		}, nil
 	} else if strings.HasPrefix(listen, "sse://") {
-		// SSE mode
-		url := listen
-		// Parse URL to extract host, port, and path
-		parts := strings.SplitN(url, "://", 2)
-		if len(parts) != 2 {
+		port, basePath, err := parseListenURL(listen)
+		if err != nil {
 			return ListenConfig{}, fmt.Errorf("invalid SSE URL format")
-		}
-		hostAndPath := parts[1]
-		var hostPort, basePath string
-		if idx := strings.Index(hostAndPath, "/"); idx != -1 {
-			hostPort = hostAndPath[:idx]
-			basePath = hostAndPath[idx:]
-		} else {
-			hostPort = hostAndPath
-			basePath = "/"
-		}
-		// Extract port from hostPort
-		var port string
-		if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
-			port = hostPort[idx+1:]
-		} else {
-			port = "80" // default HTTP port
 		}
 		return ListenConfig{
 			Protocol: "sse",
@@ -99,6 +55,25 @@ func ParseListenString(listen string) (ListenConfig, error) {
 			Address:  listen,
 		}, nil
 	}
+}
+
+func parseListenURL(listen string) (string, string, error) {
+	parts := strings.SplitN(listen, "://", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid URL format")
+	}
+	hostAndPath := parts[1]
+	hostPort := hostAndPath
+	basePath := "/"
+	if idx := strings.Index(hostAndPath, "/"); idx != -1 {
+		hostPort = hostAndPath[:idx]
+		basePath = hostAndPath[idx:]
+	}
+	port := "80"
+	if idx := strings.LastIndex(hostPort, ":"); idx != -1 {
+		port = hostPort[idx+1:]
+	}
+	return port, basePath, nil
 }
 
 // JSONRPCRequest represents a JSON-RPC 2.0 request
