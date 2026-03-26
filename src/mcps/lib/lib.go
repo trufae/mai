@@ -345,6 +345,23 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 	return s
 }
 
+func NewMCPServerFromTools(tools []Tool) *MCPServer {
+	defs := make([]ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		defs = append(defs, ToolDefinition{
+			Name:          tool.Name,
+			Description:   tool.Description,
+			InputSchema:   tool.InputSchema,
+			UsageExamples: tool.UsageExamples,
+		})
+	}
+	server := NewMCPServer(defs)
+	for _, tool := range tools {
+		server.RegisterTool(tool.Name, tool.Handler)
+	}
+	return server
+}
+
 // processPromptsList handles prompts/list
 func (s *MCPServer) processPromptsList(req JSONRPCRequest) JSONRPCResponse {
 	type promptMeta struct {
