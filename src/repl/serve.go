@@ -260,8 +260,8 @@ func (sm *ServerManager) executeInputWithCapture(input string, stream bool, syst
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
-		stdoutR.Close()
-		stdoutW.Close()
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
 		return "", fmt.Errorf("failed to create stderr pipe: %v", err)
 	}
 	os.Stdout = stdoutW
@@ -271,19 +271,19 @@ func (sm *ServerManager) executeInputWithCapture(input string, stream bool, syst
 	callErr := sm.repl.sendToAI(input, "", "", true, false)
 
 	// Restore streams
-	stdoutW.Close()
-	stderrW.Close()
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
 	os.Stdout = oldStdout
 	os.Stderr = oldStderr
 
 	// Read captured output
 	outBytes, rerr := io.ReadAll(stdoutR)
-	stdoutR.Close()
+	_ = stdoutR.Close()
 	if rerr != nil {
 		return "", fmt.Errorf("failed to read stdout: %v", rerr)
 	}
 	errBytes, rerr := io.ReadAll(stderrR)
-	stderrR.Close()
+	_ = stderrR.Close()
 	if rerr != nil {
 		return "", fmt.Errorf("failed to read stderr: %v", rerr)
 	}
@@ -375,8 +375,8 @@ func (sm *ServerManager) executeCommandWithCapture(command string) (string, erro
 	}
 	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
-		stdoutR.Close()
-		stdoutW.Close()
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
 		return "", fmt.Errorf("failed to create stderr pipe: %v", err)
 	}
 
@@ -388,8 +388,8 @@ func (sm *ServerManager) executeCommandWithCapture(command string) (string, erro
 	err = sm.repl.handleCommand(command, "", "")
 
 	// Restore stdout and stderr
-	stdoutW.Close()
-	stderrW.Close()
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
 	os.Stdout = oldStdout
 	os.Stderr = oldStderr
 
@@ -397,13 +397,13 @@ func (sm *ServerManager) executeCommandWithCapture(command string) (string, erro
 	var output strings.Builder
 
 	stdoutData, readErr := io.ReadAll(stdoutR)
-	stdoutR.Close()
+	_ = stdoutR.Close()
 	if readErr != nil {
 		return "", fmt.Errorf("failed to read stdout: %v", readErr)
 	}
 
 	stderrData, readErr := io.ReadAll(stderrR)
-	stderrR.Close()
+	_ = stderrR.Close()
 	if readErr != nil {
 		return "", fmt.Errorf("failed to read stderr: %v", readErr)
 	}
@@ -466,7 +466,7 @@ func (sm *ServerManager) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleChatCompletions handles the /v1/chat/completions endpoint
@@ -523,12 +523,12 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 	// For now, use non-streaming and simulate streaming
 	client, err := sm.getLLMClient()
 	if err != nil {
-		fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
+		_, _ = fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 		return
 	}
 	response, err := client.SendMessage(messages, false, nil, nil)
 	if err != nil {
-		fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
+		_, _ = fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 		return
 	}
 
@@ -558,7 +558,7 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 		}
 
 		data, _ := json.Marshal(chunkResponse)
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 
 		// Small delay to simulate streaming
@@ -581,12 +581,12 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 			}
 
 			data, _ := json.Marshal(finalChunk)
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		}
 	}
 
-	fmt.Fprintf(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 
@@ -623,13 +623,13 @@ func (sm *ServerManager) handleNonStreamingResponse(w http.ResponseWriter, r *ht
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(completionResponse)
+	_ = json.NewEncoder(w).Encode(completionResponse)
 }
 
 // handleHealth handles the /health endpoint
 func (sm *ServerManager) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
 		"server": sm.GetStatusString(),
 	})
@@ -664,7 +664,7 @@ func (sm *ServerManager) handleSimpleChat(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(SimpleChatResponse{
+		_ = json.NewEncoder(w).Encode(SimpleChatResponse{
 			Response: "",
 			Error:    fmt.Sprintf("%v", err),
 		})
@@ -672,7 +672,7 @@ func (sm *ServerManager) handleSimpleChat(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SimpleChatResponse{Response: out})
+	_ = json.NewEncoder(w).Encode(SimpleChatResponse{Response: out})
 }
 
 // handleGenerate handles the /api/generate endpoint - simple text generation
@@ -698,12 +698,12 @@ func (sm *ServerManager) handleGenerate(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(GenerateResponse{Text: "", Error: fmt.Sprintf("%v", err)})
+		_ = json.NewEncoder(w).Encode(GenerateResponse{Text: "", Error: fmt.Sprintf("%v", err)})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(GenerateResponse{Text: out})
+	_ = json.NewEncoder(w).Encode(GenerateResponse{Text: out})
 }
 
 // handleGetConfig handles the /api/config endpoint - get current configuration
@@ -724,7 +724,7 @@ func (sm *ServerManager) handleGetConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(config)
+	_ = json.NewEncoder(w).Encode(config)
 }
 
 // handleSetConfig handles the /api/config/set endpoint - set configuration
@@ -753,7 +753,7 @@ func (sm *ServerManager) handleSetConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // handleGetProviderModels handles the /api/models/<provider> endpoint - get models for a specific provider
@@ -806,7 +806,7 @@ func (sm *ServerManager) handleGetProviderModels(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"provider": provider,
 		"models":   simpleModels,
 	})
@@ -821,9 +821,9 @@ func (r *REPL) handleServeCommand(args []string) (string, error) {
 			output.WriteString("Server not initialized\r\n")
 			return output.String(), nil
 		}
-		output.WriteString(fmt.Sprintf("Server status: %s\r\n", serverManager.GetStatusString()))
+		fmt.Fprintf(&output, "Server status: %s\r\n", serverManager.GetStatusString())
 		if serverManager.GetStatus() == ServerRunning {
-			output.WriteString(fmt.Sprintf("Listening on: %s\r\n", serverManager.listenAddr))
+			fmt.Fprintf(&output, "Listening on: %s\r\n", serverManager.listenAddr)
 		}
 		return output.String(), nil
 	}

@@ -61,7 +61,7 @@ func handleSlurpCommand(r *REPL) error {
 	}
 
 	// Restore the terminal to normal mode so we can read multiline text
-	term.Restore(int(os.Stdin.Fd()), oldState)
+	_ = term.Restore(int(os.Stdin.Fd()), oldState)
 
 	fmt.Println("Enter your text (press Ctrl+D when finished):")
 
@@ -75,12 +75,12 @@ func handleSlurpCommand(r *REPL) error {
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		// Make terminal raw again
-		MakeRawPreserveNewline(int(os.Stdin.Fd()))
+		_, _ = MakeRawPreserveNewline(int(os.Stdin.Fd()))
 		return fmt.Errorf("error reading input: %v", err)
 	}
 
 	// Make terminal raw again
-	MakeRawPreserveNewline(int(os.Stdin.Fd()))
+	_, _ = MakeRawPreserveNewline(int(os.Stdin.Fd()))
 
 	// Get the content
 	input := content.String()

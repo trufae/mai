@@ -53,13 +53,13 @@ func (r *REPL) handleAuthCommand(args []string) (string, error) {
 		var output strings.Builder
 		output.WriteString("OpenAI Auth0 login successful.\r\n")
 		if tokens.AccountID != "" {
-			output.WriteString(fmt.Sprintf("Account: %s\r\n", tokens.AccountID))
+			fmt.Fprintf(&output, "Account: %s\r\n", tokens.AccountID)
 		}
 		if tokens.PlanType != "" {
-			output.WriteString(fmt.Sprintf("Plan: %s\r\n", tokens.PlanType))
+			fmt.Fprintf(&output, "Plan: %s\r\n", tokens.PlanType)
 		}
 		if tokens.ExpiresAt > 0 {
-			output.WriteString(fmt.Sprintf("Access token expires at: %s\r\n", time.Unix(tokens.ExpiresAt, 0).Format(time.RFC3339)))
+			fmt.Fprintf(&output, "Access token expires at: %s\r\n", time.Unix(tokens.ExpiresAt, 0).Format(time.RFC3339))
 		}
 		output.WriteString("OpenAI provider can now use Auth0 access tokens.\r\n")
 		return output.String(), nil
@@ -74,7 +74,7 @@ func (r *REPL) handleAuthCommand(args []string) (string, error) {
 		var output strings.Builder
 		output.WriteString("OpenAI token refresh successful.\r\n")
 		if tokens.ExpiresAt > 0 {
-			output.WriteString(fmt.Sprintf("New expiry: %s\r\n", time.Unix(tokens.ExpiresAt, 0).Format(time.RFC3339)))
+			fmt.Fprintf(&output, "New expiry: %s\r\n", time.Unix(tokens.ExpiresAt, 0).Format(time.RFC3339))
 		}
 		return output.String(), nil
 	case "logout":
@@ -89,7 +89,7 @@ func (r *REPL) handleAuthCommand(args []string) (string, error) {
 
 func (r *REPL) authStatus(validate bool) (string, error) {
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("Current provider: %s\r\n", r.configOptions.Get("ai.provider")))
+	fmt.Fprintf(&output, "Current provider: %s\r\n", r.configOptions.Get("ai.provider"))
 
 	if apiKey := llm.GetAPIKey("openai"); apiKey != "" {
 		output.WriteString("OPENAI_API_KEY configured: yes (takes precedence over Auth0 token)\r\n")
@@ -100,9 +100,9 @@ func (r *REPL) authStatus(validate bool) (string, error) {
 	tokenPath, pathErr := llm.OpenAIAuthTokenFilePath()
 	tokens, err := llm.GetStoredOpenAIAuthToken()
 	if err != nil {
-		output.WriteString(fmt.Sprintf("Auth0 token state: error (%v)\r\n", err))
+		fmt.Fprintf(&output, "Auth0 token state: error (%v)\r\n", err)
 		if pathErr == nil {
-			output.WriteString(fmt.Sprintf("Token file: %s\r\n", tokenPath))
+			fmt.Fprintf(&output, "Token file: %s\r\n", tokenPath)
 		}
 		return output.String(), nil
 	}
@@ -110,36 +110,36 @@ func (r *REPL) authStatus(validate bool) (string, error) {
 		output.WriteString("Auth0 token state: not logged in\r\n")
 		output.WriteString("Run '/auth login' to authenticate with OpenAI Auth0.\r\n")
 		if pathErr == nil {
-			output.WriteString(fmt.Sprintf("Token file: %s\r\n", tokenPath))
+			fmt.Fprintf(&output, "Token file: %s\r\n", tokenPath)
 		}
 		return output.String(), nil
 	}
 
 	output.WriteString("Auth0 token state: logged in\r\n")
 	if tokens.AccountID != "" {
-		output.WriteString(fmt.Sprintf("Account: %s\r\n", tokens.AccountID))
+		fmt.Fprintf(&output, "Account: %s\r\n", tokens.AccountID)
 	}
 	if tokens.PlanType != "" {
-		output.WriteString(fmt.Sprintf("Plan: %s\r\n", tokens.PlanType))
+		fmt.Fprintf(&output, "Plan: %s\r\n", tokens.PlanType)
 	}
 	if tokens.Email != "" {
-		output.WriteString(fmt.Sprintf("Email: %s\r\n", tokens.Email))
+		fmt.Fprintf(&output, "Email: %s\r\n", tokens.Email)
 	}
 	if !tokens.LastRefresh.IsZero() {
-		output.WriteString(fmt.Sprintf("Last refresh: %s\r\n", tokens.LastRefresh.Format(time.RFC3339)))
+		fmt.Fprintf(&output, "Last refresh: %s\r\n", tokens.LastRefresh.Format(time.RFC3339))
 	}
 	if tokens.ExpiresAt > 0 {
 		exp := time.Unix(tokens.ExpiresAt, 0)
 		if time.Now().After(exp) {
-			output.WriteString(fmt.Sprintf("Access token expiry: %s (expired)\r\n", exp.Format(time.RFC3339)))
+			fmt.Fprintf(&output, "Access token expiry: %s (expired)\r\n", exp.Format(time.RFC3339))
 		} else {
-			output.WriteString(fmt.Sprintf("Access token expiry: %s\r\n", exp.Format(time.RFC3339)))
+			fmt.Fprintf(&output, "Access token expiry: %s\r\n", exp.Format(time.RFC3339))
 		}
 	} else {
 		output.WriteString("Access token expiry: unknown\r\n")
 	}
 	if pathErr == nil {
-		output.WriteString(fmt.Sprintf("Token file: %s\r\n", tokenPath))
+		fmt.Fprintf(&output, "Token file: %s\r\n", tokenPath)
 	}
 
 	if validate {
@@ -147,14 +147,14 @@ func (r *REPL) authStatus(validate bool) (string, error) {
 		defer cancel()
 		statusCode, body, err := llm.ValidateOpenAIAccessToken(ctx, tokens.AccessToken)
 		if err != nil {
-			output.WriteString(fmt.Sprintf("Validation: request failed (%v)\r\n", err))
+			fmt.Fprintf(&output, "Validation: request failed (%v)\r\n", err)
 		} else {
-			output.WriteString(fmt.Sprintf("Validation HTTP status: %d\r\n", statusCode))
+			fmt.Fprintf(&output, "Validation HTTP status: %d\r\n", statusCode)
 			if body != "" {
 				if len(body) > 200 {
 					body = body[:200] + "..."
 				}
-				output.WriteString(fmt.Sprintf("Validation body: %s\r\n", body))
+				fmt.Fprintf(&output, "Validation body: %s\r\n", body)
 			}
 		}
 	} else {

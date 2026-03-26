@@ -31,14 +31,14 @@ func main() {
 	}
 
 	// Remove socket if exists
-	os.Remove(socketPath)
+	_ = os.Remove(socketPath)
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		panic(err)
 	}
-	defer listener.Close()
-	defer os.Remove(socketPath)
+	defer func() { _ = listener.Close() }()
+	defer func() { _ = os.Remove(socketPath) }()
 
 	// Spawn command
 	var cmd *exec.Cmd
@@ -112,7 +112,7 @@ func main() {
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		width, height, err := term.GetSize(int(os.Stdout.Fd()))
 		if err == nil {
-			pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(height), Cols: uint16(width)})
+			_ = pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(height), Cols: uint16(width)})
 		}
 	}
 
@@ -141,7 +141,7 @@ func main() {
 
 			// Handle input from this connection
 			go func(c net.Conn) {
-				io.Copy(ptmx, c)
+				_, _ = io.Copy(ptmx, c)
 				// When connection closes, remove it
 				mu.Lock()
 				for i, conn := range connections {
@@ -151,13 +151,15 @@ func main() {
 					}
 				}
 				mu.Unlock()
-				c.Close()
+				_ = c.Close()
 			}(conn)
 		}
 	}()
 
 	// Forward own stdin to command
-	go io.Copy(ptmx, os.Stdin)
+	go func() {
+		_, _ = io.Copy(ptmx, os.Stdin)
+	}()
 
 	// Forward output to own stdout and to connections
 	go func() {
@@ -167,7 +169,7 @@ func main() {
 			if err != nil {
 				return
 			}
-			os.Stdout.Write(buf[:n])
+			_, _ = os.Stdout.Write(buf[:n])
 			// Send to connections as stdout (since PTY merges stdout/stderr)
 			mu.Lock()
 			for _, conn := range connections {
@@ -192,11 +194,11 @@ func main() {
 
 func sendFramed(conn net.Conn, typ byte, data []byte) {
 	// Type byte
-	conn.Write([]byte{typ})
+	_, _ = conn.Write([]byte{typ})
 	// Length 4 bytes big endian
 	lenBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
-	conn.Write(lenBuf)
+	_, _ = conn.Write(lenBuf)
 	// Data
-	conn.Write(data)
+	_, _ = conn.Write(data)
 }

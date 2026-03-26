@@ -149,7 +149,7 @@ func (sm *ServerManager) handleAnthropicMessages(w http.ResponseWriter, r *http.
 
 	// Convert Anthropic tools to OpenAI format
 	var tools []llm.OpenAITool
-	if req.Tools != nil && len(req.Tools) > 0 {
+	if len(req.Tools) > 0 {
 		tools = make([]llm.OpenAITool, len(req.Tools))
 		for i, tool := range req.Tools {
 			var parameters map[string]interface{}
@@ -188,14 +188,14 @@ func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter,
 
 	client, err := sm.getLLMClient()
 	if err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", fmt.Sprintf(`{"error": {"message": "LLM init error: %v"}}`, err))
+		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", fmt.Sprintf(`{"error": {"message": "LLM init error: %v"}}`, err))
 		return
 	}
 
 	// For now, simulate streaming with non-streaming response
 	response, err := client.SendMessage(messages, false, nil, tools)
 	if err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", fmt.Sprintf(`{"error": {"message": "LLM error: %v"}}`, err))
+		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", fmt.Sprintf(`{"error": {"message": "LLM error: %v"}}`, err))
 		return
 	}
 
@@ -219,11 +219,11 @@ func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter,
 	}
 
 	data, _ := json.Marshal(resp)
-	fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+	_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 	flusher.Flush()
 
 	// Send completion event
-	fmt.Fprintf(w, "event: message_stop\ndata: {}\n\n")
+	_, _ = fmt.Fprintf(w, "event: message_stop\ndata: {}\n\n")
 	flusher.Flush()
 }
 
@@ -260,7 +260,7 @@ func (sm *ServerManager) handleAnthropicNonStreamingMessages(w http.ResponseWrit
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleAnthropicCountTokens handles the /v1/messages/count_tokens endpoint
@@ -287,7 +287,7 @@ func (sm *ServerManager) handleAnthropicCountTokens(w http.ResponseWriter, r *ht
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleAnthropicComplete handles the /v1/complete endpoint (Anthropic-compatible)
@@ -341,7 +341,7 @@ func (sm *ServerManager) handleAnthropicComplete(w http.ResponseWriter, r *http.
 		}
 		response, err := client.SendMessage(messages, false, nil, nil)
 		if err != nil {
-			fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
+			_, _ = fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 			return
 		}
 		words := strings.Fields(response)
@@ -353,7 +353,7 @@ func (sm *ServerManager) handleAnthropicComplete(w http.ResponseWriter, r *http.
 				Completion: chunk,
 			}
 			data, _ := json.Marshal(resp)
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 			time.Sleep(50 * time.Millisecond)
 			if i == len(words)-1 {
@@ -364,11 +364,11 @@ func (sm *ServerManager) handleAnthropicComplete(w http.ResponseWriter, r *http.
 					StopReason: "stop",
 				}
 				data, _ := json.Marshal(final)
-				fmt.Fprintf(w, "data: %s\n\n", data)
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 				flusher.Flush()
 			}
 		}
-		fmt.Fprintf(w, "data: [DONE]\n\n")
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 		return
 	}
@@ -386,7 +386,7 @@ func (sm *ServerManager) handleAnthropicComplete(w http.ResponseWriter, r *http.
 		StopReason: "stop",
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleEventLogging handles the /api/event_logging/batch endpoint
@@ -412,7 +412,7 @@ func (sm *ServerManager) handleEventLogging(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // extractTextFromContent extracts text from Anthropic content field (can be string or array)

@@ -135,9 +135,9 @@ func (p *DeepSeekProvider) SendMessage(messages []Message, stream bool, images [
 		model = p.DefaultModel()
 	}
 	request := struct {
-		Model    string    `json:"model""`
-		Stream   string    `json:"stream""`
-		Messages []Message `json:"messages""`
+		Model    string    `json:"model"`
+		Stream   string    `json:"stream"`
+		Messages []Message `json:"messages"`
 	}{
 		Model:    model,
 		Stream:   "false",
@@ -170,9 +170,9 @@ func (p *DeepSeekProvider) SendMessage(messages []Message, stream bool, images [
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content""`
-			} `json:"message""`
-		} `json:"choices""`
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {

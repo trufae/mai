@@ -50,7 +50,7 @@ func newIRCClient(config Config) (*ircClient, error) {
 		port = 6667
 	}
 
-	addr := fmt.Sprintf("%s:%d", server, port)
+	addr := net.JoinHostPort(server, fmt.Sprintf("%d", port))
 
 	var (
 		conn net.Conn

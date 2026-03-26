@@ -57,7 +57,7 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		fmt.Fprintf(os.Stderr, "Error setting up history: %v\n", err)
 	}
 	// Load persistent REPL history into readline
-	repl.loadReplHistory()
+	_ = repl.loadReplHistory()
 
 	// Set prompts in the readline instance
 	if repl.readline != nil {
@@ -91,16 +91,16 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 	if repl.configOptions.Get("ai.model") == "" {
 		// Check MAI_MODEL first, then use provider's DefaultModel
 		if model := os.Getenv("MAI_MODEL"); model != "" {
-			repl.configOptions.Set("ai.model", model)
+			_ = repl.configOptions.Set("ai.model", model)
 		} else if dm := repl.resolveDefaultModelForProvider(repl.configOptions.Get("ai.provider")); dm != "" {
-			repl.configOptions.Set("ai.model", dm)
+			_ = repl.configOptions.Set("ai.model", dm)
 		}
 	}
 	if repl.configOptions.Get("ai.baseurl") == "" && envCfg.BaseURL != "" {
-		repl.configOptions.Set("ai.baseurl", envCfg.BaseURL)
+		_ = repl.configOptions.Set("ai.baseurl", envCfg.BaseURL)
 	}
 	if repl.configOptions.Get("http.useragent") == "" && envCfg.UserAgent != "" {
-		repl.configOptions.Set("http.useragent", envCfg.UserAgent)
+		_ = repl.configOptions.Set("http.useragent", envCfg.UserAgent)
 	}
 
 	// Load local skills
@@ -224,7 +224,7 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 	repl.autoDetectTemplateDir()
 	repl.autoDetectWwwRoot()
 
-	repl.loadAgentsFile()
+	_ = repl.loadAgentsFile()
 
 	// Load MCP configuration
 	if err := repl.loadMCPConfig(); err != nil {
@@ -272,10 +272,10 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 				fmt.Fprintf(os.Stderr, "Error finding random port for wmcp: %v\n", err)
 			} else {
 				port := listener.Addr().(*net.TCPAddr).Port
-				listener.Close()
+				_ = listener.Close()
 				repl.wmcpPort = port
-				os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
-				os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
+				_ = os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
+				_ = os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
 				// Append the base URL argument
 				wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
 				cmd := exec.Command("mai-wmcp", wmcpArgs...)
@@ -325,18 +325,18 @@ func (r *REPL) Run() error {
 
 	// Set MAI_PROVIDER/MAI_MODEL environment variables (honor after loading mairc file)
 	if provider := os.Getenv("MAI_PROVIDER"); provider != "" {
-		r.configOptions.Set("ai.provider", provider)
+		_ = r.configOptions.Set("ai.provider", provider)
 	}
 	if model := os.Getenv("MAI_MODEL"); model != "" {
-		r.configOptions.Set("ai.model", model)
+		_ = r.configOptions.Set("ai.model", model)
 	}
 
 	// Restore only CLI-provided options (they have priority over rc file and env vars)
 	if haveCLModel {
-		r.configOptions.Set("ai.model", cmdLineModel)
+		_ = r.configOptions.Set("ai.model", cmdLineModel)
 	}
 	if haveCLProvider {
-		r.configOptions.Set("ai.provider", cmdLineProvider)
+		_ = r.configOptions.Set("ai.provider", cmdLineProvider)
 	}
 
 	// Execute initial command if provided
@@ -383,7 +383,7 @@ func (r *REPL) cleanup() {
 	if r.readline != nil {
 		r.readline.Restore()
 	} else if r.oldState != nil {
-		term.Restore(int(os.Stdin.Fd()), r.oldState)
+		_ = term.Restore(int(os.Stdin.Fd()), r.oldState)
 	}
 	r.cancel()
 	if err := r.saveHistory(); err != nil {

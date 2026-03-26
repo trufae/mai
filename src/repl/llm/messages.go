@@ -34,15 +34,16 @@ func BuildConversationString(messages []Message, includeLLM bool, includeSystem 
 					default:
 						content = fmt.Sprintf("%v", c)
 					}
-					if format == "tokens" {
+					switch format {
+					case "tokens":
 						b.WriteString("<|start_of_turn>system\n")
 						b.WriteString(content)
 						b.WriteString("<|end_of_turn>\n")
-					} else if format == "labeled" {
+					case "labeled":
 						b.WriteString("System: ")
 						b.WriteString(content)
 						b.WriteString("\n")
-					} else {
+					default:
 						b.WriteString(content)
 						if !strings.HasSuffix(content, "\n") {
 							b.WriteString("\n")
@@ -74,15 +75,16 @@ func BuildConversationString(messages []Message, includeLLM bool, includeSystem 
 		}
 
 		// Append the last user message according to format
-		if format == "tokens" {
+		switch format {
+		case "tokens":
 			b.WriteString("<|start_of_turn>user\n")
 			b.WriteString(content)
 			b.WriteString("<|end_of_turn>\n")
-		} else if format == "labeled" {
+		case "labeled":
 			b.WriteString("User: ")
 			b.WriteString(content)
 			b.WriteString("\n")
-		} else {
+		default:
 			b.WriteString(content)
 			if !strings.HasSuffix(content, "\n") {
 				b.WriteString("\n")
@@ -127,7 +129,7 @@ func BuildConversationString(messages []Message, includeLLM bool, includeSystem 
 			b.WriteString("<|end_of_turn>\n")
 		case "labeled":
 			// Human-friendly labeled format
-			b.WriteString(strings.Title(role))
+			b.WriteString(strings.ToUpper(role[:1]) + role[1:])
 			b.WriteString(": ")
 			b.WriteString(content)
 			b.WriteString("\n")

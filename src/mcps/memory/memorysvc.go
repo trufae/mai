@@ -42,7 +42,9 @@ func NewMemoryService() *MemoryService {
 	}
 
 	// Load existing data if file exists
-	service.loadFromFile()
+	if err := service.loadFromFile(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load memory DB: %v\n", err)
+	}
 
 	return service
 }
@@ -56,7 +58,7 @@ func (s *MemoryService) loadFromFile() error {
 		}
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	stat, err := file.Stat()
 	if err != nil {
@@ -89,7 +91,7 @@ func (s *MemoryService) saveToFile() error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
@@ -209,7 +211,9 @@ func (s *MemoryService) GetTools() []mcplib.Tool {
 // handleAddNote handles adding a new note
 func (s *MemoryService) handleAddNote(args map[string]interface{}) (interface{}, error) {
 	// Reload from file if necessary
-	s.loadFromFile()
+	if err := s.loadFromFile(); err != nil {
+		return nil, fmt.Errorf("failed to load notes: %v", err)
+	}
 
 	title, ok := args["title"].(string)
 	if !ok {
@@ -259,7 +263,9 @@ func (s *MemoryService) handleAddNote(args map[string]interface{}) (interface{},
 // handleUpdateNote handles updating an existing note
 func (s *MemoryService) handleUpdateNote(args map[string]interface{}) (interface{}, error) {
 	// Reload from file if necessary
-	s.loadFromFile()
+	if err := s.loadFromFile(); err != nil {
+		return nil, fmt.Errorf("failed to load notes: %v", err)
+	}
 
 	id, ok := args["id"].(string)
 	if !ok {
@@ -316,7 +322,9 @@ func (s *MemoryService) handleUpdateNote(args map[string]interface{}) (interface
 // handleDeleteNote handles deleting a note
 func (s *MemoryService) handleDeleteNote(args map[string]interface{}) (interface{}, error) {
 	// Reload from file if necessary
-	s.loadFromFile()
+	if err := s.loadFromFile(); err != nil {
+		return nil, fmt.Errorf("failed to load notes: %v", err)
+	}
 
 	id, ok := args["id"].(string)
 	if !ok {
@@ -343,7 +351,9 @@ func (s *MemoryService) handleDeleteNote(args map[string]interface{}) (interface
 // handleSearchNotes handles searching notes by keywords
 func (s *MemoryService) handleSearchNotes(args map[string]interface{}) (interface{}, error) {
 	// Reload from file if necessary
-	s.loadFromFile()
+	if err := s.loadFromFile(); err != nil {
+		return nil, fmt.Errorf("failed to load notes: %v", err)
+	}
 
 	keywordsStr, ok := args["keywords"].(string)
 	if !ok {

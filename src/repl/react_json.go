@@ -442,7 +442,7 @@ func (r *REPL) ReactJson(messages []llm.Message, input string) (string, error) {
 
 	var schema map[string]interface{}
 	if err := json.Unmarshal([]byte(schemaString), &schema); err != nil {
-		return "", fmt.Errorf("I cannot unmarshal the schema")
+		return "", fmt.Errorf("i cannot unmarshal the schema")
 	}
 	// Store inline schema JSON in options for providers to consume
 	_ = r.configOptions.Set("llm.schema", schemaString)

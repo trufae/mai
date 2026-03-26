@@ -80,8 +80,8 @@ func (r *REPL) handleInput() error {
 	}
 
 	if skipMessage {
-		r.handleCommand("/chat undo", "", "")
-		r.handleCommand("/chat undo", "", "")
+		_ = r.handleCommand("/chat undo", "", "")
+		_ = r.handleCommand("/chat undo", "", "")
 	}
 	return err
 }
@@ -240,7 +240,7 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 	}
 
 	// Only handle tab completion at the beginning of the line for commands
-	if !(strings.HasPrefix(input, "/") || strings.HasPrefix(input, "#") || strings.HasPrefix(input, "%")) {
+	if !strings.HasPrefix(input, "/") && !strings.HasPrefix(input, "#") && !strings.HasPrefix(input, "%") {
 		return
 	}
 
@@ -869,10 +869,11 @@ func (r *REPL) handleFilePathCompletion(line *strings.Builder, cmd, partialPath 
 func (r *REPL) handleOptionCompletion(line *strings.Builder, cmd, partialOption string) {
 	var options []string
 
-	if cmd == "/set" || cmd == "/get" {
+	switch cmd {
+	case "/set", "/get":
 		// For /set and /get, show all available options
 		options = r.configOptions.GetAvailableOptions()
-	} else if cmd == "/unset" {
+	case "/unset":
 		// For /unset, show only options that are currently set
 		options = r.configOptions.GetKeys()
 	}

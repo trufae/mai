@@ -55,7 +55,7 @@ func loadConfig(filename string) Config {
 	if err != nil {
 		log.Fatal("Error opening config file:", err)
 	}
-	defer configFile.Close()
+	defer func() { _ = configFile.Close() }()
 
 	var config Config
 	decoder := json.NewDecoder(configFile)

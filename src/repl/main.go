@@ -494,9 +494,7 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 	}
 
 	// Auto-compact option is handled at REPL level; mirror into options for visibility
-	if v := opts.Get("chat.autocompact"); v != "" {
-		// no direct mapping into llm.Config required; REPL reads configOptions
-	}
+	_ = opts.Get("chat.autocompact")
 	// Structured output schema: prefer schemafile if provided, else inline schema
 	if path := opts.Get("llm.schemafile"); path != "" {
 		if strings.HasPrefix(path, "~") {
@@ -593,30 +591,28 @@ func main() {
 		switch args[i] {
 		case "-n":
 			// Skip loading rc file and disable REPL history
-			configOptions.Set("repl.history", "false")
-			configOptions.Set("repl.skiprc", "true")
+			_ = configOptions.Set("repl.history", "false")
+			_ = configOptions.Set("repl.skiprc", "true")
 			config.SkipRcFile = true
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-N":
 			// Disable chat replies
-			configOptions.Set("chat.log", "never")
+			_ = configOptions.Set("chat.log", "never")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-t":
-			configOptions.Set("mcp.use", "true")
+			_ = configOptions.Set("mcp.use", "true")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-tt":
-			configOptions.Set("mcp.use", "true")
-			configOptions.Set("mcp.grammar", "false")
+			_ = configOptions.Set("mcp.use", "true")
+			_ = configOptions.Set("mcp.grammar", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-T":
 			if i+1 < len(args) {
 				dslString := args[i+1]
-				args = append(args[:i], args[i+2:]...)
-				i--
 				runDSLMode(config, configOptions, dslString)
 				return
 			} else {
@@ -626,7 +622,7 @@ func main() {
 		case "-1":
 			config.NoStream = true
 			// Keep REPL in sync with stdin mode: disable streaming in options
-			configOptions.Set("llm.stream", "false")
+			_ = configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-r":
@@ -658,7 +654,7 @@ func main() {
 				}
 				config.PROVIDER = provider
 				// Keep REPL options in sync so /get reflects this
-				configOptions.Set("ai.provider", provider)
+				_ = configOptions.Set("ai.provider", provider)
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -669,7 +665,7 @@ func main() {
 			if i+1 < len(args) {
 				config.BaseURL = args[i+1]
 				// Mirror into options for REPL visibility
-				configOptions.Set("ai.baseurl", args[i+1])
+				_ = configOptions.Set("ai.baseurl", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -680,7 +676,7 @@ func main() {
 			if i+1 < len(args) {
 				setModel(config, args[i+1])
 				// Also set generic model option for REPL
-				configOptions.Set("ai.model", args[i+1])
+				_ = configOptions.Set("ai.model", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -711,23 +707,23 @@ func main() {
 
 				// Apply agent config
 				for key, value := range agent.Config {
-					configOptions.Set(key, value)
+					_ = configOptions.Set(key, value)
 				}
 
 				// Set system prompt if specified
 				if agent.SystemPrompt != "" {
-					configOptions.Set("llm.systemprompt", agent.SystemPrompt)
+					_ = configOptions.Set("llm.systemprompt", agent.SystemPrompt)
 					config.SystemPrompt = agent.SystemPrompt
 				}
 
 				// Set default provider/model if not overridden by flags
 				if agent.DefaultProvider != "" && config.PROVIDER == "" {
 					config.PROVIDER = agent.DefaultProvider
-					configOptions.Set("ai.provider", agent.DefaultProvider)
+					_ = configOptions.Set("ai.provider", agent.DefaultProvider)
 				}
 				if agent.DefaultModel != "" && config.Model == "" {
 					config.Model = agent.DefaultModel
-					configOptions.Set("ai.model", agent.DefaultModel)
+					_ = configOptions.Set("ai.model", agent.DefaultModel)
 				}
 
 				// Store agent info for later use (MCP config, tool filtering)
@@ -737,7 +733,7 @@ func main() {
 				// Enable MCP if agent has MCP servers
 				if len(agent.MCPS) > 0 {
 					config.UseMCP = true
-					configOptions.Set("mcp.use", "true")
+					_ = configOptions.Set("mcp.use", "true")
 				}
 
 			} else {
@@ -751,7 +747,7 @@ func main() {
 			if i+1 < len(args) {
 				config.UserAgent = args[i+1]
 				// Mirror into options so /get useragent shows it
-				configOptions.Set("http.useragent", args[i+1])
+				_ = configOptions.Set("http.useragent", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -769,7 +765,7 @@ func main() {
 				}
 				// Set the option in config
 				key, value := parts[0], parts[1]
-				configOptions.Set(key, value)
+				_ = configOptions.Set(key, value)
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
@@ -777,14 +773,13 @@ func main() {
 				os.Exit(1)
 			}
 		case "-d":
-			configOptions.Set("repl.debug", "true")
-			configOptions.Set("llm.stream", "false")
+			_ = configOptions.Set("repl.debug", "true")
+			_ = configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-e":
 			// Embedding mode: take all remaining args as input text
 			args = append(args[:i], args[i+1:]...)
-			i--
 			// Join remaining args as input
 			input := strings.Join(args, " ")
 			// Apply config options
@@ -807,7 +802,7 @@ func main() {
 			}
 		case "-S":
 			if i+1 < len(args) {
-				configOptions.Set("llm.systemprompt", args[i+1])
+				_ = configOptions.Set("llm.systemprompt", args[i+1])
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {

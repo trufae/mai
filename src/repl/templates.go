@@ -61,7 +61,7 @@ func (r *REPL) autoDetectDirectory(configKey, dirName string, verbose bool) {
 
 	// Use findDirectory to locate the directory
 	if foundDir := r.findDirectory(dirName); foundDir != "" {
-		r.configOptions.Set(configKey, foundDir)
+		_ = r.configOptions.Set(configKey, foundDir)
 	} else if verbose {
 		fmt.Printf("Warning: Could not find directory '%s' relative to executable\r\n", dirName)
 	}

@@ -53,7 +53,7 @@ func (p *OllamaProvider) IsAvailable() bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -68,7 +68,7 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
@@ -282,11 +282,11 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 			effectiveModel = p.DefaultModel()
 		}
 		request := struct {
-			Model   string             `json:"model""`
-			Prompt  string             `json:"prompt""`
-			Stream  bool               `json:"stream""`
-			Format  interface{}        `json:"format,omitempty""`
-			Options map[string]float64 `json:"options,omitempty""`
+			Model   string             `json:"model"`
+			Prompt  string             `json:"prompt"`
+			Stream  bool               `json:"stream"`
+			Format  interface{}        `json:"format,omitempty"`
+			Options map[string]float64 `json:"options,omitempty"`
 		}{
 			Stream: stream,
 			Model:  effectiveModel,
@@ -338,8 +338,8 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 
 		// fmt.Println(string(respBody))
 		var response struct {
-			Response string `json:"response""`
-			Error    string `json:"error,omitempty""`
+			Response string `json:"response"`
+			Error    string `json:"error,omitempty"`
 		}
 
 		if err := json.Unmarshal(respBody, &response); err != nil {
@@ -359,12 +359,12 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 		effectiveModel = p.DefaultModel()
 	}
 	request := struct {
-		Stream   bool               `json:"stream""`
-		Model    string             `json:"model""`
-		Messages []Message          `json:"messages""`
-		Prompt   string             `json:"prompt,omitempty""`
-		Format   interface{}        `json:"format,omitempty""`
-		Options  map[string]float64 `json:"options,omitempty""`
+		Stream   bool               `json:"stream"`
+		Model    string             `json:"model"`
+		Messages []Message          `json:"messages"`
+		Prompt   string             `json:"prompt,omitempty"`
+		Format   interface{}        `json:"format,omitempty"`
+		Options  map[string]float64 `json:"options,omitempty"`
 	}{
 		Stream:   stream,
 		Model:    effectiveModel,
@@ -568,8 +568,8 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			isDone = false
 		} else if p.config.Rawdog {
 			var response struct {
-				Response string `json:"response""`
-				Done     bool   `json:"done""`
+				Response string `json:"response"`
+				Done     bool   `json:"done"`
 			}
 
 			if err := json.Unmarshal([]byte(line), &response); err != nil {

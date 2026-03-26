@@ -22,7 +22,7 @@ func loadAPIKeysFromFile() map[string]string {
 	if err != nil {
 		return keys
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

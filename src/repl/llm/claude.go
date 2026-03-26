@@ -16,14 +16,14 @@ type ClaudeProvider struct {
 
 // ClaudeModelsResponse is the response structure for Claude model list endpoint
 type ClaudeModelsResponse struct {
-	Object string `json:"object""`
+	Object string `json:"object"`
 	Data   []struct {
-		ID            string `json:"id""`
-		Name          string `json:"name""`
-		Description   string `json:"description""`
-		MaxTokens     int    `json:"max_tokens,omitempty""`
-		ContextWindow int    `json:"context_window,omitempty""`
-	} `json:"data""`
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		MaxTokens     int    `json:"max_tokens,omitempty"`
+		ContextWindow int    `json:"context_window,omitempty"`
+	} `json:"data"`
 }
 
 func NewClaudeProvider(config *Config, ctx context.Context) *ClaudeProvider {
@@ -191,8 +191,8 @@ func (p *ClaudeProvider) SendMessage(messages []Message, stream bool, images []s
 	// Default text extraction path
 	var response struct {
 		Content []struct {
-			Text string `json:"text""`
-		} `json:"content""`
+			Text string `json:"text"`
+		} `json:"content"`
 	}
 	if err := json.Unmarshal(respBody, &response); err != nil {
 		return "", err
@@ -235,10 +235,10 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		}
 
 		var response struct {
-			Type  string `json:"type""`
+			Type  string `json:"type"`
 			Delta struct {
-				Text string `json:"text""`
-			} `json:"delta""`
+				Text string `json:"text"`
+			} `json:"delta"`
 		}
 
 		if err := json.Unmarshal([]byte(data), &response); err != nil {

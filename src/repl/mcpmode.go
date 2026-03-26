@@ -593,17 +593,6 @@ func StartMCPServer(repl *REPL) {
 			return nil, fmt.Errorf("command must be a string")
 		}
 
-		var cmdArgs []string
-		if args["args"] != nil {
-			if argsSlice, ok := args["args"].([]interface{}); ok {
-				for _, arg := range argsSlice {
-					if strArg, ok := arg.(string); ok {
-						cmdArgs = append(cmdArgs, strArg)
-					}
-				}
-			}
-		}
-
 		// Capture command output by redirecting stdout
 		oldStdout := os.Stdout
 		r, w, err := os.Pipe()
@@ -616,12 +605,12 @@ func StartMCPServer(repl *REPL) {
 		cmdErr := repl.handleCommand("/"+command, "", "")
 
 		// Restore stdout
-		w.Close()
+		_ = w.Close()
 		os.Stdout = oldStdout
 
 		// Read the captured output
 		output, readErr := io.ReadAll(r)
-		r.Close()
+		_ = r.Close()
 
 		if cmdErr != nil {
 			return nil, cmdErr
@@ -825,16 +814,16 @@ func StartMCPServer(repl *REPL) {
 		case "openai":
 			if os.Getenv("OPENAI_API_KEY") == "" {
 				return []map[string]interface{}{
-					{"id": "gpt-4o", "description": "GPT-4 Optimized", "current": "gpt-4o" == currentModel},
-					{"id": "gpt-4", "description": "GPT-4", "current": "gpt-4" == currentModel},
-					{"id": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo", "current": "gpt-3.5-turbo" == currentModel},
+					{"id": "gpt-4o", "description": "GPT-4 Optimized", "current": currentModel == "gpt-4o"},
+					{"id": "gpt-4", "description": "GPT-4", "current": currentModel == "gpt-4"},
+					{"id": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo", "current": currentModel == "gpt-3.5-turbo"},
 				}, nil
 			}
 		case "claude":
 			if os.Getenv("ANTHROPIC_API_KEY") == "" {
 				return []map[string]interface{}{
-					{"id": "claude-3-5-sonnet-20241022", "description": "Claude 3.5 Sonnet", "current": "claude-3-5-sonnet-20241022" == currentModel},
-					{"id": "claude-3-haiku-20240307", "description": "Claude 3 Haiku", "current": "claude-3-haiku-20240307" == currentModel},
+					{"id": "claude-3-5-sonnet-20241022", "description": "Claude 3.5 Sonnet", "current": currentModel == "claude-3-5-sonnet-20241022"},
+					{"id": "claude-3-haiku-20240307", "description": "Claude 3 Haiku", "current": currentModel == "claude-3-haiku-20240307"},
 				}, nil
 			}
 			// Add more providers as needed
@@ -1482,16 +1471,16 @@ func getREPLTools(repl *REPL) []mcplib.Tool {
 				case "openai":
 					if os.Getenv("OPENAI_API_KEY") == "" {
 						return []map[string]interface{}{
-							{"id": "gpt-4o", "description": "GPT-4 Optimized", "current": "gpt-4o" == currentModel},
-							{"id": "gpt-4", "description": "GPT-4", "current": "gpt-4" == currentModel},
-							{"id": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo", "current": "gpt-3.5-turbo" == currentModel},
+							{"id": "gpt-4o", "description": "GPT-4 Optimized", "current": currentModel == "gpt-4o"},
+							{"id": "gpt-4", "description": "GPT-4", "current": currentModel == "gpt-4"},
+							{"id": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo", "current": currentModel == "gpt-3.5-turbo"},
 						}, nil
 					}
 				case "claude":
 					if os.Getenv("ANTHROPIC_API_KEY") == "" {
 						return []map[string]interface{}{
-							{"id": "claude-3-5-sonnet-20241022", "description": "Claude 3.5 Sonnet", "current": "claude-3-5-sonnet-20241022" == currentModel},
-							{"id": "claude-3-haiku-20240307", "description": "Claude 3 Haiku", "current": "claude-3-haiku-20240307" == currentModel},
+							{"id": "claude-3-5-sonnet-20241022", "description": "Claude 3.5 Sonnet", "current": currentModel == "claude-3-5-sonnet-20241022"},
+							{"id": "claude-3-haiku-20240307", "description": "Claude 3 Haiku", "current": currentModel == "claude-3-haiku-20240307"},
 						}, nil
 					}
 					// Add more providers as needed

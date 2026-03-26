@@ -200,7 +200,7 @@ func adjustReasoningPrompt(prompt string, level string) string {
 
 // buildMessageWithTools formats a message with tool information
 func buildMessageWithTools(toolPrompt string, userInput string, ctx string, toolList string) string {
-	prompt := strings.Replace(toolPrompt, "{tools}", toolList, -1)
+	prompt := strings.ReplaceAll(toolPrompt, "{tools}", toolList)
 	var builder strings.Builder
 	builder.WriteString(prompt)
 	builder.WriteString("\n\nUSER QUERY TASK TO RESOLVE:\n")
@@ -479,7 +479,7 @@ func parseMarkdownResponse(text string) (PlanResponse, string, error) {
 }
 
 func (r *REPL) toolStep(client *llm.LLMClient, toolPrompt string, input string, ctx string, toolList string) (PlanResponse, string, error) {
-	systemPrompt := strings.Replace(toolPrompt, "{tools}", toolList, -1)
+	systemPrompt := strings.ReplaceAll(toolPrompt, "{tools}", toolList)
 	var userBuilder strings.Builder
 	userBuilder.WriteString("USER QUERY TASK TO RESOLVE:\n")
 	userBuilder.WriteString(input)
@@ -589,7 +589,7 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 	stepCount := 0
 	reasoning := ""
 	clearScreen := true
-	var expl = ""
+	expl := ""
 	for {
 		stepCount++
 		if r.configOptions.GetBool("repl.debug") {
@@ -601,7 +601,6 @@ func (r *REPL) ReactText(messages []llm.Message, input string) (string, error) {
 			// Force completion
 			var step PlanResponse
 			step.Action = "Done"
-			expl = "Interrupted by user. Providing answer based on available information."
 			break
 		}
 		r.mu.Unlock()

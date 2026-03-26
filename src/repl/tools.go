@@ -111,7 +111,7 @@ func GetAvailableToolsWithStatus(configOptions ConfigOptions, agentConfig *llm.A
 		if !tool.Allowed {
 			status = "DENIED"
 		}
-		result.WriteString(fmt.Sprintf("%s - %s [%s]\n", tool.Name, tool.Description, status))
+		fmt.Fprintf(&result, "%s - %s [%s]\n", tool.Name, tool.Description, status)
 	}
 
 	return result.String(), nil
@@ -186,9 +186,10 @@ func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
-	if format == "json" {
+	switch format {
+	case "json":
 		cmdArgs = append([]string{"-j"}, cmdArgs...)
-	} else if format == "xml" {
+	case "xml":
 		cmdArgs = append([]string{"-x"}, cmdArgs...)
 	}
 
@@ -498,6 +499,7 @@ func extractJSONBlock(text string) (string, string) {
 	in := text[start:]
 	depth := 0
 	endIdx := -1
+loop:
 	for i, r := range in {
 		switch r {
 		case '{':
@@ -506,11 +508,8 @@ func extractJSONBlock(text string) (string, string) {
 			depth--
 			if depth == 0 {
 				endIdx = i
-				break
+				break loop
 			}
-		}
-		if endIdx != -1 {
-			break
 		}
 	}
 	if endIdx != -1 {

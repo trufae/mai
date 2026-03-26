@@ -132,7 +132,7 @@ func (r *REPL) clearPendingImages() (string, error) {
 
 	var output strings.Builder
 	if imageCount > 0 {
-		output.WriteString(fmt.Sprintf("Removed %d pending image(s)\r\n", imageCount))
+		fmt.Fprintf(&output, "Removed %d pending image(s)\r\n", imageCount)
 	} else {
 		output.WriteString("No pending images to remove\r\n")
 	}
@@ -158,7 +158,7 @@ func (r *REPL) clearPendingFiles() (string, error) {
 
 	var output strings.Builder
 	if fileCount > 0 {
-		output.WriteString(fmt.Sprintf("Removed %d pending file(s)\r\n", fileCount))
+		fmt.Fprintf(&output, "Removed %d pending file(s)\r\n", fileCount)
 	} else {
 		output.WriteString("No pending files to remove\r\n")
 	}

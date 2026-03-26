@@ -9,11 +9,11 @@ import (
 // It kills any existing 'say' processes to avoid overlapping voices.
 func Speak(message, voice string) {
 	// Kill any existing say processes to avoid overlapping voices
-	exec.Command("pkill", "say").Run()
+	_ = exec.Command("pkill", "say").Run()
 
 	// Prepare the command: echo message | say -v voice
 	cmd := exec.Command("sh", "-c", "echo "+strings.ReplaceAll(message, "'", "'\"'\"'")+" | say -v '"+voice+"'")
 
 	// Run in background
-	cmd.Start()
+	_ = cmd.Start()
 }

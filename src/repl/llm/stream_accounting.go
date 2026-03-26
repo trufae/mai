@@ -10,7 +10,7 @@ func accountResponseText(ctx context.Context, text string) {
 	if text == "" || ctx == nil {
 		return
 	}
-	if cb, ok := ctx.Value("account_text_callback").(func(string)); ok && cb != nil {
+	if cb, ok := ctx.Value(contextAccountTextCallbackKey).(func(string)); ok && cb != nil {
 		cb(text)
 	}
 }

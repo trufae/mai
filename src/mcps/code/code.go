@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mcplib"
 	"os"
 	"os/exec"
@@ -705,8 +704,8 @@ func (s *CodeService) handleExecuteCommand(args map[string]any) (any, error) {
 	}
 
 	// Read stdout and stderr
-	stdoutBytes, _ := ioutil.ReadAll(stdout)
-	stderrBytes, _ := ioutil.ReadAll(stderr)
+	stdoutBytes, _ := io.ReadAll(stdout)
+	stderrBytes, _ := io.ReadAll(stderr)
 
 	// Get return code
 	returnCode := 0
@@ -731,7 +730,7 @@ func (s *CodeService) handleReadFile(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("filepath is required")
 	}
 
-	content, err := ioutil.ReadFile(filepath)
+	content, err := os.ReadFile(filepath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -753,7 +752,7 @@ func (s *CodeService) handleWriteFile(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("content is required")
 	}
 
-	err := ioutil.WriteFile(filepath, []byte(content), 0644)
+	err := os.WriteFile(filepath, []byte(content), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -798,13 +797,13 @@ func (s *CodeService) handleCopyFile(args map[string]any) (any, error) {
 	}
 
 	// Read the source file
-	content, err := ioutil.ReadFile(source)
+	content, err := os.ReadFile(source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %v", err)
 	}
 
 	// Write to the destination file
-	err = ioutil.WriteFile(destination, content, 0644)
+	err = os.WriteFile(destination, content, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write destination file: %v", err)
 	}
@@ -855,19 +854,23 @@ func (s *CodeService) handleListFiles(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("directory_path is required")
 	}
 
-	files, err := ioutil.ReadDir(directoryPath)
+	files, err := os.ReadDir(directoryPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory: %v", err)
 	}
 
 	fileList := []map[string]any{}
 	for _, file := range files {
+		info, err := file.Info()
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat file %s: %v", file.Name(), err)
+		}
 		fileInfo := map[string]any{
 			"name":         file.Name(),
-			"size":         file.Size(),
+			"size":         info.Size(),
 			"is_directory": file.IsDir(),
-			"mode":         file.Mode().String(),
-			"modified":     file.ModTime().Format(time.RFC3339),
+			"mode":         info.Mode().String(),
+			"modified":     info.ModTime().Format(time.RFC3339),
 		}
 		fileList = append(fileList, fileInfo)
 	}
@@ -930,7 +933,7 @@ func (s *CodeService) handleAppendFile(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file for appending: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Write the content to the file
 	if _, err := file.WriteString(content); err != nil {
@@ -1406,7 +1409,7 @@ func (s *CodeService) readFileSample(filePath string, maxBytes int) (string, err
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	buf := make([]byte, maxBytes)
 	n, err := file.Read(buf)
@@ -1509,9 +1512,7 @@ func (s *CodeService) detectBuildSystem(dirPath string) (string, []string, error
 				matches, err := filepath.Glob(filepath.Join(dirPath, file))
 				if err == nil && len(matches) > 0 {
 					buildSystemFound = system
-					for _, match := range matches {
-						foundBuildFiles = append(foundBuildFiles, match)
-					}
+					foundBuildFiles = append(foundBuildFiles, matches...)
 					break
 				}
 			} else {
@@ -1712,6 +1713,9 @@ func (s *CodeService) handleListFunctions(args map[string]any) (any, error) {
 	if fileInfo.IsDir() {
 		// Process directory
 		functions, err = s.listFunctionsInDirectory(path, recursive)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		// Process single file
 		fileFunctions, err := s.listFunctionsInFile(path)
@@ -1758,7 +1762,7 @@ func (s *CodeService) listFunctionsInDirectory(dirPath string, recursive bool) (
 		}
 	} else {
 		// Just process files in the current directory
-		files, err := ioutil.ReadDir(dirPath)
+		files, err := os.ReadDir(dirPath)
 		if err != nil {
 			return nil, fmt.Errorf("error reading directory: %v", err)
 		}
@@ -1798,7 +1802,7 @@ func (s *CodeService) listFunctionsInFile(filePath string) ([]map[string]any, er
 	}
 
 	// Read file content
-	content, err := ioutil.ReadFile(filePath)
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -2047,7 +2051,7 @@ func (s *CodeService) findFunctionInFile(filePath, functionName string) (map[str
 // extractFunctionBody retrieves the full body of a function
 func (s *CodeService) extractFunctionBody(filePath string, functionInfo map[string]any) (string, error) {
 	// Read the file
-	content, err := ioutil.ReadFile(filePath)
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file: %v", err)
 	}
@@ -2222,12 +2226,13 @@ func (s *CodeService) extractBodyRubyStyle(lines []string, startLineIndex int) (
 func (s *CodeService) getIndentLevel(line string) int {
 	indent := 0
 	for _, char := range line {
-		if char == ' ' {
+		switch char {
+		case ' ':
 			indent++
-		} else if char == '\t' {
+		case '\t':
 			indent += 4 // Count a tab as 4 spaces
-		} else {
-			break
+		default:
+			return indent
 		}
 	}
 	return indent
@@ -2310,7 +2315,7 @@ func (s *CodeService) queryStructuresInDirectory(dirPath, structureName string, 
 		}
 	} else {
 		// Just process files in the current directory
-		files, err := ioutil.ReadDir(dirPath)
+		files, err := os.ReadDir(dirPath)
 		if err != nil {
 			return nil, fmt.Errorf("error reading directory: %v", err)
 		}
@@ -2350,7 +2355,7 @@ func (s *CodeService) queryStructuresInFile(filePath, structureName string) ([]m
 	}
 
 	// Read file content
-	content, err := ioutil.ReadFile(filePath)
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -2597,7 +2602,7 @@ func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 	}
 
 	// Read the file
-	content, err := ioutil.ReadFile(filePath)
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -2617,7 +2622,7 @@ func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 
 	// Create a backup of the file before modifying
 	backupFilePath := filePath + ".bak"
-	err = ioutil.WriteFile(backupFilePath, content, 0644)
+	err = os.WriteFile(backupFilePath, content, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create backup file: %v", err)
 	}
@@ -2639,7 +2644,7 @@ func (s *CodeService) handleApplyPatch(args map[string]any) (any, error) {
 	resultContent := strings.Join(resultLines, "\n")
 
 	// Write the result back to the file
-	err = ioutil.WriteFile(filePath, []byte(resultContent), 0644)
+	err = os.WriteFile(filePath, []byte(resultContent), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write patched file: %v", err)
 	}
@@ -3165,7 +3170,7 @@ func (s *CodeService) handleMesonBuild(projectDir, options string) (map[string]a
 
 		if err != nil {
 			// Change back to original directory
-			os.Chdir(currentDir)
+			_ = os.Chdir(currentDir)
 			return map[string]any{
 				"build_system":  "Meson",
 				"build_command": "meson setup " + buildDir,
@@ -3189,7 +3194,7 @@ func (s *CodeService) handleMesonBuild(projectDir, options string) (map[string]a
 	output += string(ninjaOutput)
 
 	// Change back to original directory
-	os.Chdir(currentDir)
+	_ = os.Chdir(currentDir)
 
 	// Check if the build command succeeded
 	success := err == nil
@@ -3462,21 +3467,21 @@ func (s *CodeService) runMesonProject(projectDir, args string) (map[string]any, 
 	// Check if builddir exists
 	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
 		// Return to original directory
-		os.Chdir(currentDir)
-		return nil, fmt.Errorf("Meson build directory not found. Run compile first")
+		_ = os.Chdir(currentDir)
+		return nil, fmt.Errorf("meson build directory not found. run compile first")
 	}
 
 	// Find the main executable in the build directory
 	executables, err := s.findExecutablesInDir(buildDir)
 	if err != nil {
 		// Return to original directory
-		os.Chdir(currentDir)
+		_ = os.Chdir(currentDir)
 		return nil, fmt.Errorf("failed to find executable in build directory: %v", err)
 	}
 
 	if len(executables) == 0 {
 		// Return to original directory
-		os.Chdir(currentDir)
+		_ = os.Chdir(currentDir)
 		return nil, fmt.Errorf("no executables found in Meson build directory")
 	}
 
@@ -3494,7 +3499,7 @@ func (s *CodeService) runMesonProject(projectDir, args string) (map[string]any, 
 	cmdOutput, err := cmd.CombinedOutput()
 
 	// Return to original directory
-	os.Chdir(currentDir)
+	_ = os.Chdir(currentDir)
 
 	// Check if execution succeeded
 	success := err == nil
@@ -3532,7 +3537,7 @@ func (s *CodeService) isCompiledLanguage(lang string) bool {
 
 // findExecutablesInDir finds executable files in a directory
 func (s *CodeService) findExecutablesInDir(dirPath string) ([]string, error) {
-	files, err := ioutil.ReadDir(dirPath)
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return nil, err
 	}
@@ -3546,7 +3551,11 @@ func (s *CodeService) findExecutablesInDir(dirPath string) ([]string, error) {
 		}
 
 		// Check if the file is executable
-		if file.Mode()&0111 != 0 { // Check executable bit
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+		if info.Mode()&0111 != 0 { // Check executable bit
 			executables = append(executables, file.Name())
 		}
 	}
@@ -3611,7 +3620,7 @@ func (s *CodeService) decodeBase64(encodedStr string) ([]byte, error) {
 
 // findGoMainPackage looks for a Go file with package main
 func (s *CodeService) findGoMainPackage(dirPath string) (string, error) {
-	files, err := ioutil.ReadDir(dirPath)
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return "", err
 	}
@@ -3625,7 +3634,7 @@ func (s *CodeService) findGoMainPackage(dirPath string) (string, error) {
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".go" {
 			filePath := filepath.Join(dirPath, file.Name())
-			content, err := ioutil.ReadFile(filePath)
+			content, err := os.ReadFile(filePath)
 			if err != nil {
 				continue
 			}
@@ -3665,7 +3674,7 @@ func (s *CodeService) handleCreateFile(args map[string]any) (any, error) {
 	}
 
 	// Write the file
-	err := ioutil.WriteFile(filePath, fileContent, 0644)
+	err := os.WriteFile(filePath, fileContent, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %v", err)
 	}

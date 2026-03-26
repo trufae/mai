@@ -95,7 +95,7 @@ func (p *OllamaSearchProvider) Search(query string) (*SearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -133,7 +133,7 @@ func (p *DuckDuckGoSearchProvider) Search(query string) (*SearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
@@ -200,7 +200,7 @@ func (p *WikipediaSearchProvider) Search(query string) (*SearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
@@ -277,7 +277,7 @@ func (p *SearxngSearchProvider) Search(query string) (*SearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -440,7 +440,7 @@ func (s *WebSearchService) GetTools() []mcplib.Tool {
 				},
 				"required": []string{"query"},
 			},
-			UsageExamples: fmt.Sprintf("Example: {\"query\": \"what is ollama?\"} - Searches the web for information about Ollama"),
+			UsageExamples: "Example: {\"query\": \"what is ollama?\"} - Searches the web for information about Ollama",
 			Handler:       s.handleWebSearch,
 		},
 		{
@@ -577,7 +577,7 @@ func (s *WebSearchService) searchWithAllProviders(query string, enabledProviders
 // extractTextFromHTML extracts plain text content from HTML
 func extractTextFromHTML(htmlContent string) string {
 	// Remove script and style tags with their content
-	scriptRegex := regexp.MustCompile(`(?i)<(script|style)[^>]*>.*?</\1>`)
+	scriptRegex := regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>`)
 	htmlContent = scriptRegex.ReplaceAllString(htmlContent, "")
 
 	// Remove HTML comments
@@ -651,7 +651,7 @@ func (s *WebSearchService) handleWebFetch(args map[string]interface{}) (interfac
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch URL: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP request failed with status %d: %s", resp.StatusCode, resp.Status)

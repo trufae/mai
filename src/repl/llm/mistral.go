@@ -60,14 +60,14 @@ func (p *MistralProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	// Mistral API returns richer model info than OpenAI format
 	type MistralModelsResponse struct {
-		Object string `json:"object""`
+		Object string `json:"object"`
 		Data   []struct {
-			ID                  string `json:"id""`
-			Name                string `json:"name,omitempty""`
-			ContextLength       int    `json:"context_length,omitempty""`
-			MaxCompletionTokens int    `json:"max_completion_tokens,omitempty""`
-			Description         string `json:"description,omitempty""`
-		} `json:"data""`
+			ID                  string `json:"id"`
+			Name                string `json:"name,omitempty"`
+			ContextLength       int    `json:"context_length,omitempty"`
+			MaxCompletionTokens int    `json:"max_completion_tokens,omitempty"`
+			Description         string `json:"description,omitempty"`
+		} `json:"data"`
 	}
 
 	var mistralResp MistralModelsResponse
@@ -121,14 +121,14 @@ func (p *MistralProvider) SendMessage(messages []Message, stream bool, images []
 		model = p.DefaultModel()
 	}
 	request := struct {
-		Model          string                 `json:"model""`
-		Messages       []Message              `json:"messages""`
-		MaxTokens      int                    `json:"max_tokens""`
-		Stream         bool                   `json:"stream,omitempty""`
-		N              int                    `json:"n,omitempty""`
-		TopP           float64                `json:"top_p,omitempty""`
-		RandomSeed     int                    `json:"random_seed,omitempty""`
-		Temperature    float64                `json:"temperature,omitempty""`
+		Model          string                 `json:"model"`
+		Messages       []Message              `json:"messages"`
+		MaxTokens      int                    `json:"max_tokens"`
+		Stream         bool                   `json:"stream,omitempty"`
+		N              int                    `json:"n,omitempty"`
+		TopP           float64                `json:"top_p,omitempty"`
+		RandomSeed     int                    `json:"random_seed,omitempty"`
+		Temperature    float64                `json:"temperature,omitempty"`
 		ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
 	}{
 		Model:     model,
@@ -205,9 +205,9 @@ func (p *MistralProvider) SendMessage(messages []Message, stream bool, images []
 		Message string `json:"message,omitempty"`
 		Choices []struct {
 			Message struct {
-				Content string `json:"content""`
-			} `json:"message""`
-		} `json:"choices""`
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {

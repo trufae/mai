@@ -99,7 +99,7 @@ func (r *REPL) handleSessionCommand(args []string) (string, error) {
 		}
 		maiDir, err := findMaiDir()
 		if err != nil {
-			return "", fmt.Errorf("cannot find mai directory: %v\r\n", err)
+			return "", fmt.Errorf("cannot find mai directory: %v", err)
 		}
 		chatDir := filepath.Join(maiDir, "chats")
 		sessionFile := filepath.Join(chatDir, args[2]+".json")
@@ -137,7 +137,6 @@ func (r *REPL) handleSessionCommand(args []string) (string, error) {
 	default:
 		return fmt.Sprintf("Unknown session action: %s\r\n", action), nil
 	}
-	return "", nil
 }
 
 func (r *REPL) getSessionTopic(sessionName string) string {
@@ -313,9 +312,9 @@ func (r *REPL) loadSession(sessionName string) error {
 		return fmt.Errorf("cannot unmarshal session: %v", err)
 	}
 	r.messages = sess.Messages
-	r.configOptions.Set("ai.provider", sess.Provider)
-	r.configOptions.Set("ai.model", sess.Model)
-	r.configOptions.Set("ai.baseurl", sess.BaseURL)
+	_ = r.configOptions.Set("ai.provider", sess.Provider)
+	_ = r.configOptions.Set("ai.model", sess.Model)
+	_ = r.configOptions.Set("ai.baseurl", sess.BaseURL)
 	fmt.Printf("Session '%s' loaded (provider=%s, model=%s, baseurl=%s)\r\n", sessionName, sess.Provider, sess.Model, sess.BaseURL)
 	return nil
 }
@@ -371,7 +370,7 @@ func (r *REPL) listSessions() (string, error) {
 	var output strings.Builder
 	output.WriteString("Available sessions:\r\n")
 	for _, s := range sessions {
-		output.WriteString(fmt.Sprintf("  %s (%d bytes) - %s\r\n", s.name, s.info.Size(), string(s.topic)))
+		fmt.Fprintf(&output, "  %s (%d bytes) - %s\r\n", s.name, s.info.Size(), string(s.topic))
 	}
 	return output.String(), nil
 }
@@ -398,7 +397,7 @@ func (r *REPL) purgeSessions() error {
 
 	for _, file := range files {
 		if !file.IsDir() {
-			os.Remove(filepath.Join(chatDir, file.Name()))
+			_ = os.Remove(filepath.Join(chatDir, file.Name()))
 		}
 	}
 

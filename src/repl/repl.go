@@ -117,7 +117,7 @@ func findAvailablePort(startPort int) (int, error) {
 	for port := startPort; port < startPort+100; port++ {
 		listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 		if err == nil {
-			listener.Close()
+			_ = listener.Close()
 			return port, nil
 		}
 	}
@@ -277,9 +277,9 @@ func (r *REPL) handleMCPStart(servers []string) (string, error) {
 		for name, server := range r.mcpConfig.Servers {
 			if server.Enabled {
 				if err := r.startMCPServer(name); err != nil {
-					output.WriteString(fmt.Sprintf("Failed to start %s: %v\r\n", name, err))
+					fmt.Fprintf(&output, "Failed to start %s: %v\r\n", name, err)
 				} else {
-					output.WriteString(fmt.Sprintf("Started %s\r\n", name))
+					fmt.Fprintf(&output, "Started %s\r\n", name)
 				}
 			}
 		}
@@ -287,13 +287,13 @@ func (r *REPL) handleMCPStart(servers []string) (string, error) {
 		// Start specific servers
 		for _, name := range servers {
 			if _, exists := r.mcpConfig.Servers[name]; !exists {
-				output.WriteString(fmt.Sprintf("Server %s not found\r\n", name))
+				fmt.Fprintf(&output, "Server %s not found\r\n", name)
 				continue
 			}
 			if err := r.startMCPServer(name); err != nil {
-				output.WriteString(fmt.Sprintf("Failed to start %s: %v\r\n", name, err))
+				fmt.Fprintf(&output, "Failed to start %s: %v\r\n", name, err)
 			} else {
-				output.WriteString(fmt.Sprintf("Started %s\r\n", name))
+				fmt.Fprintf(&output, "Started %s\r\n", name)
 			}
 		}
 	}
@@ -311,7 +311,7 @@ func (r *REPL) handleMCPStop(servers []string) (string, error) {
 	if len(servers) == 0 {
 		// Stop all mai-wmcp processes (since they persist across sessions)
 		if err := exec.Command("pkill", "-f", "mai-wmcp").Run(); err != nil {
-			output.WriteString(fmt.Sprintf("Failed to stop mai-wmcp processes: %v\r\n", err))
+			fmt.Fprintf(&output, "Failed to stop mai-wmcp processes: %v\r\n", err)
 		} else {
 			output.WriteString("Stopped all MCP servers\r\n")
 		}
@@ -334,18 +334,18 @@ func (r *REPL) handleMCPRestart(servers []string) (string, error) {
 		// Restart all running servers
 		for name := range r.mcpProcesses {
 			if err := r.restartMCPServer(name); err != nil {
-				output.WriteString(fmt.Sprintf("Failed to restart %s: %v\r\n", name, err))
+				fmt.Fprintf(&output, "Failed to restart %s: %v\r\n", name, err)
 			} else {
-				output.WriteString(fmt.Sprintf("Restarted %s\r\n", name))
+				fmt.Fprintf(&output, "Restarted %s\r\n", name)
 			}
 		}
 	} else {
 		// Restart specific servers
 		for _, name := range servers {
 			if err := r.restartMCPServer(name); err != nil {
-				output.WriteString(fmt.Sprintf("Failed to restart %s: %v\r\n", name, err))
+				fmt.Fprintf(&output, "Failed to restart %s: %v\r\n", name, err)
 			} else {
-				output.WriteString(fmt.Sprintf("Restarted %s\r\n", name))
+				fmt.Fprintf(&output, "Restarted %s\r\n", name)
 			}
 		}
 	}
@@ -367,9 +367,9 @@ func (r *REPL) handleMCPEnable(servers []string) (string, error) {
 		if server, exists := r.mcpConfig.Servers[name]; exists {
 			server.Enabled = true
 			r.mcpConfig.Servers[name] = server
-			output.WriteString(fmt.Sprintf("Enabled %s\r\n", name))
+			fmt.Fprintf(&output, "Enabled %s\r\n", name)
 		} else {
-			output.WriteString(fmt.Sprintf("Server %s not found\r\n", name))
+			fmt.Fprintf(&output, "Server %s not found\r\n", name)
 		}
 	}
 
@@ -392,10 +392,10 @@ func (r *REPL) handleMCPDisable(servers []string) (string, error) {
 			server.Enabled = false
 			r.mcpConfig.Servers[name] = server
 			// Also stop if running
-			r.stopMCPServer(name)
-			output.WriteString(fmt.Sprintf("Disabled %s\r\n", name))
+			_ = r.stopMCPServer(name)
+			fmt.Fprintf(&output, "Disabled %s\r\n", name)
 		} else {
-			output.WriteString(fmt.Sprintf("Server %s not found\r\n", name))
+			fmt.Fprintf(&output, "Server %s not found\r\n", name)
 		}
 	}
 
@@ -443,7 +443,7 @@ func (r *REPL) handleMCPStatus() (string, error) {
 			enabled = "enabled"
 		}
 
-		output.WriteString(fmt.Sprintf("%s: %s, %s%s\r\n", name, status, enabled, port))
+		fmt.Fprintf(&output, "%s: %s, %s%s\r\n", name, status, enabled, port)
 	}
 
 	return output.String(), nil
@@ -573,7 +573,7 @@ func (r *REPL) stopMCPServer(name string) error {
 		if err := process.Process.Process.Kill(); err != nil {
 			return fmt.Errorf("failed to kill process: %v", err)
 		}
-		process.Process.Wait()
+		_ = process.Process.Wait()
 	}
 
 	delete(r.mcpProcesses, name)
@@ -627,10 +627,10 @@ func (r *REPL) ensureWMCPStarted() error {
 				return fmt.Errorf("error finding random port for wmcp: %v", err)
 			}
 			port := listener.Addr().(*net.TCPAddr).Port
-			listener.Close()
+			_ = listener.Close()
 			r.wmcpPort = port
-			os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
-			os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
+			_ = os.Setenv("MAI_WMCP_BASEURL", fmt.Sprintf("localhost:%d", port))
+			_ = os.Setenv("MAI_TOOL_BASEURL", fmt.Sprintf("http://localhost:%d", port))
 			wmcpArgs = append(wmcpArgs, "-b", fmt.Sprintf("localhost:%d", port))
 			cmd := exec.Command("mai-wmcp", wmcpArgs...)
 			if err := cmd.Start(); err != nil {
@@ -678,7 +678,7 @@ func (r *REPL) startAgentWMCP() error {
 	}
 
 	// Set environment variable for wmcp
-	os.Setenv("MAI_AGENT_CONFIG", string(configJSON))
+	_ = os.Setenv("MAI_AGENT_CONFIG", string(configJSON))
 
 	// Find available port for wmcp
 	port, err := findAvailablePort(8989)
@@ -731,7 +731,7 @@ func (r *REPL) generateMemory() error {
 		for _, m := range sess.Messages {
 			role := m.Role
 			content := fmt.Sprintf("%v", m.Content)
-			combined.WriteString(fmt.Sprintf("%s: %s\n", role, content))
+			fmt.Fprintf(&combined, "%s: %s\n", role, content)
 		}
 		combined.WriteString("\n---\n\n")
 	}
@@ -1017,8 +1017,6 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 				}
 			}
 		}
-	} else {
-		// When logging is disabled, we don't append any previous messages
 	}
 
 	if r.configOptions.GetBool("mcp.use") {
@@ -1165,14 +1163,15 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// Handle the assistant's response based on logging settings
 	if err == nil && response != "" {
 		// Handle redirection
-		if redirectType == "file" {
+		switch redirectType {
+		case "file":
 			// Write response to file
 			err = os.WriteFile(redirectTarget, []byte(response), 0644)
 			if err != nil {
 				return fmt.Errorf("failed to write to file %s: %v", redirectTarget, err)
 			}
 			fmt.Printf("Response written to %s\r\n", redirectTarget)
-		} else if redirectType == "pipe" {
+		case "pipe":
 			// Pipe response to command. Attach command stdout/stderr to the
 			// current terminal so interactive tools (like `less`) can operate
 			// normally. Write the AI response to the command's stdin.
@@ -1205,7 +1204,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 			if err != nil {
 				return fmt.Errorf("command %s failed: %v", redirectTarget, err)
 			}
-		} else {
+		default:
 			// Normal output
 			if !streamEnabled {
 				// Handle <think> regions based on ui.think option
@@ -1421,7 +1420,7 @@ func (r *REPL) handleSlurpCommand() error {
 	}
 
 	// Restore the terminal to normal mode so we can read multiline text
-	term.Restore(int(os.Stdin.Fd()), oldState)
+	_ = term.Restore(int(os.Stdin.Fd()), oldState)
 
 	fmt.Println("Enter your text (press Ctrl+D when finished):")
 
@@ -1435,12 +1434,12 @@ func (r *REPL) handleSlurpCommand() error {
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		// Make terminal raw again
-		MakeRawPreserveNewline(int(os.Stdin.Fd()))
+		_, _ = MakeRawPreserveNewline(int(os.Stdin.Fd()))
 		return fmt.Errorf("error reading input: %v", err)
 	}
 
 	// Make terminal raw again
-	MakeRawPreserveNewline(int(os.Stdin.Fd()))
+	_, _ = MakeRawPreserveNewline(int(os.Stdin.Fd()))
 
 	// Get the content
 	input := content.String()
@@ -1714,7 +1713,7 @@ func (r *REPL) displayConversationLog() string {
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
 
-		output.WriteString(fmt.Sprintf("[%d] %s: ", i+1, role))
+		fmt.Fprintf(&output, "[%d] %s: ", i+1, role)
 
 		// For log display, use a larger truncation limit
 		content := msg.Content.(string)
@@ -1725,15 +1724,15 @@ func (r *REPL) displayConversationLog() string {
 		// Replace newlines with space for compact display
 		content = strings.ReplaceAll(content, "\n", " ")
 
-		output.WriteString(fmt.Sprintf("%s\r\n", content))
+		fmt.Fprintf(&output, "%s\r\n", content)
 	}
 
-	output.WriteString(fmt.Sprintf("Total messages: %d\r\n", len(r.messages)))
-	output.WriteString(fmt.Sprintf("Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
+	fmt.Fprintf(&output, "Total messages: %d\r\n", len(r.messages))
+	fmt.Fprintf(&output, "Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
 		r.configOptions.GetBool("chat.replies"),
 		r.configOptions.GetBool("llm.stream"),
 		r.configOptions.GetBool("llm.think"),
-		r.configOptions.GetBool("chat.log")))
+		r.configOptions.GetBool("chat.log"))
 
 	// Display pending files if any
 	if len(r.pendingFiles) > 0 {
@@ -1744,14 +1743,14 @@ func (r *REPL) displayConversationLog() string {
 		for _, file := range r.pendingFiles {
 			if file.isImage {
 				imageCount++
-				output.WriteString(fmt.Sprintf(" - Image: %s\r\n", file.filePath))
+				fmt.Fprintf(&output, " - Image: %s\r\n", file.filePath)
 			} else {
 				fileCount++
-				output.WriteString(fmt.Sprintf(" - File: %s\r\n", file.filePath))
+				fmt.Fprintf(&output, " - File: %s\r\n", file.filePath)
 			}
 		}
 
-		output.WriteString(fmt.Sprintf("Total pending: %d images, %d files\r\n", imageCount, fileCount))
+		fmt.Fprintf(&output, "Total pending: %d images, %d files\r\n", imageCount, fileCount)
 	}
 	return output.String()
 }
@@ -1769,21 +1768,21 @@ func (r *REPL) displayFullConversationLog() string {
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
 
-		output.WriteString(fmt.Sprintf("\r\n## [%d] %s:\r\n", i+1, role))
+		fmt.Fprintf(&output, "\r\n## [%d] %s:\r\n", i+1, role)
 
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
 		if r.configOptions.GetBool("ui.markdown") {
-			output.WriteString(fmt.Sprintf("%s\r\n", llm.RenderMarkdown(msg.Content.(string))))
+			fmt.Fprintf(&output, "%s\r\n", llm.RenderMarkdown(msg.Content.(string)))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
 			content := strings.ReplaceAll(msg.Content.(string), "\n", "\r\n")
-			output.WriteString(fmt.Sprintf("%s\r\n", content))
+			fmt.Fprintf(&output, "%s\r\n", content)
 		}
 		output.WriteString("--------------------\r\n")
 	}
 
-	output.WriteString(fmt.Sprintf("\r\nTotal messages: %d\r\n", len(r.messages)))
+	fmt.Fprintf(&output, "\r\nTotal messages: %d\r\n", len(r.messages))
 	return output.String()
 }
 
@@ -1972,7 +1971,7 @@ func (r *REPL) showCurrentModel() {
 
 // setModel changes the model for the current provider
 func (r *REPL) setModel(model string) error {
-	r.configOptions.Set("ai.model", model)
+	_ = r.configOptions.Set("ai.model", model)
 	return nil
 }
 
@@ -2063,9 +2062,9 @@ func (r *REPL) listProviders() (string, error) {
 		}
 
 		if provider == currentProvider {
-			output.WriteString(fmt.Sprintf("%s * %s (current)\r\n", emoji, provider))
+			fmt.Fprintf(&output, "%s * %s (current)\r\n", emoji, provider)
 		} else {
-			output.WriteString(fmt.Sprintf("%s   %s\r\n", emoji, provider))
+			fmt.Fprintf(&output, "%s   %s\r\n", emoji, provider)
 		}
 	}
 
@@ -2083,7 +2082,7 @@ func (r *REPL) setProvider(provider string) error {
 	}
 
 	// Update the provider in the configOptions
-	r.configOptions.Set("ai.provider", canonical)
+	_ = r.configOptions.Set("ai.provider", canonical)
 
 	// Prints removed to avoid interfering with MCP protocol
 
@@ -2111,7 +2110,7 @@ func (r *REPL) listModels() (string, error) {
 		return "", fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
-	output.WriteString(fmt.Sprintf("Fetching available models for %s...\r\n", r.configOptions.Get("ai.provider")))
+	fmt.Fprintf(&output, "Fetching available models for %s...\r\n", r.configOptions.Get("ai.provider"))
 
 	// Get models from the provider
 	models, err := client.ListModels()
@@ -2125,7 +2124,7 @@ func (r *REPL) listModels() (string, error) {
 	}
 
 	// Display models
-	output.WriteString(fmt.Sprintf("Available %s models:\r\n", r.configOptions.Get("ai.provider")))
+	fmt.Fprintf(&output, "Available %s models:\r\n", r.configOptions.Get("ai.provider"))
 	output.WriteString("-----------------------\r\n")
 
 	// Get current model for highlighting
@@ -2141,13 +2140,13 @@ func (r *REPL) listModels() (string, error) {
 
 		// Display model with description if available
 		if model.Description != "" {
-			output.WriteString(fmt.Sprintf("[%d] %s%s - %s\r\n", i+1, model.ID, current, model.Description))
+			fmt.Fprintf(&output, "[%d] %s%s - %s\r\n", i+1, model.ID, current, model.Description)
 		} else {
-			output.WriteString(fmt.Sprintf("[%d] %s%s\r\n", i+1, model.ID, current))
+			fmt.Fprintf(&output, "[%d] %s%s\r\n", i+1, model.ID, current)
 		}
 	}
 
-	output.WriteString(fmt.Sprintf("Total models: %d\r\n", len(models)))
+	fmt.Fprintf(&output, "Total models: %d\r\n", len(models))
 	output.WriteString("Use '/set ai.model <model-id>' to change the model\r\n")
 
 	return output.String(), nil
@@ -2187,7 +2186,7 @@ func (r *REPL) handleCompactCommand() error {
 
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
-		conversationText.WriteString(fmt.Sprintf("## %s %d:\n\n%s\n\n", role, i+1, msg.Content.(string)))
+		fmt.Fprintf(&conversationText, "## %s %d:\n\n%s\n\n", role, i+1, msg.Content.(string))
 	}
 
 	// Create a new message with the compact prompt and conversation history

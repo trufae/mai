@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io"
-	"io/ioutil"
 	"log"
 	"mcplib"
 	"net/http"
@@ -20,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 var configPath string
@@ -74,7 +74,7 @@ type Config struct {
 
 // loadConfig reads and parses the YAML config file
 func loadConfig(path string) (*Config, error) {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (s *PipeService) handleListDirectory(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("path is required")
 	}
 
-	files, err := ioutil.ReadDir(path)
+	files, err := os.ReadDir(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory: %v", err)
 	}
@@ -244,10 +244,10 @@ func (s *PipeService) handleReadFile(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if limit == -1 && offset == 0 {
-		content, err := ioutil.ReadFile(absolute_path)
+		content, err := os.ReadFile(absolute_path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %v", err)
 		}
@@ -413,14 +413,14 @@ func (s *PipeService) handleReplace(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("new_string is required")
 	}
 
-	content, err := ioutil.ReadFile(filePath)
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
 	fileContent := string(content)
 
-	replacements := -1
+	var replacements int
 	if er, ok := args["expected_replacements"].(float64); ok {
 		replacements = int(er)
 	} else {
@@ -433,7 +433,7 @@ func (s *PipeService) handleReplace(args map[string]any) (any, error) {
 
 	newContent := strings.Replace(fileContent, oldString, newString, replacements)
 
-	err = ioutil.WriteFile(filePath, []byte(newContent), 0644)
+	err = os.WriteFile(filePath, []byte(newContent), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -452,7 +452,7 @@ func (s *PipeService) handleWriteFile(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("content is required")
 	}
 
-	err := ioutil.WriteFile(filePath, []byte(content), 0644)
+	err := os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -468,8 +468,7 @@ func (s *PipeService) handleWebFetch(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("prompt is required")
 	}
 
-	re := regexp.MustCompile(`https?://[^
-	 /$.?#].*`)
+	re := regexp.MustCompile(`https?://[^\s/$.?#].[^\s]*`)
 	urls := re.FindAllString(prompt, -1)
 
 	if len(urls) == 0 {
@@ -483,9 +482,9 @@ func (s *PipeService) handleWebFetch(args map[string]any) (any, error) {
 			contents = append(contents, fmt.Sprintf("Failed to fetch %s: %v", url, err))
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			contents = append(contents, fmt.Sprintf("Failed to read body from %s: %v", url, err))
 			continue
@@ -520,7 +519,7 @@ func (s *PipeService) handleReadManyFiles(args map[string]any) (any, error) {
 		}
 
 		for _, match := range matches {
-			content, err := ioutil.ReadFile(match)
+			content, err := os.ReadFile(match)
 			if err != nil {
 				fmt.Fprintf(&contentBuilder, "--- Error reading file %s: %v ---\\n", match, err)
 				continue

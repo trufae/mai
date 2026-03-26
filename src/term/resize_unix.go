@@ -19,7 +19,7 @@ func handleResize(ptmx *os.File) {
 		if term.IsTerminal(int(os.Stdout.Fd())) {
 			width, height, err := term.GetSize(int(os.Stdout.Fd()))
 			if err == nil {
-				pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(height), Cols: uint16(width)})
+				_ = pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(height), Cols: uint16(width)})
 			}
 		}
 	}

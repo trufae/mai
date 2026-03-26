@@ -51,7 +51,7 @@ func loadTextFile(path string, minChars int, callback func(string)) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -69,7 +69,7 @@ func loadMarkdownFile(path string, minChars int, callback func(string)) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	var currentTitle, currentSection, currentSubsection string

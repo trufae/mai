@@ -277,7 +277,7 @@ func (r *ReadLine) getPromptColorCodes() string {
 // Restore restores the terminal to its original state
 func (r *ReadLine) Restore() {
 	if r.oldState != nil {
-		term.Restore(int(os.Stdin.Fd()), r.oldState)
+		_ = term.Restore(int(os.Stdin.Fd()), r.oldState)
 		// r.oldState = nil
 	}
 }

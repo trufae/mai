@@ -329,7 +329,6 @@ func dateToJulian(date time.Time) float64 {
 		B = 2 - A + math.Floor(A/4)
 	} else {
 		// Julian calendar
-		A = 0
 		B = 0
 	}
 

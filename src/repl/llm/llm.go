@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/trufae/mai/src/repl/art"
@@ -350,11 +349,21 @@ type LLMResponse struct {
 
 // Model represents information about an available model from a provider
 type Model struct {
-	ID          string `json:"id""`          // Model identifier
-	Name        string `json:"name""`        // Human-readable name (may be the same as ID)
-	Description string `json:"description""` // Optional model description
-	Provider    string `json:"provider""`    // The provider this model belongs to
+	ID          string `json:"id"`          // Model identifier
+	Name        string `json:"name"`        // Human-readable name (may be the same as ID)
+	Description string `json:"description"` // Optional model description
+	Provider    string `json:"provider"`    // The provider this model belongs to
 }
+
+type contextKey string
+
+const (
+	contextConfigKey             contextKey = "config"
+	contextStopCallbackKey       contextKey = "stop_callback"
+	contextFirstTokenCallbackKey contextKey = "first_token_callback"
+	contextStreamEndCallbackKey  contextKey = "stream_end_callback"
+	contextAccountTextCallbackKey contextKey = "account_text_callback"
+)
 
 // LLMClient manages interactions with LLM providers
 type LLMClient struct {
@@ -419,14 +428,14 @@ func (c *LLMClient) SetTimingCallbacks(firstToken func(), streamEnd func()) {
 
 // newContext returns a cancellable context carrying the client config.
 func (c *LLMClient) newContext() (context.Context, context.CancelFunc) {
-	ctx := context.WithValue(context.Background(), "config", c.Config)
+	ctx := context.WithValue(context.Background(), contextConfigKey, c.Config)
 	// Include optional stop callback in the context so streaming helpers can
 	// invoke it when the first token is received.
-	ctx = context.WithValue(ctx, "stop_callback", c.responseStopCallback)
+	ctx = context.WithValue(ctx, contextStopCallbackKey, c.responseStopCallback)
 	// Include timing callbacks for TPS statistics
-	ctx = context.WithValue(ctx, "first_token_callback", c.firstTokenCallback)
-	ctx = context.WithValue(ctx, "stream_end_callback", c.streamEndCallback)
-	ctx = context.WithValue(ctx, "account_text_callback", c.accountTextCallback)
+	ctx = context.WithValue(ctx, contextFirstTokenCallbackKey, c.firstTokenCallback)
+	ctx = context.WithValue(ctx, contextStreamEndCallbackKey, c.streamEndCallback)
+	ctx = context.WithValue(ctx, contextAccountTextCallbackKey, c.accountTextCallback)
 	ctx, cancel := context.WithCancel(ctx)
 	c.responseCancel = cancel
 	return ctx, cancel
@@ -925,7 +934,7 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 		req.Header.Set(k, v)
 	}
 	if ctx != nil {
-		if cfg, ok := ctx.Value("config").(*Config); ok && cfg.UserAgent != "" {
+		if cfg, ok := ctx.Value(contextConfigKey).(*Config); ok && cfg.UserAgent != "" {
 			req.Header.Set("User-Agent", cfg.UserAgent)
 		}
 	}
@@ -934,41 +943,8 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 		client.Timeout = 0
 	}
 
-	// Set up a channel to signal when the request is done
-	done := make(chan struct{})
-
-	// Create a goroutine to check for context cancellation
-	var cancelOnce sync.Once
-	go func() {
-		// Only proceed if context is not nil
-		if ctx == nil {
-			return
-		}
-
-		// Wait for either context cancellation or request completion
-		select {
-		case <-ctx.Done():
-			// Cancel the request if context is canceled
-			cancelOnce.Do(func() {
-				// Transport.CancelRequest was deprecated in Go 1.5, but client.Transport.CancelRequest
-				// is still usable. However, the preferred method is to use request contexts.
-				// This is an extra safety measure in case the context cancellation
-				// doesn't propagate quickly enough.
-				transport, ok := client.Transport.(*http.Transport)
-				if ok && transport != nil {
-					transport.CancelRequest(req)
-				}
-			})
-		case <-done:
-			// Request completed normally, do nothing
-		}
-	}()
-
 	// Execute the request
 	resp, err := client.Do(req)
-
-	// Signal that the request is done
-	close(done)
 
 	if err != nil {
 		return nil, err
@@ -976,7 +952,7 @@ func httpDo(ctx context.Context, method, url string, headers map[string]string, 
 	if resp.StatusCode != http.StatusOK {
 		if stream {
 			data, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
 		}
 		fmt.Fprintf(os.Stderr, "Error: Non-200 status code: %d %s\n", resp.StatusCode, resp.Status)
@@ -999,7 +975,7 @@ func llmMakeRequest(ctx context.Context, method, url string, headers map[string]
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return io.ReadAll(resp.Body)
 }
@@ -1011,7 +987,7 @@ func llmMakeStreamingRequest(ctx context.Context, method, url string, headers ma
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return parser(resp.Body)
 }
 
@@ -1022,13 +998,13 @@ func llmMakeStreamingRequestWithCallback(ctx context.Context, method, url string
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// If no explicit stopCallback was provided by the caller, try to read one
 	// from the context (set by the LLM client). This allows higher-level
 	// callers (like the REPL) to be notified as soon as the first token
 	// arrives without requiring changes to every provider signature.
 	if stopCallback == nil && ctx != nil {
-		if cb, ok := ctx.Value("stop_callback").(func()); ok && cb != nil {
+		if cb, ok := ctx.Value(contextStopCallbackKey).(func()); ok && cb != nil {
 			stopCallback = cb
 		}
 	}
@@ -1042,21 +1018,21 @@ func llmMakeStreamingRequestWithTiming(ctx context.Context, method, url string, 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// If no explicit callbacks were provided by the caller, try to read them
 	// from the context (set by the LLM client).
 	if stopCallback == nil && ctx != nil {
-		if cb, ok := ctx.Value("stop_callback").(func()); ok && cb != nil {
+		if cb, ok := ctx.Value(contextStopCallbackKey).(func()); ok && cb != nil {
 			stopCallback = cb
 		}
 	}
 	if firstTokenCallback == nil && ctx != nil {
-		if cb, ok := ctx.Value("first_token_callback").(func()); ok && cb != nil {
+		if cb, ok := ctx.Value(contextFirstTokenCallbackKey).(func()); ok && cb != nil {
 			firstTokenCallback = cb
 		}
 	}
 	if streamEndCallback == nil && ctx != nil {
-		if cb, ok := ctx.Value("stream_end_callback").(func()); ok && cb != nil {
+		if cb, ok := ctx.Value(contextStreamEndCallbackKey).(func()); ok && cb != nil {
 			streamEndCallback = cb
 		}
 	}

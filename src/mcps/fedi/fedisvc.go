@@ -152,7 +152,7 @@ func (s *FediService) handleSearchPosts(args map[string]interface{}) (interface{
 // handlePostMessage handles the post message request
 func (s *FediService) handlePostMessage(args map[string]interface{}) (interface{}, error) {
 	if s.apiKey == "" {
-		return nil, fmt.Errorf("Mastodon API key is required for posting. Set MASTODON_API_KEY environment variable or create ~/.r2ai.mastodon-key file")
+		return nil, fmt.Errorf("mastodon API key is required for posting. set MASTODON_API_KEY environment variable or create ~/.r2ai.mastodon-key file")
 	}
 
 	content, ok := args["content"].(string)
@@ -234,7 +234,7 @@ func (s *FediService) searchPosts(query string, limit int) ([]map[string]interfa
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// If auth failed and we haven't tried without auth, retry without
 	if resp.StatusCode == http.StatusUnauthorized && authTried && s.apiKey != "" {
@@ -243,7 +243,7 @@ func (s *FediService) searchPosts(query string, limit int) ([]map[string]interfa
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -302,7 +302,7 @@ func (s *FediService) postMessage(content, visibility string) (map[string]interf
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -353,7 +353,7 @@ func (s *FediService) getTimeline(timelineType string, limit int) ([]map[string]
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)

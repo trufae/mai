@@ -64,13 +64,13 @@ func doRead(socketPath string, raw bool) {
 		fmt.Println("Error connecting to socket:", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Wait a bit for any pending output
 	time.Sleep(200 * time.Millisecond)
 
 	buffer := make([]byte, 0)
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second)) // Read with longer timeout
+	_ = conn.SetReadDeadline(time.Now().Add(1 * time.Second)) // Read with longer timeout
 
 	for {
 		typ, err := readByte(conn)
@@ -108,7 +108,7 @@ func doWrite(socketPath, text string) {
 		fmt.Println("Error connecting to socket:", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Ensure the text ends with newline for command execution
 	if !strings.HasSuffix(text, "\n") {
@@ -172,7 +172,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	var mu sync.Mutex
 	buffer := make([]byte, 0)

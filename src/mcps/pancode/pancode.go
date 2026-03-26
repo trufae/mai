@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mcplib"
 	"net/http"
 	"os"
@@ -325,7 +324,7 @@ func (s *PanCodeService) handleListDirectory(args map[string]any) (any, error) {
 		return nil, err
 	}
 
-	files, err := ioutil.ReadDir(abs)
+	files, err := os.ReadDir(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory: %v", err)
 	}
@@ -401,10 +400,10 @@ func (s *PanCodeService) handleReadFile(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if limit == -1 && offset == 0 {
-		content, err := ioutil.ReadFile(abs)
+		content, err := os.ReadFile(abs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %v", err)
 		}
@@ -594,14 +593,14 @@ func (s *PanCodeService) handleReplace(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	content, err := ioutil.ReadFile(abs)
+	content, err := os.ReadFile(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
 	fileContent := string(content)
 
-	replacements := -1
+	var replacements int
 	if er, ok := args["expected_replacements"].(float64); ok {
 		replacements = int(er)
 	} else {
@@ -619,7 +618,7 @@ func (s *PanCodeService) handleReplace(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(absW, []byte(newContent), 0644)
+	err = os.WriteFile(absW, []byte(newContent), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -642,7 +641,7 @@ func (s *PanCodeService) handleWriteFile(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = ioutil.WriteFile(abs, []byte(content), 0644)
+	err = os.WriteFile(abs, []byte(content), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -662,9 +661,9 @@ func (s *PanCodeService) handleWebFetch(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch URL: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
@@ -712,7 +711,7 @@ func (s *PanCodeService) handleHexDump(args map[string]any) (any, error) {
 		if fi.Size() > 5*1024*1024 {
 			return nil, fmt.Errorf("file too large for line mode")
 		}
-		b, err := ioutil.ReadFile(abs)
+		b, err := os.ReadFile(abs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %v", err)
 		}
@@ -736,7 +735,7 @@ func (s *PanCodeService) handleHexDump(args map[string]any) (any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to open file: %v", err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if off < 0 || off > fi.Size() {
 			return nil, fmt.Errorf("invalid offset")
 		}
@@ -817,7 +816,7 @@ func (s *PanCodeService) handleReadManyFiles(args map[string]any) (any, error) {
 				fmt.Fprintf(&contentBuilder, "--- Skipping disallowed file %s ---\\n", match)
 				continue
 			}
-			content, err := ioutil.ReadFile(match)
+			content, err := os.ReadFile(match)
 			if err != nil {
 				fmt.Fprintf(&contentBuilder, "--- Error reading file %s: %v ---\\n", match, err)
 				continue
@@ -925,7 +924,7 @@ func (s *PanCodeService) handlePatchFile(args map[string]any) (any, error) {
 		return nil, err
 	}
 
-	fileContent, err := ioutil.ReadFile(abs)
+	fileContent, err := os.ReadFile(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -949,7 +948,7 @@ func (s *PanCodeService) handlePatchFile(args map[string]any) (any, error) {
 	newContent = append(newContent, fileContent[loc[1]:]...)
 
 	// Write the modified content back to the file
-	err = ioutil.WriteFile(abs, newContent, 0644)
+	err = os.WriteFile(abs, newContent, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}

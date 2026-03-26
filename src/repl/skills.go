@@ -266,7 +266,7 @@ func isValidSkillName(name string) bool {
 		return false
 	}
 	for _, ch := range name {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
 			return false
 		}
 	}
@@ -491,11 +491,11 @@ func (r *REPL) buildSkillsPrompt() string {
 	prompt.WriteString("Use the descriptions below to identify matching skills.\n\n")
 
 	for _, skill := range skills {
-		prompt.WriteString(fmt.Sprintf("**%s**: %s\n", skill.Name, skill.Description))
+		fmt.Fprintf(&prompt, "**%s**: %s\n", skill.Name, skill.Description)
 
 		// Show allowed-tools if restricted
 		if tools := r.skillRegistry.GetSkillAllowedTools(skill.Name); len(tools) > 0 {
-			prompt.WriteString(fmt.Sprintf("  (Allowed tools: %s)\n", strings.Join(tools, ", ")))
+			fmt.Fprintf(&prompt, "  (Allowed tools: %s)\n", strings.Join(tools, ", "))
 		}
 
 		// Show context type if forked
@@ -542,15 +542,15 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 		var output strings.Builder
 		output.WriteString("Available Skills:\n\n")
 		for i, skill := range skills {
-			output.WriteString(fmt.Sprintf("%d. %s\n", i+1, skill.Name))
-			output.WriteString(fmt.Sprintf("   Description: %s\n", skill.Description))
+			fmt.Fprintf(&output, "%d. %s\n", i+1, skill.Name)
+			fmt.Fprintf(&output, "   Description: %s\n", skill.Description)
 
 			// Show metadata if present
 			if tools := r.skillRegistry.GetSkillAllowedTools(skill.Name); len(tools) > 0 {
-				output.WriteString(fmt.Sprintf("   Allowed tools: %s\n", strings.Join(tools, ", ")))
+				fmt.Fprintf(&output, "   Allowed tools: %s\n", strings.Join(tools, ", "))
 			}
 			if category, ok := skill.Metadata["category"]; ok {
-				output.WriteString(fmt.Sprintf("   Category: %s\n", category))
+				fmt.Fprintf(&output, "   Category: %s\n", category)
 			}
 			output.WriteString("\n")
 		}
@@ -581,10 +581,10 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 		}
 
 		var output strings.Builder
-		output.WriteString(fmt.Sprintf("Found %d skill(s) matching '%s':\n\n", len(results), query))
+		fmt.Fprintf(&output, "Found %d skill(s) matching '%s':\n\n", len(results), query)
 		for _, skill := range results {
-			output.WriteString(fmt.Sprintf("• %s\n", skill.Name))
-			output.WriteString(fmt.Sprintf("  %s\n\n", skill.Description))
+			fmt.Fprintf(&output, "• %s\n", skill.Name)
+			fmt.Fprintf(&output, "  %s\n\n", skill.Description)
 		}
 		return output.String(), nil
 
@@ -599,15 +599,15 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 		}
 
 		var output strings.Builder
-		output.WriteString(fmt.Sprintf("Skill: %s\n", skill.Name))
-		output.WriteString(fmt.Sprintf("Description: %s\n", skill.Description))
-		output.WriteString(fmt.Sprintf("Path: %s\n", skill.Path))
+		fmt.Fprintf(&output, "Skill: %s\n", skill.Name)
+		fmt.Fprintf(&output, "Description: %s\n", skill.Description)
+		fmt.Fprintf(&output, "Path: %s\n", skill.Path)
 
 		// Show metadata
 		output.WriteString("\nMetadata:\n")
 		for key, value := range skill.Metadata {
 			if key != "name" && key != "description" {
-				output.WriteString(fmt.Sprintf("  %s: %s\n", key, value))
+				fmt.Fprintf(&output, "  %s: %s\n", key, value)
 			}
 		}
 
@@ -618,7 +618,7 @@ func (r *REPL) handleSkillsCommand(args []string) (string, error) {
 			lineCount := 0
 			output.WriteString("\nContent preview:\n")
 			for scanner.Scan() && lineCount < 15 {
-				output.WriteString(fmt.Sprintf("  %s\n", scanner.Text()))
+				fmt.Fprintf(&output, "  %s\n", scanner.Text())
 				lineCount++
 			}
 			if lineCount >= 15 {

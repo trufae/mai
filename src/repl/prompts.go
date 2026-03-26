@@ -160,7 +160,7 @@ func (r *REPL) loadSystemPrompt(path string) error {
 	}
 
 	// Update the promptfile configuration
-	r.configOptions.Set("dir.promptfile", path)
+	_ = r.configOptions.Set("dir.promptfile", path)
 
 	// Try to read to provide feedback, but don't cache the content
 	if content, err := os.ReadFile(path); err == nil {

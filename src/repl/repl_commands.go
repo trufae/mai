@@ -22,7 +22,7 @@ func (r *REPL) showCommands() string {
 	// Display all registered commands with descriptions
 	for _, name := range cmdNames {
 		cmd := r.commands[name]
-		output.WriteString(fmt.Sprintf("  %-15s - %s\r\n", name, cmd.Description))
+		fmt.Fprintf(&output, "  %-15s - %s\r\n", name, cmd.Description)
 	}
 
 	// Display special commands that aren't in the registry
@@ -62,13 +62,14 @@ func (r *REPL) handleCommand(input string, redirectType, redirectTarget string) 
 			return err
 		}
 		if output != "" {
-			if redirectType == "file" {
+			switch redirectType {
+			case "file":
 				err = os.WriteFile(redirectTarget, []byte(output), 0644)
 				if err != nil {
 					return fmt.Errorf("failed to write to file %s: %v", redirectTarget, err)
 				}
 				fmt.Printf("Output written to %s\r\n", redirectTarget)
-			} else if redirectType == "pipe" {
+			case "pipe":
 				cmd := exec.Command("/bin/sh", "-c", redirectTarget)
 				cmd.Stdin = strings.NewReader(output)
 				pipeOutput, err := cmd.CombinedOutput()
@@ -76,7 +77,7 @@ func (r *REPL) handleCommand(input string, redirectType, redirectTarget string) 
 					return fmt.Errorf("failed to execute command %s: %v", redirectTarget, err)
 				}
 				fmt.Print(string(pipeOutput))
-			} else {
+			default:
 				fmt.Print(output)
 			}
 		}
@@ -266,7 +267,7 @@ func (r *REPL) initCommands() {
 				if i > 0 {
 					result.WriteString(",")
 				}
-				result.WriteString(fmt.Sprintf("%.6f", v))
+				fmt.Fprintf(&result, "%.6f", v)
 			}
 			result.WriteString("\n\r")
 			return result.String(), nil

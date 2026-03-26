@@ -97,7 +97,7 @@ func (p *LlamaCliProvider) SendMessage(messages []Message, stream bool, images [
 
 	// Drain stderr in background
 	go func() {
-		io.Copy(io.Discard, stderr)
+		_, _ = io.Copy(io.Discard, stderr)
 	}()
 
 	// Write prompt
@@ -113,8 +113,8 @@ func (p *LlamaCliProvider) SendMessage(messages []Message, stream bool, images [
 }
 
 func (p *LlamaCliProvider) streamResponse(stdout io.ReadCloser, stdin io.WriteCloser, cmd *exec.Cmd) (string, error) {
-	defer stdin.Close()
-	defer cmd.Wait()
+	defer func() { _ = stdin.Close() }()
+	defer func() { _ = cmd.Wait() }()
 
 	scanner := bufio.NewScanner(stdout)
 	var fullResponse strings.Builder
@@ -188,8 +188,8 @@ func (p *LlamaCliProvider) streamResponse(stdout io.ReadCloser, stdin io.WriteCl
 }
 
 func (p *LlamaCliProvider) nonStreamResponse(stdout io.ReadCloser, stdin io.WriteCloser, cmd *exec.Cmd) (string, error) {
-	defer stdin.Close()
-	defer cmd.Wait()
+	defer func() { _ = stdin.Close() }()
+	defer func() { _ = cmd.Wait() }()
 
 	var buf bytes.Buffer
 	idleTimeout := 1200 * time.Millisecond

@@ -49,7 +49,7 @@ func defaultString(s, def string) string {
 
 func (p *GeminiProvider) ListModels(ctx context.Context) ([]Model, error) {
 	if p.apiKey == "" {
-		return nil, fmt.Errorf("Missing key for gemini")
+		return nil, fmt.Errorf("missing key for gemini")
 	}
 
 	baseURL := defaultString(p.config.BaseURL, "https://generativelanguage.googleapis.com/v1beta")

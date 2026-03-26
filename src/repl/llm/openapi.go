@@ -18,7 +18,7 @@ type OpenAPIProvider struct {
 }
 
 type openAPICompletionRequest struct {
-	Prompt string `json:"prompt""`
+	Prompt string `json:"prompt"`
 	Stream bool   `json:"stream,omitempty"`
 }
 
@@ -65,7 +65,7 @@ func (p *OpenAPIProvider) IsAvailable() bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+		_ = resp.Body.Close()
 	return resp.StatusCode < 400
 }
 
@@ -108,8 +108,8 @@ func (p *OpenAPIProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	// Try to parse as a more complex response format with model objects
 	type ModelObject struct {
-		ID   string `json:"id""`
-		Name string `json:"name,omitempty""`
+		ID   string `json:"id"`
+		Name string `json:"name,omitempty"`
 	}
 	var modelObjects []ModelObject
 	if err := json.Unmarshal(respBody, &modelObjects); err == nil && len(modelObjects) > 0 {
@@ -181,7 +181,7 @@ func (p *OpenAPIProvider) SendMessage(messages []Message, stream bool, images []
 	}
 
 	var response struct {
-		Content string `json:"content""`
+		Content string `json:"content"`
 	}
 
 	if err := json.Unmarshal(respBody, &response); err != nil {

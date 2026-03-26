@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"mcplib"
 	"os"
 	"os/exec"
@@ -393,8 +393,8 @@ func (s *ShellService) handleCommandExecutor(args map[string]any) (any, error) {
 	}
 
 	// Read stdout and stderr
-	stdoutBytes, _ := ioutil.ReadAll(stdout)
-	stderrBytes, _ := ioutil.ReadAll(stderr)
+	stdoutBytes, _ := io.ReadAll(stdout)
+	stderrBytes, _ := io.ReadAll(stderr)
 
 	// Get return code
 	returnCode := 0
@@ -419,7 +419,7 @@ func (s *ShellService) handleReadFile(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("filepath is required")
 	}
 
-	content, err := ioutil.ReadFile(filepath)
+	content, err := os.ReadFile(filepath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
@@ -441,7 +441,7 @@ func (s *ShellService) handleWriteFile(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("content is required")
 	}
 
-	err := ioutil.WriteFile(filepath, []byte(content), 0644)
+	err := os.WriteFile(filepath, []byte(content), 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write file: %v", err)
 	}
@@ -486,13 +486,13 @@ func (s *ShellService) handleCopyFile(args map[string]any) (any, error) {
 	}
 
 	// Read the source file
-	content, err := ioutil.ReadFile(source)
+	content, err := os.ReadFile(source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source file: %v", err)
 	}
 
 	// Write to the destination file
-	err = ioutil.WriteFile(destination, content, 0644)
+	err = os.WriteFile(destination, content, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write destination file: %v", err)
 	}
@@ -543,19 +543,23 @@ func (s *ShellService) handleListFiles(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("directory_path is required")
 	}
 
-	files, err := ioutil.ReadDir(directoryPath)
+	files, err := os.ReadDir(directoryPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list directory: %v", err)
 	}
 
 	fileList := []map[string]any{}
 	for _, file := range files {
+		info, err := file.Info()
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat file %s: %v", file.Name(), err)
+		}
 		fileInfo := map[string]any{
 			"name":         file.Name(),
-			"size":         file.Size(),
+			"size":         info.Size(),
 			"is_directory": file.IsDir(),
-			"mode":         file.Mode().String(),
-			"modified":     file.ModTime().Format(time.RFC3339),
+			"mode":         info.Mode().String(),
+			"modified":     info.ModTime().Format(time.RFC3339),
 		}
 		fileList = append(fileList, fileInfo)
 	}
@@ -618,7 +622,7 @@ func (s *ShellService) handleAppendFile(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file for appending: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Write the content to the file
 	if _, err := file.WriteString(content); err != nil {

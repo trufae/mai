@@ -126,7 +126,7 @@ func saveOpenAIAuthTokens(tokens *OpenAIAuthTokens) error {
 	if err != nil {
 		return fmt.Errorf("failed to open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := f.Write(payload); err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
@@ -267,7 +267,7 @@ func doJSONRequest(ctx context.Context, method, endpoint string, body interface{
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp.StatusCode, nil, err
@@ -298,7 +298,7 @@ func exchangeDeviceCodeForTokens(ctx context.Context, authorizationCode, codeVer
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -564,7 +564,7 @@ func ValidateOpenAIAccessToken(ctx context.Context, token string) (int, string, 
 	if err != nil {
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	if err != nil {
 		return resp.StatusCode, "", err

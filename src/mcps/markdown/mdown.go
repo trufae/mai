@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -40,7 +39,7 @@ func init() {
 
 // NewMDownService creates a service by parsing the markdown file
 func NewMDownService() *MDownService {
-	data, err := ioutil.ReadFile(mdPath)
+	data, err := os.ReadFile(mdPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to read markdown file: %v\n", err)
 		os.Exit(1)
@@ -198,13 +197,8 @@ func (s *MDownService) handleGetContents(args map[string]any) (any, error) {
 	}
 	if !ok {
 		return "Section not found", nil
-		return nil, fmt.Errorf("section %q not found", name)
 	}
-	res := map[string]any{"content": content}
-	if res != nil {
-		return res, nil
-	}
-	return "", fmt.Errorf("Cannot find contents")
+	return map[string]any{"content": content}, nil
 }
 
 func (s *MDownService) handleShowContents(args map[string]any) (any, error) {
@@ -216,14 +210,14 @@ func (s *MDownService) handleShowContents(args map[string]any) (any, error) {
 	if content != "" {
 		return content, nil
 	}
-	return nil, fmt.Errorf("Cannot find contents")
+	return nil, fmt.Errorf("cannot find contents")
 }
 
 func (s *MDownService) handleShowTree(args map[string]any) (any, error) {
 	var b strings.Builder
 	for _, sec := range s.sections {
 		indent := strings.Repeat("  ", sec.Level-1)
-		b.WriteString(fmt.Sprintf("%s- %s\n", indent, sec.Name))
+		fmt.Fprintf(&b, "%s- %s\n", indent, sec.Name)
 	}
 	return map[string]any{"tree": b.String()}, nil
 }

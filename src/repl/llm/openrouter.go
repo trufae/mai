@@ -19,13 +19,13 @@ type OpenRouterProvider struct {
 
 // OpenRouterModelsResponse is the response structure for OpenRouter model list endpoint
 type OpenRouterModelsResponse struct {
-	Object string `json:"object""`
+	Object string `json:"object"`
 	Data   []struct {
-		ID      string `json:"id""`
-		Object  string `json:"object""`
-		Created int64  `json:"created""`
-		OwnedBy string `json:"owned_by""`
-	} `json:"data""`
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
+	} `json:"data"`
 }
 
 func NewOpenRouterProvider(config *Config, ctx context.Context) *OpenRouterProvider {
@@ -72,7 +72,7 @@ func (p *OpenRouterProvider) IsAvailable() bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+		_ = resp.Body.Close()
 	return resp.StatusCode < 400
 }
 
