@@ -748,7 +748,16 @@ func (s *MCPServer) readNextMessage() ([]byte, error) {
 func (s *MCPServer) sendError(id interface{}, code int, message string) {
 	errObj := RPCError{Code: code, Message: message}
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &errObj}
-	data, _ := json.Marshal(resp)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("Failed to marshal error response: %v", err)
+		resp.ID = nil
+		data, err = json.Marshal(resp)
+		if err != nil {
+			log.Printf("Failed to marshal fallback error response: %v", err)
+			return
+		}
+	}
 	s.writeResponse(data)
 }
 
