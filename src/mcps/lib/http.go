@@ -10,10 +10,34 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
+)
+
+var (
+	errSSEConnectionUnavailable = errors.New("sse connection unavailable")
+	errSSEBackpressure          = errors.New("sse response queue full")
+	sseResponseEnqueueTimeout   = 5 * time.Second
 )
 
 func sameToken(a string, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func (s *MCPServer) enqueueSSEResponse(sessionID string, resp JSONRPCResponse) error {
+	s.sseMu.RLock()
+	respChan, exists := s.sseConnections[sessionID]
+	s.sseMu.RUnlock()
+	if !exists {
+		return errSSEConnectionUnavailable
+	}
+	timer := time.NewTimer(sseResponseEnqueueTimeout)
+	defer timer.Stop()
+	select {
+	case respChan <- resp:
+		return nil
+	case <-timer.C:
+		return errSSEBackpressure
+	}
 }
 
 func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (JSONRPCRequest, bool) {
@@ -265,14 +289,17 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := s.processRequestWithContext(ctx, req)
 	if resp.ID != nil {
-		s.sseMu.RLock()
-		respChan, exists := s.sseConnections[sessionID]
-		s.sseMu.RUnlock()
-		if exists {
-			select {
-			case respChan <- resp:
+		if err := s.enqueueSSEResponse(sessionID, resp); err != nil {
+			switch {
+			case errors.Is(err, errSSEConnectionUnavailable):
+				http.Error(w, "SSE session is not connected", http.StatusGone)
+			case errors.Is(err, errSSEBackpressure):
+				log.Printf("Dropping SSE response for session %s: response queue full", sessionID)
+				http.Error(w, "SSE response queue full", http.StatusServiceUnavailable)
 			default:
+				http.Error(w, "Failed to enqueue SSE response", http.StatusInternalServerError)
 			}
+			return
 		}
 	}
 
