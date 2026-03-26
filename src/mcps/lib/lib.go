@@ -144,12 +144,92 @@ type sseSession struct {
 	respChan    chan JSONRPCResponse
 }
 
+// messageFramer centralizes JSON-RPC transport framing shared by server and client.
+type messageFramer struct {
+	input      io.Reader
+	writer     io.Writer
+	bufr       *bufio.Reader
+	useHeaders bool
+}
+
+// readNextMessage reads the next JSON-RPC message body, supporting both
+// MCP/LSP-style header framing (Content-Length) and newline-delimited JSON.
+func (f *messageFramer) readNextMessage() ([]byte, error) {
+	if f.input == nil {
+		f.input = os.Stdin
+	}
+	if f.bufr == nil {
+		f.bufr = bufio.NewReader(f.input)
+	}
+	var headers []string
+	firstLine, err := f.bufr.ReadString('\n')
+	if err != nil {
+		if err == io.EOF && len(firstLine) == 0 {
+			return nil, io.EOF
+		}
+		return nil, err
+	}
+	tl := strings.TrimRight(firstLine, "\r\n")
+	lower := strings.ToLower(tl)
+	if strings.Contains(lower, ":") && (strings.HasPrefix(lower, "content-length:") || strings.HasPrefix(lower, "content-type:")) {
+		headers = append(headers, tl)
+		for {
+			h, err := f.bufr.ReadString('\n')
+			if err != nil {
+				return nil, err
+			}
+			th := strings.TrimRight(h, "\r\n")
+			if strings.TrimSpace(th) == "" {
+				break
+			}
+			headers = append(headers, th)
+		}
+		n := -1
+		for _, h := range headers {
+			parts := strings.SplitN(h, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			if strings.TrimSpace(strings.ToLower(parts[0])) == "content-length" {
+				v := strings.TrimSpace(parts[1])
+				nn, e := strconv.Atoi(v)
+				if e == nil && nn >= 0 {
+					n = nn
+					break
+				}
+			}
+		}
+		if n < 0 {
+			return nil, fmt.Errorf("missing Content-Length header")
+		}
+		f.useHeaders = true
+		body := make([]byte, n)
+		if _, err := io.ReadFull(f.bufr, body); err != nil {
+			return nil, err
+		}
+		return body, nil
+	}
+	return []byte(strings.TrimRight(firstLine, "\r\n")), nil
+}
+
+// writeFramed writes JSON payload using header framing if enabled, else newline JSON.
+func (f messageFramer) writeFramed(data []byte) {
+	if f.useHeaders {
+		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
+		_, _ = io.WriteString(f.writer, header)
+		_, _ = f.writer.Write(data)
+		return
+	}
+	_, _ = fmt.Fprintln(f.writer, string(data))
+}
+
 // MCPServer represents an MCP server that can handle requests
 type MCPServer struct {
 	tools                  []ToolDefinition
 	toolHandlers           map[string]ToolHandler
 	toolHandlersWithCtx    map[string]ToolHandlerWithContext
 	streamingHandlers      map[string]StreamingToolHandler
+	input                  io.Reader
 	reader                 *bufio.Scanner
 	writer                 io.Writer
 	prompts                []PromptDefinition
@@ -275,6 +355,7 @@ func NewMCPServer(tools []ToolDefinition) *MCPServer {
 		toolHandlersWithCtx:    make(map[string]ToolHandlerWithContext),
 		streamingHandlers:      make(map[string]StreamingToolHandler),
 		resourceHandlers:       make(map[string]ResourceHandler),
+		input:                  os.Stdin,
 		reader:                 bufio.NewScanner(os.Stdin),
 		writer:                 os.Stdout,
 		bufr:                   bufio.NewReader(os.Stdin),
@@ -470,6 +551,7 @@ func (s *MCPServer) processResourcesRead(req JSONRPCRequest) JSONRPCResponse {
 // serving MCP over arbitrary io.Readers/Writers (e.g. TCP connections).
 func (s *MCPServer) SetIO(r io.Reader, w io.Writer) {
 	if r != nil {
+		s.input = r
 		s.reader = bufio.NewScanner(r)
 		s.bufr = bufio.NewReader(r)
 	}
@@ -638,69 +720,23 @@ func (s *MCPServer) Start() {
 	}
 }
 
+func (s *MCPServer) messageFramer() messageFramer {
+	return messageFramer{
+		input:      s.input,
+		writer:     s.writer,
+		bufr:       s.bufr,
+		useHeaders: s.useHeaders,
+	}
+}
+
 // readNextMessage reads the next JSON-RPC message body, supporting both
 // MCP/LSP-style header framing (Content-Length) and newline-delimited JSON.
 func (s *MCPServer) readNextMessage() ([]byte, error) {
-	if s.bufr == nil {
-		s.bufr = bufio.NewReader(os.Stdin)
-	}
-	// Read header lines if present (order-agnostic)
-	var headers []string
-	// Peek one line to decide framing
-	firstLine, err := s.bufr.ReadString('\n')
-	if err != nil {
-		if err == io.EOF && len(firstLine) == 0 {
-			return nil, io.EOF
-		}
-		// If we couldn't read a full line, propagate error
-		if err != nil {
-			return nil, err
-		}
-	}
-	tl := strings.TrimRight(firstLine, "\r\n")
-	lower := strings.ToLower(tl)
-	if strings.Contains(lower, ":") && (strings.HasPrefix(lower, "content-length:") || strings.HasPrefix(lower, "content-type:")) {
-		headers = append(headers, tl)
-		// Keep reading headers until blank line
-		for {
-			h, err := s.bufr.ReadString('\n')
-			if err != nil {
-				return nil, err
-			}
-			th := strings.TrimRight(h, "\r\n")
-			if strings.TrimSpace(th) == "" {
-				break
-			}
-			headers = append(headers, th)
-		}
-		// Find Content-Length (case-insensitive)
-		var n = -1
-		for _, h := range headers {
-			parts := strings.SplitN(h, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			if strings.TrimSpace(strings.ToLower(parts[0])) == "content-length" {
-				v := strings.TrimSpace(parts[1])
-				nn, e := strconv.Atoi(v)
-				if e == nil && nn >= 0 {
-					n = nn
-					break
-				}
-			}
-		}
-		if n < 0 {
-			return nil, fmt.Errorf("missing Content-Length header")
-		}
-		s.useHeaders = true
-		body := make([]byte, n)
-		if _, err := io.ReadFull(s.bufr, body); err != nil {
-			return nil, err
-		}
-		return body, nil
-	}
-	// Not header-framed; treat first line as JSON payload (newline-delimited JSON)
-	return []byte(strings.TrimRight(firstLine, "\r\n")), nil
+	framer := s.messageFramer()
+	body, err := framer.readNextMessage()
+	s.bufr = framer.bufr
+	s.useHeaders = framer.useHeaders
+	return body, err
 }
 
 // sendError sends an error JSON-RPC response
@@ -718,14 +754,7 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 
 // writeFramed writes JSON payload using header framing if enabled, else newline JSON.
 func (s *MCPServer) writeFramed(data []byte) {
-	if s.useHeaders {
-		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-		_, _ = io.WriteString(s.writer, header)
-		_, _ = s.writer.Write(data)
-		return
-	}
-	// newline-delimited fallback
-	_, _ = fmt.Fprintln(s.writer, string(data))
+	s.messageFramer().writeFramed(data)
 }
 
 // sendResponse sends a JSON-RPC response
@@ -748,6 +777,7 @@ func (s *MCPServer) sendResponse(resp JSONRPCResponse) {
 
 // MCPClient represents an MCP client that can call tools
 type MCPClient struct {
+	input      io.Reader
 	writer     io.Writer
 	reader     *bufio.Scanner
 	bufr       *bufio.Reader
@@ -758,6 +788,7 @@ type MCPClient struct {
 // NewMCPClient creates a new MCP client with stdin/stdout
 func NewMCPClient() *MCPClient {
 	return &MCPClient{
+		input:     os.Stdin,
 		writer:    os.Stdout,
 		reader:    bufio.NewScanner(os.Stdin),
 		bufr:      bufio.NewReader(os.Stdin),
@@ -768,6 +799,7 @@ func NewMCPClient() *MCPClient {
 // SetIO allows overriding the client's input/output streams
 func (c *MCPClient) SetIO(r io.Reader, w io.Writer) {
 	if r != nil {
+		c.input = r
 		c.reader = bufio.NewScanner(r)
 		c.bufr = bufio.NewReader(r)
 	}
@@ -939,78 +971,27 @@ func (c *MCPClient) CallTool(name string, args map[string]interface{}) (ToolCall
 	return toolResult, nil
 }
 
+func (c *MCPClient) messageFramer() messageFramer {
+	return messageFramer{
+		input:      c.input,
+		writer:     c.writer,
+		bufr:       c.bufr,
+		useHeaders: c.useHeaders,
+	}
+}
+
 // readNextMessage reads the next JSON-RPC message body
 func (c *MCPClient) readNextMessage() ([]byte, error) {
-	if c.bufr == nil {
-		c.bufr = bufio.NewReader(os.Stdin)
-	}
-	// Read header lines if present
-	var headers []string
-	firstLine, err := c.bufr.ReadString('\n')
-	if err != nil {
-		if err == io.EOF && len(firstLine) == 0 {
-			return nil, io.EOF
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	tl := strings.TrimRight(firstLine, "\r\n")
-	lower := strings.ToLower(tl)
-	if strings.Contains(lower, ":") && (strings.HasPrefix(lower, "content-length:") || strings.HasPrefix(lower, "content-type:")) {
-		headers = append(headers, tl)
-		// Keep reading headers until blank line
-		for {
-			h, err := c.bufr.ReadString('\n')
-			if err != nil {
-				return nil, err
-			}
-			th := strings.TrimRight(h, "\r\n")
-			if strings.TrimSpace(th) == "" {
-				break
-			}
-			headers = append(headers, th)
-		}
-		// Find Content-Length
-		var n = -1
-		for _, h := range headers {
-			parts := strings.SplitN(h, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			if strings.TrimSpace(strings.ToLower(parts[0])) == "content-length" {
-				v := strings.TrimSpace(parts[1])
-				nn, e := strconv.Atoi(v)
-				if e == nil && nn >= 0 {
-					n = nn
-					break
-				}
-			}
-		}
-		if n < 0 {
-			return nil, fmt.Errorf("missing Content-Length header")
-		}
-		c.useHeaders = true
-		body := make([]byte, n)
-		if _, err := io.ReadFull(c.bufr, body); err != nil {
-			return nil, err
-		}
-		return body, nil
-	}
-	// Not header-framed; treat first line as JSON payload
-	return []byte(strings.TrimRight(firstLine, "\r\n")), nil
+	framer := c.messageFramer()
+	body, err := framer.readNextMessage()
+	c.bufr = framer.bufr
+	c.useHeaders = framer.useHeaders
+	return body, err
 }
 
 // writeFramed writes JSON payload using header framing if enabled
 func (c *MCPClient) writeFramed(data []byte) {
-	if c.useHeaders {
-		header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-		_, _ = io.WriteString(c.writer, header)
-		_, _ = c.writer.Write(data)
-		return
-	}
-	// newline-delimited fallback
-	_, _ = fmt.Fprintln(c.writer, string(data))
+	c.messageFramer().writeFramed(data)
 }
 
 // ListResources sends the resources/list request and returns available resources
