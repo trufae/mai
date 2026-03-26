@@ -61,9 +61,10 @@ func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool, _ 
 	if basePath == "" {
 		basePath = "/"
 	}
-	http.HandleFunc(basePath, s.httpHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc(basePath, s.httpHandler)
 	log.Printf("Starting HTTP server on port %s with base path %s", port, basePath)
-	return http.ListenAndServe(":"+port, nil)
+	return http.ListenAndServe(":"+port, mux)
 }
 
 // ServeSSE starts an HTTP server with Server-Sent Events support for MCP.
@@ -78,11 +79,12 @@ func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool, _ s
 	ssePath := basePath + "/sse"
 	mcpPath := basePath + "/mcp"
 
-	http.HandleFunc(ssePath, s.sseHandler)
-	http.HandleFunc(mcpPath, s.sseMCPHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc(ssePath, s.sseHandler)
+	mux.HandleFunc(mcpPath, s.sseMCPHandler)
 
 	log.Printf("Starting SSE server on port %s with SSE path %s and MCP path %s", port, ssePath, mcpPath)
-	return http.ListenAndServe(":"+port, nil)
+	return http.ListenAndServe(":"+port, mux)
 }
 
 // ListenAndServe starts the MCP server based on the listen string.
