@@ -765,13 +765,6 @@ func (s *MCPServer) sendError(id interface{}, code int, message string) {
 	s.writeResponse(data)
 }
 
-// writeFramed writes JSON payload using header framing if enabled, else newline JSON.
-func (s *MCPServer) writeFramed(data []byte) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	s.messageFramer().writeFramed(data)
-}
-
 // sendResponse sends a JSON-RPC response
 func (s *MCPServer) sendResponse(resp JSONRPCResponse) {
 	data, err := json.Marshal(resp)
@@ -1238,11 +1231,6 @@ func (s *MCPServer) processRequestWithContext(ctx context.Context, req JSONRPCRe
 			},
 		}
 	}
-}
-
-// processCall handles a tools/call request
-func (s *MCPServer) processCall(req JSONRPCRequest) JSONRPCResponse {
-	return s.processCallWithContext(s.currentCtx, req)
 }
 
 // processCallWithContext handles a tools/call request with context

@@ -65,6 +65,39 @@ func (s *MCPServer) readJSONRPCRequest(w http.ResponseWriter, r *http.Request) (
 	return req, true
 }
 
+func bearerTokenFromRequest(r *http.Request) (string, bool) {
+	headers := r.Header.Values("Authorization")
+	if len(headers) == 0 {
+		// Compatibility fallback for clients that send the non-standard Authentication header.
+		headers = r.Header.Values("Authentication")
+	}
+
+	for _, authHeader := range headers {
+		for _, candidate := range strings.Split(authHeader, ",") {
+			fields := strings.Fields(strings.TrimSpace(candidate))
+			if len(fields) < 2 || !strings.EqualFold(fields[0], "bearer") {
+				continue
+			}
+
+			token := strings.TrimSpace(strings.Join(fields[1:], " "))
+			for len(token) >= 8 && strings.EqualFold(token[:7], "bearer ") {
+				token = strings.TrimSpace(token[7:])
+			}
+			if len(token) >= 2 {
+				if (token[0] == '"' && token[len(token)-1] == '"') || (token[0] == '\'' && token[len(token)-1] == '\'') {
+					token = token[1 : len(token)-1]
+				}
+			}
+			token = strings.TrimSpace(token)
+			if token != "" {
+				return token, true
+			}
+		}
+	}
+
+	return "", false
+}
+
 func (s *MCPServer) authorizeToken(ctx context.Context, rawToken string) (*AuthResult, error) {
 	if s.authEnabled && s.authenticator == nil {
 		return nil, fmt.Errorf("unauthorized")
@@ -147,9 +180,8 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var authResult *AuthResult
 	var rawToken string
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		rawToken = authHeader[7:]
+	if token, ok := bearerTokenFromRequest(r); ok {
+		rawToken = token
 		var err error
 		authResult, err = s.authorizeToken(r.Context(), rawToken)
 		if err != nil {
@@ -250,9 +282,8 @@ func (s *MCPServer) sseMCPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var authResult *AuthResult
 	var rawToken string
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		rawToken = authHeader[7:]
+	if token, ok := bearerTokenFromRequest(r); ok {
+		rawToken = token
 		var err error
 		authResult, err = s.authorizeToken(ctx, rawToken)
 		if err != nil {
@@ -355,11 +386,9 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	authHeader := r.Header.Get("Authorization")
 	hasToken := false
 	tokenPreview := "NoAuth"
-	if authHeader != "" && len(authHeader) > 7 && strings.EqualFold(authHeader[:7], "bearer ") {
-		rawToken := authHeader[7:]
+	if rawToken, ok := bearerTokenFromRequest(r); ok {
 		hasToken = true
 		tokenPreview = "Authorized"
 		authResult, err := s.authorizeToken(ctx, rawToken)
@@ -388,8 +417,6 @@ func (s *MCPServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		authInfo := "no-token"
 		if hasToken {
 			authInfo = "token=" + tokenPreview
-		} else if authHeader != "" {
-			authInfo = fmt.Sprintf("invalid-auth-header=%q", authHeader)
 		}
 		toolName := ""
 		toolArgs := ""
