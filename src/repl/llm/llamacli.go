@@ -219,3 +219,7 @@ func (p *LlamaCliProvider) nonStreamResponse(stdout io.ReadCloser, stdin io.Writ
 func (p *LlamaCliProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not supported by LlamaCli provider")
 }
+
+func (p *LlamaCliProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

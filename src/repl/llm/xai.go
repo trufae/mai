@@ -295,3 +295,7 @@ func (p *XAIProvider) parseStreamWithTiming(reader io.Reader, stopCallback, firs
 func (p *XAIProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not supported by XAI provider")
 }
+
+func (p *XAIProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

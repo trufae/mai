@@ -717,3 +717,7 @@ func (p *OllamaProvider) Embed(input string) ([]float64, error) {
 
 	return response.Embedding, nil
 }
+
+func (p *OllamaProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

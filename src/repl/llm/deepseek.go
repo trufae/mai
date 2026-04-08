@@ -195,3 +195,7 @@ func (p *DeepSeekProvider) parseStream(reader io.Reader) (string, error) {
 func (p *DeepSeekProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not supported by DeepSeek provider")
 }
+
+func (p *DeepSeekProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

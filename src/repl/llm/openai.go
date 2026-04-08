@@ -452,6 +452,10 @@ func (p *OpenAIProvider) Embed(input string) ([]float64, error) {
 	return response.Data[0].Embedding, nil
 }
 
+func (p *OpenAIProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}
+
 func (p *OpenAIProvider) parseStream(reader io.Reader) (string, error) {
 	return p.parseStreamWithCallback(reader, nil)
 }

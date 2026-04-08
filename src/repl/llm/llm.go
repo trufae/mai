@@ -324,6 +324,9 @@ type LLMProvider interface {
 
 	// IsAvailable returns true if the provider is available (can reach baseurl and has required API key if needed)
 	IsAvailable() bool
+
+	// CountTokens counts the number of tokens in the given text
+	CountTokens(text string) (int, error)
 }
 
 type BaseProvider struct {
@@ -490,6 +493,20 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 // Embed generates embeddings for the given text input
 func (c *LLMClient) Embed(input string) ([]float64, error) {
 	return c.provider.Embed(input)
+}
+
+// CountTokens counts the number of tokens in the given text
+func (c *LLMClient) CountTokens(text string) (int, error) {
+	return c.provider.CountTokens(text)
+}
+
+// EstimateTokenCount provides a rough token estimate (~4 chars per token)
+// for providers that lack a native token counting API.
+func EstimateTokenCount(text string) int {
+	if len(text) == 0 {
+		return 0
+	}
+	return (len(text) + 3) / 4
 }
 
 // SendMessage sends a message to the LLM and handles the response

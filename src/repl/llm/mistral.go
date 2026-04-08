@@ -328,3 +328,7 @@ func (p *MistralProvider) parseStreamWithTiming(reader io.Reader, stopCallback, 
 func (p *MistralProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not supported by Mistral provider")
 }
+
+func (p *MistralProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

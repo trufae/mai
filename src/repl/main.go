@@ -252,6 +252,24 @@ func runEmbedMode(config *llm.Config, configOptions *ConfigOptions, input string
 	fmt.Println()
 }
 
+// runTokenCountMode counts tokens in the given text using the configured provider.
+func runTokenCountMode(config *llm.Config, configOptions *ConfigOptions, input string) {
+	applyConfigOptionsToLLMConfigForTask(config, configOptions, "")
+
+	client, err := llm.NewLLMClient(config, context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing LLM client: %v\n", err)
+		os.Exit(1)
+	}
+
+	count, err := client.CountTokens(input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error counting tokens: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(count)
+}
+
 func loadConfig() *llm.Config {
 	config := &llm.Config{
 		PROVIDER:  getEnvOrDefault("MAI_PROVIDER", "ollama"),
@@ -339,6 +357,7 @@ func showHelp() {
 -A               edit the ~/.config/mai/agents.json
 -b <url>         specify a custom base URL for API requests
 -c <key=value>   set configuration option
+-C               count tokens from stdin/args using the configured provider
 -d               enable debug mode
 -e <text>        generate embeddings for text and output vectors
 -E               edit ~/.mairc file
@@ -567,6 +586,7 @@ func main() {
 
 	// Flag to enable MCP mode
 	mcpMode := false
+	tokenCountMode := false
 
 	config := loadConfig()
 
@@ -777,6 +797,10 @@ func main() {
 			_ = configOptions.Set("llm.stream", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
+		case "-C":
+			tokenCountMode = true
+			args = append(args[:i], args[i+1:]...)
+			i--
 		case "-e":
 			// Embedding mode: take all remaining args as input text
 			args = append(args[:i], args[i+1:]...)
@@ -840,6 +864,13 @@ func main() {
 
 	// Apply -c options into the llm.Config so both REPL and stdin modes see them
 	applyConfigOptionsToLLMConfig(config, configOptions)
+
+	// Token count mode: read stdin/args and print token count
+	if tokenCountMode {
+		input := readInput(args)
+		runTokenCountMode(config, configOptions, input)
+		return
+	}
 
 	// Send strings from -s flags to AI if any
 	if len(scriptStrings) > 0 {

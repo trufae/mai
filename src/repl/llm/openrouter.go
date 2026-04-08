@@ -361,6 +361,10 @@ func (p *OpenRouterProvider) Embed(input string) ([]float64, error) {
 	return response.Data[0].Embedding, nil
 }
 
+func (p *OpenRouterProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}
+
 func (p *OpenRouterProvider) parseStream(reader io.Reader) (string, error) {
 	return p.parseStreamWithCallback(reader, nil)
 }

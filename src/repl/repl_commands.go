@@ -248,6 +248,23 @@ func (r *REPL) initCommands() {
 		},
 	}
 
+	// Token count command
+	r.commands["/tokcnt"] = Command{
+		Name:        "/tokcnt",
+		Description: "Count tokens in text using the configured provider",
+		Handler: func(r *REPL, args []string) (string, error) {
+			if len(args) < 2 {
+				return "Usage: /tokcnt <text>\n\r", nil
+			}
+			input := strings.Join(args[1:], " ")
+			count, err := r.currentClient.CountTokens(input)
+			if err != nil {
+				return fmt.Sprintf("Error counting tokens: %v\n\r", err), nil
+			}
+			return fmt.Sprintf("%d\n\r", count), nil
+		},
+	}
+
 	// Embed command
 	r.commands["/embed"] = Command{
 		Name:        "/embed",

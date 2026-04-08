@@ -406,3 +406,7 @@ func extractOpenAPIStreamPayload(data string) (string, []string, bool, bool) {
 func (p *OpenAPIProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not supported by OpenAPI provider")
 }
+
+func (p *OpenAPIProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

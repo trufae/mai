@@ -309,3 +309,44 @@ func (p *ClaudeProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 func (p *ClaudeProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not supported by Claude provider")
 }
+
+func (p *ClaudeProvider) CountTokens(text string) (int, error) {
+	effectiveModel := p.config.Model
+	if effectiveModel == "" {
+		effectiveModel = p.DefaultModel()
+	}
+	request := map[string]interface{}{
+		"model": effectiveModel,
+		"messages": []map[string]string{
+			{"role": "user", "content": text},
+		},
+	}
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return 0, err
+	}
+
+	headers := map[string]string{
+		"Content-Type":      "application/json",
+		"anthropic-version": "2023-06-01",
+		"x-api-key":         p.apiKey,
+	}
+
+	apiURL := "https://api.anthropic.com/v1/messages/count_tokens"
+	if p.config.BaseURL != "" {
+		apiURL = strings.TrimRight(p.config.BaseURL, "/") + "/v1/messages/count_tokens"
+	}
+
+	respBody, err := llmMakeRequest(p.ctx, "POST", apiURL, headers, jsonData)
+	if err != nil {
+		return 0, err
+	}
+
+	var response struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return 0, fmt.Errorf("failed to parse count_tokens response: %v", err)
+	}
+	return response.InputTokens, nil
+}

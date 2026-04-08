@@ -369,3 +369,7 @@ func (p *GeminiProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 func (p *GeminiProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("embeddings not yet implemented for Gemini provider")
 }
+
+func (p *GeminiProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}

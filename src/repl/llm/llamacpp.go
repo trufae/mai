@@ -241,6 +241,10 @@ func (p *LlamaCppProvider) Embed(input string) ([]float64, error) {
 	return nil, fmt.Errorf("no embedding data in response")
 }
 
+func (p *LlamaCppProvider) CountTokens(text string) (int, error) {
+	return EstimateTokenCount(text), nil
+}
+
 func (p *LlamaCppProvider) headers() map[string]string {
 	headers := map[string]string{
 		"Content-Type": "application/json",
