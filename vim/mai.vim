@@ -52,6 +52,7 @@
    " 4) Run: send selected text as stdin, prompt as argument
    let l:cmd = 'mai -p ' . shellescape(l:provider) . ' -m ' . shellescape(l:model) . ' ' . shellescape(l:prompt)
   let l:out = systemlist(l:cmd, l:stdin)
+  call map(l:out, 'substitute(v:val, "\\r", "", "g")')
 
   echo "\n\n----\n"
   echo join(l:out, "\n")
