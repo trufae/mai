@@ -465,20 +465,14 @@ func CreateProvider(config *Config, ctx context.Context) (LLMProvider, error) {
 		return NewOpenAIProvider(config, ctx), nil
 	case "openai":
 		return NewOpenAIProvider(config, ctx), nil
-	case "openrouter":
-		return NewOpenRouterProvider(config, ctx), nil
+	case "openrouter", "xai", "deepseek", "mistral":
+		return NewOpenAIProvider(config, ctx), nil
 	case "claude":
 		return NewClaudeProvider(config, ctx), nil
 	case "gemini", "google":
 		return NewGeminiProvider(config, ctx), nil
-	case "mistral":
-		return NewMistralProvider(config, ctx), nil
-	case "deepseek":
-		return NewDeepSeekProvider(config, ctx), nil
 	case "bedrock", "aws":
 		return NewBedrockProvider(config, ctx), nil
-	case "xai":
-		return NewXAIProvider(config, ctx), nil
 	case "openapi":
 		return NewOpenAPIProvider(config, ctx), nil
 	case "llamacpp":

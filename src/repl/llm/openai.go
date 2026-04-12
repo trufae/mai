@@ -42,6 +42,14 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 		apiKey = GetAPIKey("ollamacloud")
 	case "opencode":
 		apiKey = GetAPIKey("opencode")
+	case "xai":
+		apiKey = GetAPIKey("xai")
+	case "openrouter":
+		apiKey = GetAPIKey("openrouter")
+	case "deepseek":
+		apiKey = GetAPIKey("deepseek")
+	case "mistral":
+		apiKey = GetAPIKey("mistral")
 	}
 
 	// Local OpenAI-compatible servers (LM Studio, shimmy) do not require auth.
@@ -63,6 +71,22 @@ func NewOpenAIProvider(config *Config, ctx context.Context) *OpenAIProvider {
 	case "opencode":
 		if config.BaseURL == "" {
 			config.BaseURL = "https://opencode.ai/zen/v1"
+		}
+	case "xai":
+		if config.BaseURL == "" {
+			config.BaseURL = "https://api.x.ai/v1"
+		}
+	case "openrouter":
+		if config.BaseURL == "" {
+			config.BaseURL = "https://openrouter.ai/api/v1"
+		}
+	case "deepseek":
+		if config.BaseURL == "" {
+			config.BaseURL = "https://api.deepseek.com"
+		}
+	case "mistral":
+		if config.BaseURL == "" {
+			config.BaseURL = "https://api.mistral.ai/v1"
 		}
 	}
 	return &OpenAIProvider{
@@ -100,6 +124,14 @@ func (p *OpenAIProvider) GetName() string {
 		return "OllamaCloud"
 	case "opencode":
 		return "OpenCode"
+	case "xai":
+		return "xAI"
+	case "openrouter":
+		return "OpenRouter"
+	case "deepseek":
+		return "DeepSeek"
+	case "mistral":
+		return "Mistral"
 	default:
 		return "OpenAI"
 	}
@@ -119,6 +151,26 @@ func (p *OpenAIProvider) DefaultModel() string {
 		return "big-pickle"
 	case "lmstudio", "shimmy":
 		return "local-model"
+	case "xai":
+		if v := os.Getenv("XAI_MODEL"); v != "" {
+			return v
+		}
+		return "grok-2-1212"
+	case "openrouter":
+		if v := os.Getenv("OPENROUTER_MODEL"); v != "" {
+			return v
+		}
+		return "google/gemma-3-27b-it:free"
+	case "deepseek":
+		if v := os.Getenv("DEEPSEEK_MODEL"); v != "" {
+			return v
+		}
+		return "deepseek-chat"
+	case "mistral":
+		if v := os.Getenv("MISTRAL_MODEL"); v != "" {
+			return v
+		}
+		return "mistral-large-latest"
 	default:
 		if v := os.Getenv("OPENAI_MODEL"); v != "" {
 			return v
@@ -136,9 +188,24 @@ func (p *OpenAIProvider) IsAvailable() bool {
 		}
 		token, _ := GetOpenAIAccessToken(false)
 		return strings.TrimSpace(token) != ""
-	case "ollamacloud", "opencode":
+	case "xai", "deepseek", "mistral", "ollamacloud", "opencode":
 		// Remote providers: just check API key
 		return p.apiKey != ""
+	case "openrouter":
+		if p.apiKey == "" {
+			return false
+		}
+		baseURL := p.config.BaseURL
+		if baseURL == "" {
+			baseURL = "https://openrouter.ai/api/v1"
+		}
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Head(baseURL + "/models")
+		if err != nil {
+			return false
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode < 400
 	case "lmstudio", "shimmy":
 		// Local providers: check HTTP endpoint
 		baseURL := ""
@@ -157,7 +224,7 @@ func (p *OpenAIProvider) IsAvailable() bool {
 		if err != nil {
 			return false
 		}
-			_ = resp.Body.Close()
+		_ = resp.Body.Close()
 		return resp.StatusCode < 400
 	}
 	return true
@@ -181,6 +248,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 	// Try multiple parsing strategies so that non-standard
 	// model endpoints can be handled gracefully.
+	providerName := strings.ToLower(p.config.PROVIDER)
 	tryParse := func(body []byte) ([]Model, bool) {
 		if len(body) == 0 {
 			return nil, false
@@ -191,7 +259,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 		if err := json.Unmarshal(body, &openaiResp); err == nil && len(openaiResp.Data) > 0 {
 			models := make([]Model, 0, len(openaiResp.Data))
 			for _, m := range openaiResp.Data {
-				models = append(models, Model{ID: m.ID, Name: m.ID, Provider: "openai", Description: "Owner: " + m.OwnedBy})
+				models = append(models, Model{ID: m.ID, Name: m.ID, Provider: providerName, Description: "Owner: " + m.OwnedBy})
 			}
 			return models, true
 		}
@@ -201,7 +269,7 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 		if err := json.Unmarshal(body, &list); err == nil && len(list) > 0 {
 			models := make([]Model, 0, len(list))
 			for _, id := range list {
-				models = append(models, Model{ID: id, Name: id, Provider: "openai"})
+				models = append(models, Model{ID: id, Name: id, Provider: providerName})
 			}
 			return models, true
 		}
@@ -224,7 +292,14 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 				if v, ok := item["owned_by"].(string); ok {
 					owner = v
 				}
-				models = append(models, Model{ID: id, Name: id, Provider: "openai", Description: owner})
+				desc := owner
+				if cl, ok := item["context_length"].(float64); ok && cl > 0 {
+					if desc != "" {
+						desc += " - "
+					}
+					desc += fmt.Sprintf("Context: %dk tokens", int(cl)/1000)
+				}
+				models = append(models, Model{ID: id, Name: id, Provider: providerName, Description: desc})
 			}
 			if len(models) > 0 {
 				return models, true
@@ -259,8 +334,13 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
+	provider := strings.ToLower(p.config.PROVIDER)
+
 	// If images are provided, prepend a user message with OpenAI vision content blocks
 	if len(images) > 0 {
+		if provider == "deepseek" || provider == "mistral" {
+			return "", fmt.Errorf("images not supported by provider: %s", p.GetName())
+		}
 		fmt.Println("sending images")
 		var blocks []ContentBlock
 		for _, uri := range images {
@@ -274,6 +354,21 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 		imageMessage := Message{Role: "user", Content: blocks}
 		messages = append([]Message{imageMessage}, messages...)
 	}
+
+	// Mistral rejects empty assistant messages
+	if provider == "mistral" {
+		filtered := make([]Message, 0, len(messages))
+		for _, msg := range messages {
+			if msg.Role == "assistant" {
+				if s, ok := msg.Content.(string); ok && s == "" && len(msg.ToolCalls) == 0 {
+					continue
+				}
+			}
+			filtered = append(filtered, msg)
+		}
+		messages = filtered
+	}
+
 	effectiveModel := p.config.Model
 	if effectiveModel == "" {
 		effectiveModel = p.DefaultModel()
@@ -288,11 +383,21 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 		request["tools"] = tools
 	}
 
+	// Mistral needs explicit max_tokens
+	if provider == "mistral" {
+		request["max_tokens"] = 5128
+	}
+
 	// Add response_format with JSON schema if provided
 	if p.config.Schema != nil {
-		if strings.ToLower(p.config.PROVIDER) == "shimmy" {
+		switch provider {
+		case "shimmy":
 			request["format"] = p.config.Schema
-		} else {
+		case "mistral":
+			request["response_format"] = map[string]interface{}{
+				"type": "json_object",
+			}
+		default:
 			request["response_format"] = map[string]interface{}{
 				"type": "json_schema",
 				"json_schema": map[string]interface{}{
@@ -309,11 +414,18 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 
 	// Apply deterministic settings if enabled
 	if p.config.Deterministic {
-		// Skip for o4 and o1 models which don't support these parameters
-		modelName := strings.ToLower(effectiveModel)
-		if !strings.HasPrefix(modelName, "o4") && !strings.HasPrefix(modelName, "o1") {
-			request["temperature"] = 0
-			request["top_p"] = 0
+		if provider == "mistral" {
+			request["n"] = 1
+			request["top_p"] = 0.001
+			request["random_seed"] = 1
+			request["temperature"] = 0.001
+		} else {
+			// Skip for o4 and o1 models which don't support these parameters
+			modelName := strings.ToLower(effectiveModel)
+			if !strings.HasPrefix(modelName, "o4") && !strings.HasPrefix(modelName, "o1") {
+				request["temperature"] = 0
+				request["top_p"] = 0
+			}
 		}
 	}
 
