@@ -173,20 +173,16 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 		if p.config.Schema != nil {
 			request["format"] = p.config.Schema
 		}
-		if p.config.Deterministic || !p.config.ThinkHide {
-			options := make(map[string]interface{})
-			if p.config.Deterministic {
-				options["repeat_last_n"] = 0.0
-				options["top_p"] = 0.0
-				options["top_k"] = 1.0
-				options["temperature"] = 0.0
-				options["repeat_penalty"] = 1.0
-				options["seed"] = 123.0
+		request["think"] = !p.config.ThinkHide
+		if p.config.Deterministic {
+			request["options"] = map[string]float64{
+				"repeat_last_n":  0.0,
+				"top_p":          0.0,
+				"top_k":          1.0,
+				"temperature":    0.0,
+				"repeat_penalty": 1.0,
+				"seed":           123.0,
 			}
-			if !p.config.ThinkHide {
-				options["reasoning"] = true
-			}
-			request["options"] = options
 		}
 
 		jsonData, err := MarshalNoEscape(request)
@@ -361,6 +357,7 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 	request := struct {
 		Stream   bool               `json:"stream"`
 		Model    string             `json:"model"`
+		Think    bool               `json:"think"`
 		Messages []Message          `json:"messages"`
 		Prompt   string             `json:"prompt,omitempty"`
 		Format   interface{}        `json:"format,omitempty"`
@@ -368,8 +365,8 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 	}{
 		Stream:   stream,
 		Model:    effectiveModel,
+		Think:    !p.config.ThinkHide,
 		Messages: messages,
-		// Prompt: "Summarize: Alice (29) likes cycling and reading",
 	}
 	if p.config.Schema != nil {
 		request.Format = p.config.Schema
