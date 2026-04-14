@@ -129,15 +129,14 @@ func (s *MCPServer) ServeHTTP(port string, basePath string, authEnabled bool) er
 // When authEnabled is true, each request must provide a Bearer token accepted by the authenticator.
 func (s *MCPServer) ServeSSE(port string, basePath string, authEnabled bool) error {
 	s.authEnabled = authEnabled
-	if basePath == "" {
-		basePath = "/"
-	}
+	basePath = strings.TrimRight(basePath, "/")
 
-	// SSE endpoint
 	ssePath := basePath + "/sse"
 	mcpPath := basePath + "/mcp"
 
-	http.HandleFunc(ssePath, s.sseHandler)
+	http.HandleFunc(ssePath, func(w http.ResponseWriter, r *http.Request) {
+		s.sseHandler(w, r, mcpPath)
+	})
 	http.HandleFunc(mcpPath, s.sseMCPHandler)
 
 	log.Printf("Starting SSE server on port %s with SSE path %s and MCP path %s", port, ssePath, mcpPath)
@@ -170,7 +169,7 @@ func (s *MCPServer) ListenAndServe(listen string, authEnabled bool) error {
 }
 
 // sseHandler handles SSE connections
-func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
+func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request, mcpPath string) {
 	if s.httpSecurityCheck(w, r) {
 		return
 	}
@@ -239,7 +238,7 @@ func (s *MCPServer) sseHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	endpointEvent := "event: endpoint\ndata: /mcp\n\n"
+	endpointEvent := "event: endpoint\ndata: " + mcpPath + "\n\n"
 	if _, err := w.Write([]byte(endpointEvent)); err != nil {
 		return
 	}
