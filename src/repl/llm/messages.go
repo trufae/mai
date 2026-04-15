@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -27,25 +26,18 @@ func BuildConversationString(messages []Message, includeLLM bool, includeSystem 
 		if includeSystem {
 			for _, m := range messages {
 				if strings.ToLower(m.Role) == "system" {
-					var content string
-					switch c := m.Content.(type) {
-					case string:
-						content = c
-					default:
-						content = fmt.Sprintf("%v", c)
-					}
 					switch format {
 					case "tokens":
 						b.WriteString("<|start_of_turn>system\n")
-						b.WriteString(content)
+						b.WriteString(m.Content)
 						b.WriteString("<|end_of_turn>\n")
 					case "labeled":
 						b.WriteString("System: ")
-						b.WriteString(content)
+						b.WriteString(m.Content)
 						b.WriteString("\n")
 					default:
-						b.WriteString(content)
-						if !strings.HasSuffix(content, "\n") {
+						b.WriteString(m.Content)
+						if !strings.HasSuffix(m.Content, "\n") {
 							b.WriteString("\n")
 						}
 					}
@@ -66,27 +58,19 @@ func BuildConversationString(messages []Message, includeLLM bool, includeSystem 
 			return BuildConversationString(messages, includeLLM, includeSystem, format, false)
 		}
 
-		var content string
-		switch c := lastUser.Content.(type) {
-		case string:
-			content = c
-		default:
-			content = fmt.Sprintf("%v", c)
-		}
-
 		// Append the last user message according to format
 		switch format {
 		case "tokens":
 			b.WriteString("<|start_of_turn>user\n")
-			b.WriteString(content)
+			b.WriteString(lastUser.Content)
 			b.WriteString("<|end_of_turn>\n")
 		case "labeled":
 			b.WriteString("User: ")
-			b.WriteString(content)
+			b.WriteString(lastUser.Content)
 			b.WriteString("\n")
 		default:
-			b.WriteString(content)
-			if !strings.HasSuffix(content, "\n") {
+			b.WriteString(lastUser.Content)
+			if !strings.HasSuffix(lastUser.Content, "\n") {
 				b.WriteString("\n")
 			}
 		}
@@ -110,33 +94,24 @@ func BuildConversationString(messages []Message, includeLLM bool, includeSystem 
 			}
 		}
 
-		// Extract content as string
-		var content string
-		switch c := m.Content.(type) {
-		case string:
-			content = c
-		default:
-			content = fmt.Sprintf("%v", c)
-		}
-
 		switch format {
 		case "tokens":
 			// Use explicit start/end of turn tokens which some models expect
 			b.WriteString("<|start_of_turn>")
 			b.WriteString(role)
 			b.WriteString("\n")
-			b.WriteString(content)
+			b.WriteString(m.Content)
 			b.WriteString("<|end_of_turn>\n")
 		case "labeled":
 			// Human-friendly labeled format
 			b.WriteString(strings.ToUpper(role[:1]) + role[1:])
 			b.WriteString(": ")
-			b.WriteString(content)
+			b.WriteString(m.Content)
 			b.WriteString("\n")
 		default:
 			// plain: just concatenate contents separated by newlines
-			b.WriteString(content)
-			if !strings.HasSuffix(content, "\n") {
+			b.WriteString(m.Content)
+			if !strings.HasSuffix(m.Content, "\n") {
 				b.WriteString("\n")
 			}
 		}

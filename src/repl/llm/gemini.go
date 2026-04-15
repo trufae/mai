@@ -113,9 +113,9 @@ func (p *GeminiProvider) SendMessage(messages []Message, stream bool, images []s
 	content := ""
 	for _, msg := range messages {
 		if msg.Role == "system" {
-			content += "System: " + msg.Content.(string) + "\n\n"
+			content += "System: " + msg.Content + "\n\n"
 		} else {
-			content += msg.Content.(string)
+			content += msg.Content
 		}
 	}
 

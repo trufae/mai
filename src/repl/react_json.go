@@ -365,13 +365,7 @@ func buildChatHistory(input string, messages []llm.Message) string {
 	for _, m := range messages {
 		role := strings.ToLower(m.Role)
 		if role == "assistant" || role == "model" || role == "ai" {
-			var content string
-			switch c := m.Content.(type) {
-			case string:
-				content = c
-			default:
-				content = fmt.Sprintf("%v", c)
-			}
+			content := m.Content
 			if !strings.HasSuffix(content, "\n") {
 				content += "\n"
 			}

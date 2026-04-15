@@ -547,18 +547,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	if c.Config != nil && c.Config.Debug {
 		var buf bytes.Buffer
 		for _, m := range messagesToSend {
-			// Attempt to pretty-print the content
-			var contentStr string
-			switch v := m.Content.(type) {
-			case string:
-				contentStr = v
-			default:
-				if b, err := MarshalNoEscape(v); err == nil {
-					contentStr = string(b)
-				} else {
-					contentStr = fmt.Sprintf("<unprintable content: %T>", v)
-				}
-			}
+			contentStr := m.Content
 			// fmt.Fprintf(&buf, "  - [%d] role=%s\n", i, m.Role)
 			// When not using rawdog, show a user/content split if present
 			if !c.Config.Rawdog && m.Role == "user" {

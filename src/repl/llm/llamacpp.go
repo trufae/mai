@@ -82,17 +82,13 @@ func (p *LlamaCppProvider) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 func (p *LlamaCppProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
-	if len(images) > 0 {
-		messages = appendImagesToLastUserMessage(messages, images)
-	}
-
 	effectiveModel := strings.TrimSpace(p.config.Model)
 	if effectiveModel == "" {
 		effectiveModel = strings.TrimSpace(p.DefaultModel())
 	}
 
 	request := map[string]interface{}{
-		"messages": messages,
+		"messages": buildRequestMessages(messages, images),
 	}
 	if effectiveModel != "" {
 		request["model"] = effectiveModel
@@ -153,8 +149,8 @@ func (p *LlamaCppProvider) SendMessage(messages []Message, stream bool, images [
 	var response struct {
 		Choices []struct {
 			Message struct {
-				Content   interface{} `json:"content"`
-				ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
@@ -175,7 +171,7 @@ func (p *LlamaCppProvider) SendMessage(messages []Message, stream bool, images [
 	if len(response.Choices[0].Message.ToolCalls) > 0 {
 		return string(respBody), nil
 	}
-	return extractMessageText(response.Choices[0].Message.Content), nil
+	return response.Choices[0].Message.Content, nil
 }
 
 func (p *LlamaCppProvider) parseStream(reader io.Reader) (string, error) {
@@ -359,50 +355,3 @@ func parseLlamaCppModels(body []byte) []Model {
 	}}
 }
 
-func appendImagesToLastUserMessage(messages []Message, images []string) []Message {
-	blocks := make([]ContentBlock, 0, len(images)+1)
-	for _, uri := range images {
-		blocks = append(blocks, ContentBlock{
-			Type: "image_url",
-			ImageURL: &struct {
-				URL string `json:"url"`
-			}{URL: uri},
-		})
-	}
-
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != "user" {
-			continue
-		}
-		if text, ok := messages[i].Content.(string); ok && strings.TrimSpace(text) != "" {
-			blocks = append([]ContentBlock{{Type: "text", Text: text}}, blocks...)
-		}
-		messages[i].Content = blocks
-		return messages
-	}
-
-	return append(messages, Message{Role: "user", Content: blocks})
-}
-
-func extractMessageText(content interface{}) string {
-	switch v := content.(type) {
-	case nil:
-		return ""
-	case string:
-		return v
-	case []interface{}:
-		var out strings.Builder
-		for _, item := range v {
-			obj, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if text, ok := obj["text"].(string); ok {
-				out.WriteString(text)
-			}
-		}
-		return out.String()
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}

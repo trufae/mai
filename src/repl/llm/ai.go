@@ -28,8 +28,8 @@ type OpenAIToolFunction struct {
 
 // Message represents a chat message with a role and content.
 type Message struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 	// Optional images attached to this message (base64 or URLs depending on provider)
 	Images []string `json:"images,omitempty"`
 	// Tool calls for native tool calling protocol

@@ -271,7 +271,7 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 	if p.config.Rawdog {
 		messageline := "" // <start_of_turn>user\nhello world<end_of_turn>\n<start_of_turn>model\n"
 		for _, msg := range messages {
-			messageline += msg.Content.(string)
+			messageline += msg.Content
 		}
 		effectiveModel := p.config.Model
 		if effectiveModel == "" {

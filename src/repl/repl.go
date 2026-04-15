@@ -1075,7 +1075,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 	// Set default topic from first user message for unsaved sessions
 	if r.currentSession == "" && r.unsavedTopic == "" {
 		// Use the first few words of the message as the session topic
-		words := strings.Fields(userMessage.Content.(string))
+		words := strings.Fields(userMessage.Content)
 		snippetWords := words
 		if len(words) > 5 {
 			snippetWords = words[:5]
@@ -1320,7 +1320,7 @@ func (r *REPL) getLastAssistantReply() (string, error) {
 	// Iterate backwards through messages to find the last assistant message
 	for i := len(r.messages) - 1; i >= 0; i-- {
 		if r.messages[i].Role == "assistant" {
-			return r.messages[i].Content.(string), nil
+			return r.messages[i].Content, nil
 		}
 	}
 	return "", fmt.Errorf("no assistant replies found in conversation history")
@@ -1721,7 +1721,7 @@ func (r *REPL) displayConversationLog() string {
 		fmt.Fprintf(&output, "[%d] %s: ", i+1, role)
 
 		// For log display, use a larger truncation limit
-		content := msg.Content.(string)
+		content := msg.Content
 		if len(content) > 100 {
 			content = content[:97] + "..."
 		}
@@ -1778,10 +1778,10 @@ func (r *REPL) displayFullConversationLog() string {
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
 		if r.configOptions.GetBool("ui.markdown") {
-			fmt.Fprintf(&output, "%s\r\n", llm.RenderMarkdown(msg.Content.(string)))
+			fmt.Fprintf(&output, "%s\r\n", llm.RenderMarkdown(msg.Content))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
-			content := strings.ReplaceAll(msg.Content.(string), "\n", "\r\n")
+			content := strings.ReplaceAll(msg.Content, "\n", "\r\n")
 			fmt.Fprintf(&output, "%s\r\n", content)
 		}
 		output.WriteString("--------------------\r\n")
@@ -1827,7 +1827,7 @@ func (r *REPL) undoMessageByIndex(indexStr string) {
 	// Get the message being removed for display
 	msg := r.messages[index]
 	role := formatRole(msg.Role)
-	content := truncateContent(msg.Content.(string))
+	content := truncateContent(msg.Content)
 
 	// Remove the message using slice operations
 	r.messages = append(r.messages[:index], r.messages[index+1:]...)
@@ -2191,7 +2191,7 @@ func (r *REPL) handleCompactCommand() error {
 
 	for i, msg := range r.messages {
 		role := formatRole(msg.Role)
-		fmt.Fprintf(&conversationText, "## %s %d:\n\n%s\n\n", role, i+1, msg.Content.(string))
+		fmt.Fprintf(&conversationText, "## %s %d:\n\n%s\n\n", role, i+1, msg.Content)
 	}
 
 	// Create a new message with the compact prompt and conversation history

@@ -409,7 +409,7 @@ func (r *REPL) generateTopic() (string, error) {
 	if len(r.messages) == 0 {
 		return "", fmt.Errorf("no messages in conversation")
 	}
-	lastMessage := r.messages[len(r.messages)-1].Content.(string)
+	lastMessage := r.messages[len(r.messages)-1].Content
 	prompt := "Summarize the following text in a few words:\n\n" + lastMessage
 
 	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)

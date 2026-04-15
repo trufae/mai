@@ -333,16 +333,15 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// nothing more to do; parsing helper already returned results or an error
 }
 
-func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
-	provider := strings.ToLower(p.config.PROVIDER)
-
-	// If images are provided, prepend a user message with OpenAI vision content blocks
+// buildRequestMessages returns a JSON-ready slice of chat messages. Regular
+// messages are forwarded as-is (their Content is a plain string). When image
+// URIs are supplied, a user message carrying the OpenAI-style content blocks
+// is prepended — that payload is assembled locally as a map so the public
+// Message type can keep a flat string content.
+func buildRequestMessages(messages []Message, images []string) []interface{} {
+	out := make([]interface{}, 0, len(messages)+1)
 	if len(images) > 0 {
-		if provider == "deepseek" || provider == "mistral" {
-			return "", fmt.Errorf("images not supported by provider: %s", p.GetName())
-		}
-		fmt.Println("sending images")
-		var blocks []ContentBlock
+		blocks := make([]ContentBlock, 0, len(images))
 		for _, uri := range images {
 			blocks = append(blocks, ContentBlock{
 				Type: "image_url",
@@ -351,18 +350,30 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 				}{URL: uri},
 			})
 		}
-		imageMessage := Message{Role: "user", Content: blocks}
-		messages = append([]Message{imageMessage}, messages...)
+		out = append(out, map[string]interface{}{
+			"role":    "user",
+			"content": blocks,
+		})
+	}
+	for _, m := range messages {
+		out = append(out, m)
+	}
+	return out
+}
+
+func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
+	provider := strings.ToLower(p.config.PROVIDER)
+
+	if len(images) > 0 && (provider == "deepseek" || provider == "mistral") {
+		return "", fmt.Errorf("images not supported by provider: %s", p.GetName())
 	}
 
 	// Mistral rejects empty assistant messages
 	if provider == "mistral" {
 		filtered := make([]Message, 0, len(messages))
 		for _, msg := range messages {
-			if msg.Role == "assistant" {
-				if s, ok := msg.Content.(string); ok && s == "" && len(msg.ToolCalls) == 0 {
-					continue
-				}
+			if msg.Role == "assistant" && msg.Content == "" && len(msg.ToolCalls) == 0 {
+				continue
 			}
 			filtered = append(filtered, msg)
 		}
@@ -375,7 +386,7 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 	}
 	request := map[string]interface{}{
 		"model":    effectiveModel,
-		"messages": messages,
+		"messages": buildRequestMessages(messages, images),
 	}
 
 	// Add tools if provided
