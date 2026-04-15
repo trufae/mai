@@ -30,6 +30,7 @@ const (
 // ServerManager manages the background web server
 type ServerManager struct {
 	mu         sync.RWMutex
+	captureMu  sync.Mutex // serializes handlers that hijack process stdio and REPL config
 	status     ServerStatus
 	server     *http.Server
 	config     *llm.Config
@@ -263,6 +264,13 @@ func (sm *ServerManager) executeInputWithCapture(input string, stream bool, syst
 		return "", fmt.Errorf("REPL not available")
 	}
 
+	// This handler mutates process-global stdio and REPL config to thread
+	// per-request overrides into sendToAI. Serialize against any other
+	// capturing handler so concurrent requests cannot steal each other's
+	// output or restore the wrong config values.
+	sm.captureMu.Lock()
+	defer sm.captureMu.Unlock()
+
 	// Optionally override streaming and system prompt for this call
 	oldStream := sm.repl.configOptions.Get("llm.stream")
 	oldSystem := sm.repl.configOptions.Get("llm.systemprompt")
@@ -386,6 +394,11 @@ func (sm *ServerManager) GetStatusString() string {
 
 // executeCommandWithCapture executes a REPL command and captures its output
 func (sm *ServerManager) executeCommandWithCapture(command string) (string, error) {
+	// Shares process-global stdio with executeInputWithCapture, so it must
+	// take the same lock to avoid two concurrent requests racing on os.Stdout.
+	sm.captureMu.Lock()
+	defer sm.captureMu.Unlock()
+
 	// Create pipes to capture both stdout and stderr
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
