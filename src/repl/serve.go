@@ -236,6 +236,27 @@ func (sm *ServerManager) getLLMClient() (*llm.LLMClient, error) {
 	return llm.NewLLMClient(sm.config, context.Background())
 }
 
+// chatCompletionClient returns an LLM client for a /v1/chat/completions request.
+// When schema is non-nil, a fresh client is built from a per-request config so
+// that structured-output overrides never mutate the REPL's shared client or
+// the server-level config.
+func (sm *ServerManager) chatCompletionClient(schema map[string]interface{}) (*llm.LLMClient, error) {
+	if schema == nil {
+		return sm.getLLMClient()
+	}
+	var cfg *llm.Config
+	ctx := context.Background()
+	if sm.repl != nil {
+		cfg = sm.repl.buildLLMConfig()
+		ctx = sm.repl.ctx
+	} else {
+		c := *sm.config
+		cfg = &c
+	}
+	cfg.Schema = schema
+	return llm.NewLLMClient(cfg, ctx)
+}
+
 // executeInputWithCapture runs a plain user input through the REPL and captures output
 func (sm *ServerManager) executeInputWithCapture(input string, stream bool, system string) (string, error) {
 	if sm.repl == nil {
@@ -491,25 +512,21 @@ func (sm *ServerManager) handleChatCompletions(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	// Handle schema if provided
+	// Capture the optional per-request JSON schema without mutating shared state.
+	var schema map[string]interface{}
 	if req.ResponseFormat != nil && req.ResponseFormat.Type == "json_schema" {
-		sm.config.Schema = req.ResponseFormat.JSONSchema
-	} else {
-		sm.config.Schema = nil
+		schema = req.ResponseFormat.JSONSchema
 	}
 
-	// Set streaming based on request
-	stream := req.Stream
-
-	if stream {
-		sm.handleStreamingResponse(w, r, messages, req.Model)
+	if req.Stream {
+		sm.handleStreamingResponse(w, r, messages, req.Model, schema)
 	} else {
-		sm.handleNonStreamingResponse(w, r, messages, req.Model)
+		sm.handleNonStreamingResponse(w, r, messages, req.Model, schema)
 	}
 }
 
 // handleStreamingResponse handles streaming chat completions
-func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.Request, messages []llm.Message, model string) {
+func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.Request, messages []llm.Message, model string, schema map[string]interface{}) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -521,7 +538,7 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 	}
 
 	// For now, use non-streaming and simulate streaming
-	client, err := sm.getLLMClient()
+	client, err := sm.chatCompletionClient(schema)
 	if err != nil {
 		_, _ = fmt.Fprintf(w, "data: [ERROR] %v\n\n", err)
 		return
@@ -591,9 +608,9 @@ func (sm *ServerManager) handleStreamingResponse(w http.ResponseWriter, r *http.
 }
 
 // handleNonStreamingResponse handles non-streaming chat completions
-func (sm *ServerManager) handleNonStreamingResponse(w http.ResponseWriter, r *http.Request, messages []llm.Message, model string) {
-	// Send message using REPL-configured client
-	client, err := sm.getLLMClient()
+func (sm *ServerManager) handleNonStreamingResponse(w http.ResponseWriter, r *http.Request, messages []llm.Message, model string, schema map[string]interface{}) {
+	// Send message using a per-request client so structured-output schemas reach the provider
+	client, err := sm.chatCompletionClient(schema)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM init error: %v", err), http.StatusInternalServerError)
 		return
