@@ -136,6 +136,11 @@ func (sm *ServerManager) handleAnthropicMessages(w http.ResponseWriter, r *http.
 		messages = append(messages, message)
 	}
 
+	if len(messages) == 0 {
+		http.Error(w, "messages: at least one message is required", http.StatusBadRequest)
+		return
+	}
+
 	// Handle system messages
 	var systemPrompt strings.Builder
 	for _, sys := range req.System {
@@ -219,7 +224,7 @@ func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter,
 		Model:      req.Model,
 		StopReason: stringPtr("end_turn"),
 		Usage: &AnthropicUsage{
-			InputTokens:  len(strings.Fields(fmt.Sprintf("%v", messages[0].Content))),
+			InputTokens:  countInputTokens(messages),
 			OutputTokens: len(strings.Fields(response)),
 		},
 	}
@@ -260,13 +265,24 @@ func (sm *ServerManager) handleAnthropicNonStreamingMessages(w http.ResponseWrit
 		Model:      req.Model,
 		StopReason: stringPtr("end_turn"),
 		Usage: &AnthropicUsage{
-			InputTokens:  len(strings.Fields(fmt.Sprintf("%v", messages[0].Content))),
+			InputTokens:  countInputTokens(messages),
 			OutputTokens: len(strings.Fields(response)),
 		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// countInputTokens approximates input token usage across every message in the
+// request instead of peeking at a single index, so empty or partially-populated
+// message lists cannot crash the response builders.
+func countInputTokens(messages []llm.Message) int {
+	total := 0
+	for _, m := range messages {
+		total += len(strings.Fields(m.Content))
+	}
+	return total
 }
 
 // handleAnthropicCountTokens handles the /v1/messages/count_tokens endpoint
