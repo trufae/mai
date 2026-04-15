@@ -923,6 +923,11 @@ func (r *REPL) buildUserDetails() string {
 }
 
 func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string, processSubstitutions bool, forceDisableStreaming bool) error {
+	// Serialize full request execution so background followup goroutines
+	// cannot overlap with foreground REPL input or with each other.
+	r.requestMu.Lock()
+	defer r.requestMu.Unlock()
+
 	r.mu.Lock()
 	r.isStreaming = redirectType == ""
 	r.mu.Unlock()

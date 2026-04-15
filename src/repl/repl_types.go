@@ -27,6 +27,7 @@ type REPL struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	mu               sync.Mutex
+	requestMu        sync.Mutex // serializes full sendToAI requests (foreground vs background followup)
 	isStreaming      bool
 	isInterrupted    bool
 	oldState         *term.State
