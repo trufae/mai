@@ -195,7 +195,7 @@ func AskYesNo(question string, defaultVal rune) bool {
 	// If stdin is not a terminal, fall back to the default choice instead of panicking
 	if !term.IsTerminal(fd) {
 		fmt.Println()
-		return dv == 'n'
+		return dv == 'y'
 	}
 
 	// Put terminal in raw mode; if this fails, fall back to default
