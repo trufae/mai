@@ -147,6 +147,12 @@ func (sm *ServerManager) handleAnthropicMessages(w http.ResponseWriter, r *http.
 		}
 	}
 
+	// Prepend the system prompt as a system-role message so it actually
+	// reaches the underlying provider via SendMessage.
+	if systemPrompt.Len() > 0 {
+		messages = append([]llm.Message{{Role: "system", Content: systemPrompt.String()}}, messages...)
+	}
+
 	// Convert Anthropic tools to OpenAI format
 	var tools []llm.OpenAITool
 	if len(req.Tools) > 0 {
@@ -168,14 +174,14 @@ func (sm *ServerManager) handleAnthropicMessages(w http.ResponseWriter, r *http.
 	}
 
 	if req.Stream {
-		sm.handleAnthropicStreamingMessages(w, r, messages, systemPrompt.String(), req, tools)
+		sm.handleAnthropicStreamingMessages(w, r, messages, req, tools)
 	} else {
-		sm.handleAnthropicNonStreamingMessages(w, r, messages, systemPrompt.String(), req, tools)
+		sm.handleAnthropicNonStreamingMessages(w, r, messages, req, tools)
 	}
 }
 
 // handleAnthropicStreamingMessages handles streaming Anthropic messages
-func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter, r *http.Request, messages []llm.Message, systemPrompt string, req AnthropicMessagesRequest, tools []llm.OpenAITool) {
+func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter, r *http.Request, messages []llm.Message, req AnthropicMessagesRequest, tools []llm.OpenAITool) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -213,7 +219,7 @@ func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter,
 		Model:      req.Model,
 		StopReason: stringPtr("end_turn"),
 		Usage: &AnthropicUsage{
-			InputTokens:  len(strings.Fields(strings.Join([]string{systemPrompt, fmt.Sprintf("%v", messages[0].Content)}, " "))),
+			InputTokens:  len(strings.Fields(fmt.Sprintf("%v", messages[0].Content))),
 			OutputTokens: len(strings.Fields(response)),
 		},
 	}
@@ -228,7 +234,7 @@ func (sm *ServerManager) handleAnthropicStreamingMessages(w http.ResponseWriter,
 }
 
 // handleAnthropicNonStreamingMessages handles non-streaming Anthropic messages
-func (sm *ServerManager) handleAnthropicNonStreamingMessages(w http.ResponseWriter, r *http.Request, messages []llm.Message, systemPrompt string, req AnthropicMessagesRequest, tools []llm.OpenAITool) {
+func (sm *ServerManager) handleAnthropicNonStreamingMessages(w http.ResponseWriter, r *http.Request, messages []llm.Message, req AnthropicMessagesRequest, tools []llm.OpenAITool) {
 	client, err := sm.getLLMClient()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("LLM init error: %v", err), http.StatusInternalServerError)
@@ -254,7 +260,7 @@ func (sm *ServerManager) handleAnthropicNonStreamingMessages(w http.ResponseWrit
 		Model:      req.Model,
 		StopReason: stringPtr("end_turn"),
 		Usage: &AnthropicUsage{
-			InputTokens:  len(strings.Fields(strings.Join([]string{systemPrompt, fmt.Sprintf("%v", messages[0].Content)}, " "))),
+			InputTokens:  len(strings.Fields(fmt.Sprintf("%v", messages[0].Content))),
 			OutputTokens: len(strings.Fields(response)),
 		},
 	}
