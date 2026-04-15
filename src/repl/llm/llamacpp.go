@@ -88,7 +88,7 @@ func (p *LlamaCppProvider) SendMessage(messages []Message, stream bool, images [
 	}
 
 	request := map[string]interface{}{
-		"messages": buildRequestMessages(messages, images),
+		"messages": mergeImagesIntoLastUser(messages, images),
 	}
 	if effectiveModel != "" {
 		request["model"] = effectiveModel
@@ -353,5 +353,53 @@ func parseLlamaCppModels(body []byte) []Model {
 		Provider:    "llamacpp",
 		Description: modelPath,
 	}}
+}
+
+// mergeImagesIntoLastUser returns a JSON-ready messages slice that matches
+// the standard OpenAI vision format: image blocks live inside the same user
+// turn as the prompt text. The last user message's content is replaced with
+// a combined [text, image_url...] block array; if no user message exists yet
+// a new one is appended. Shared by all OpenAI-compatible providers (OpenAI,
+// llama.cpp, ...) that accept structured content blocks for images.
+func mergeImagesIntoLastUser(messages []Message, images []string) []interface{} {
+	out := make([]interface{}, 0, len(messages)+1)
+	for _, m := range messages {
+		out = append(out, m)
+	}
+	if len(images) == 0 {
+		return out
+	}
+
+	blocks := make([]ContentBlock, 0, len(images)+1)
+	for _, uri := range images {
+		blocks = append(blocks, ContentBlock{
+			Type: "image_url",
+			ImageURL: &struct {
+				URL string `json:"url"`
+			}{URL: uri},
+		})
+	}
+
+	for i := len(out) - 1; i >= 0; i-- {
+		msg, ok := out[i].(Message)
+		if !ok || msg.Role != "user" {
+			continue
+		}
+		combined := blocks
+		if strings.TrimSpace(msg.Content) != "" {
+			combined = append([]ContentBlock{{Type: "text", Text: msg.Content}}, blocks...)
+		}
+		out[i] = map[string]interface{}{
+			"role":    "user",
+			"content": combined,
+		}
+		return out
+	}
+
+	out = append(out, map[string]interface{}{
+		"role":    "user",
+		"content": blocks,
+	})
+	return out
 }
 

@@ -333,34 +333,6 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]Model, error) {
 	// nothing more to do; parsing helper already returned results or an error
 }
 
-// buildRequestMessages returns a JSON-ready slice of chat messages. Regular
-// messages are forwarded as-is (their Content is a plain string). When image
-// URIs are supplied, a user message carrying the OpenAI-style content blocks
-// is prepended — that payload is assembled locally as a map so the public
-// Message type can keep a flat string content.
-func buildRequestMessages(messages []Message, images []string) []interface{} {
-	out := make([]interface{}, 0, len(messages)+1)
-	if len(images) > 0 {
-		blocks := make([]ContentBlock, 0, len(images))
-		for _, uri := range images {
-			blocks = append(blocks, ContentBlock{
-				Type: "image_url",
-				ImageURL: &struct {
-					URL string `json:"url"`
-				}{URL: uri},
-			})
-		}
-		out = append(out, map[string]interface{}{
-			"role":    "user",
-			"content": blocks,
-		})
-	}
-	for _, m := range messages {
-		out = append(out, m)
-	}
-	return out
-}
-
 func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
 	provider := strings.ToLower(p.config.PROVIDER)
 
@@ -386,7 +358,7 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 	}
 	request := map[string]interface{}{
 		"model":    effectiveModel,
-		"messages": buildRequestMessages(messages, images),
+		"messages": mergeImagesIntoLastUser(messages, images),
 	}
 
 	// Add tools if provided
