@@ -150,7 +150,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("mcp.config", StringOption, "Path to MCP configuration file", "")
 	co.RegisterOption("mcp.args", StringOption, "Command-line arguments to pass to mai-wmcp", "")
 	co.RegisterOption("mcp.daemon", BooleanOption, "Enable starting the mai-wmcp server", "true")
-	co.RegisterOption("mcp.transport", StringOption, "MCP transport: http (default, spawns mai-wmcp) or embed (in-process via wmcplib)", "http")
+	co.RegisterOption("mcp.transport", StringOption, "MCP transport: embed (default, in-process via wmcplib) or http (spawns mai-wmcp)", "embed")
 	co.RegisterOption("mcp.yolo", BooleanOption, "Skip tool confirmation prompts when running in embed transport", "false")
 	co.RegisterOption("mcp.debug", BooleanOption, "Enable debug output for MCP communication between agent, model, and servers", "false")
 	co.RegisterOption("mcp.prompt", StringOption, "Custom text to be included in the instructions prompt for react loops", "")
@@ -623,6 +623,13 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			return fmt.Sprintf("Error: invalid value '%s' for mcp.reason. Must be one of: low, medium, high\r\n", value), nil
 		}
 		_ = r.configOptions.Set("mcp.reason", valLower)
+		return "", nil
+	case "mcp.transport":
+		valLower := strings.ToLower(value)
+		if valLower != "http" && valLower != "embed" {
+			return fmt.Sprintf("Error: invalid value '%s' for mcp.transport. Must be one of: embed, http\r\n", value), nil
+		}
+		_ = r.configOptions.Set("mcp.transport", valLower)
 		return "", nil
 	}
 

@@ -157,8 +157,10 @@ type MAIConfig struct {
 
 // MAIServer represents a server in the MAI config format
 type MAIServer struct {
-	Command string            `json:"command"`
+	Type    string            `json:"type,omitempty"`
+	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
+	URL     string            `json:"url,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Enabled bool              `json:"enabled"`
 	Tools   map[string]bool   `json:"tools,omitempty"`
@@ -190,10 +192,20 @@ func LoadMAIConfig(configPath string) (*Config, error) {
 			continue
 		}
 
+		srvType := server.Type
+		if srvType == "" {
+			if server.URL != "" {
+				srvType = "http"
+			} else {
+				srvType = "stdio"
+			}
+		}
+
 		config.MCPServers[name] = MCPServerConfig{
-			Type:    "stdio",
+			Type:    srvType,
 			Command: server.Command,
 			Args:    server.Args,
+			URL:     server.URL,
 			Env:     server.Env,
 			Tools:   server.Tools,
 		}

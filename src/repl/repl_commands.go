@@ -130,7 +130,7 @@ func (r *REPL) initCommands() {
 	// MCP command: manage MCP servers
 	r.commands["/mcp"] = Command{
 		Name:        "/mcp",
-		Description: "Manage MCP servers (start, stop, restart, enable, disable, edit, status)",
+		Description: "Manage MCP servers (add, del, start, stop, restart, enable, disable, edit, status)",
 		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleMCPCommand(args)
 		},

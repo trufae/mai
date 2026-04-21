@@ -237,6 +237,8 @@ func (r *REPL) handleMCPCommand(args []string) (string, error) {
 	if len(args) < 2 {
 		var output strings.Builder
 		output.WriteString("MCP server management commands:\r\n")
+		output.WriteString("  /mcp add <name> <command> [args...] - Add a new MCP server (enabled by default)\r\n")
+		output.WriteString("  /mcp del <server>     - Remove MCP server from configuration\r\n")
 		output.WriteString("  /mcp start [server]   - Start MCP server(s) (all enabled if no server specified)\r\n")
 		output.WriteString("  /mcp stop [server]    - Stop MCP server(s) (all if no server specified)\r\n")
 		output.WriteString("  /mcp restart [server] - Restart MCP server(s)\r\n")
@@ -249,6 +251,10 @@ func (r *REPL) handleMCPCommand(args []string) (string, error) {
 
 	action := args[1]
 	switch action {
+	case "add":
+		return r.handleMCPAdd(args[2:])
+	case "del", "rm", "remove":
+		return r.handleMCPDel(args[2:])
 	case "start":
 		return r.handleMCPStart(args[2:])
 	case "stop":
@@ -266,6 +272,97 @@ func (r *REPL) handleMCPCommand(args []string) (string, error) {
 	default:
 		return fmt.Sprintf("Unknown MCP action: %s\r\n", action), nil
 	}
+}
+
+// handleMCPAdd adds a new MCP server to the configuration.
+// Accepts either:
+//   /mcp add <name> <http-or-sse-url>
+//   /mcp add <name> <command> [args...]
+// A single remainder argument starting with http:// or https:// is stored as a
+// URL server (type=http, or type=sse if the URL path ends with /sse). Anything
+// else is treated as a shell one-liner and split into command + args.
+func (r *REPL) handleMCPAdd(args []string) (string, error) {
+	if len(args) < 2 {
+		return "Usage: /mcp add <name> <url-or-command> [args...]\r\n", nil
+	}
+
+	name := args[0]
+	if r.mcpConfig.Servers == nil {
+		r.mcpConfig.Servers = make(map[string]MCPServer)
+	}
+	if _, exists := r.mcpConfig.Servers[name]; exists {
+		return fmt.Sprintf("Server %s already exists. Use /mcp del %s first or /mcp edit to modify it.\r\n", name, name), nil
+	}
+
+	server := MCPServer{Enabled: true}
+	first := args[1]
+	rest := args[2:]
+
+	if isMCPURL(first) && len(rest) == 0 {
+		server.Type = "http"
+		if strings.HasSuffix(strings.TrimRight(first, "/"), "/sse") {
+			server.Type = "sse"
+		}
+		server.URL = first
+	} else {
+		parts := []string{first}
+		if len(rest) == 0 {
+			// Single remainder may itself be a shell-style one-liner.
+			parts = strings.Fields(first)
+			if len(parts) == 0 {
+				return "Usage: /mcp add <name> <url-or-command> [args...]\r\n", nil
+			}
+		} else {
+			parts = append(parts, rest...)
+		}
+		server.Type = "stdio"
+		server.Command = parts[0]
+		if len(parts) > 1 {
+			server.Args = append(server.Args, parts[1:]...)
+		}
+	}
+
+	r.mcpConfig.Servers[name] = server
+
+	if err := r.saveMCPConfig(); err != nil {
+		return fmt.Sprintf("Failed to save config: %v\r\n", err), nil
+	}
+
+	if server.Type == "stdio" {
+		return fmt.Sprintf("Added MCP server %s (stdio: %s)\r\n", name, formatCommandString(append([]string{server.Command}, server.Args...))), nil
+	}
+	return fmt.Sprintf("Added MCP server %s (%s: %s)\r\n", name, server.Type, server.URL), nil
+}
+
+// isMCPURL reports whether s looks like an http(s) URL suitable for an MCP
+// HTTP/SSE transport.
+func isMCPURL(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// handleMCPDel removes an MCP server from the configuration
+func (r *REPL) handleMCPDel(args []string) (string, error) {
+	if len(args) == 0 {
+		return "Usage: /mcp del <server>\r\n", nil
+	}
+
+	var output strings.Builder
+	for _, name := range args {
+		if _, exists := r.mcpConfig.Servers[name]; !exists {
+			fmt.Fprintf(&output, "Server %s not found\r\n", name)
+			continue
+		}
+		_ = r.stopMCPServer(name)
+		delete(r.mcpConfig.Servers, name)
+		fmt.Fprintf(&output, "Removed %s\r\n", name)
+	}
+
+	if err := r.saveMCPConfig(); err != nil {
+		fmt.Fprintf(&output, "Failed to save config: %v\r\n", err)
+	}
+
+	return output.String(), nil
 }
 
 // handleMCPStart starts MCP servers
@@ -2245,7 +2342,10 @@ func (r *REPL) handleCompactCommand() error {
 	return nil
 }
 
-// handleToolCommand executes the mai-tool command with the given arguments
+// handleToolCommand executes the mai-tool command with the given arguments.
+// When mcp.transport=embed, list/call/prompts subcommands are served from the
+// in-process wmcplib service so they see the same set of MCP servers managed
+// by /mcp instead of the external mai-wmcp HTTP daemon.
 func (r *REPL) handleToolCommand(args []string) (string, error) {
 	if len(args) < 2 {
 		tools, err := GetAvailableToolsWithStatus(r.configOptions, r.agentConfig)
@@ -2254,8 +2354,48 @@ func (r *REPL) handleToolCommand(args []string) (string, error) {
 		}
 		return tools + "\n", nil
 	}
+
+	subArgs := args[1:]
+	if replEmbedActive(r) {
+		if _, err := embedGetService(r); err != nil {
+			return "", fmt.Errorf("embed transport: %v", err)
+		}
+		switch subArgs[0] {
+		case "list":
+			format := Markdown
+			if v := strings.TrimSpace(r.configOptions.Get("mcp.toolformat")); v != "" && v != "?" {
+				format = parseToolFormat(v)
+			}
+			out, err := embedListToolsFormatted(r, format)
+			if err != nil {
+				return "", err
+			}
+			if !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			return out, nil
+		case "call":
+			if len(subArgs) < 2 {
+				return "Usage: /tool call <name> [key=value ...]\r\n", nil
+			}
+			out, err := embedCallToolStringArgs(r, subArgs[1], subArgs[2:], 60)
+			if err != nil {
+				return "", err
+			}
+			if !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			return out, nil
+		case "prompts":
+			if len(subArgs) >= 2 && subArgs[1] == "list" {
+				return embedListPromptsSimple(r)
+			}
+		}
+		return fmt.Sprintf("Subcommand '%s' not supported under mcp.transport=embed. Use /set mcp.transport=http to fall back to mai-tool.\r\n", strings.Join(subArgs, " ")), nil
+	}
+
 	// Execute mai-tool directly with the provided arguments
-	cmd := exec.Command("mai-tool", args[1:]...)
+	cmd := exec.Command("mai-tool", subArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("mai-tool execution failed: %v\n%s", err, string(output))

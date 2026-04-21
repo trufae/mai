@@ -409,6 +409,7 @@ func (r *REPL) cleanup() {
 			}
 			if mode == "prompt" {
 				if !AskYesNo("Save session?", 'y') {
+					fmt.Fprintf(os.Stderr, "\r")
 					return
 				}
 			}

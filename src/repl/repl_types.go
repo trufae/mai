@@ -70,8 +70,10 @@ type MCPConfig struct {
 
 // MCPServer represents a single MCP server configuration
 type MCPServer struct {
-	Command string            `json:"command"`
+	Type    string            `json:"type,omitempty"`
+	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
+	URL     string            `json:"url,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Enabled bool              `json:"enabled"`
 }
