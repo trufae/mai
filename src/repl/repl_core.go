@@ -470,7 +470,35 @@ func (r *REPL) setupSignalHandler() {
 			r.setupSignalHandler()
 			return
 		}
-		// Reset the current editing line when interrupted
+
+		// If we're not in the middle of streaming and the prompt line is
+		// empty, treat two SIGINTs within a short window as a request to
+		// exit — otherwise the user can get stuck in the REPL when MCP
+		// servers are misbehaving.
+		r.mu.Lock()
+		streaming := r.isStreaming
+		r.mu.Unlock()
+		idle := !streaming
+		if idle && r.readline != nil && r.readline.GetContent() != "" {
+			idle = false
+		}
+		if idle {
+			now := time.Now()
+			if !r.lastSigInt.IsZero() && now.Sub(r.lastSigInt) < 2*time.Second {
+				fmt.Print("^C\n")
+				r.cleanup()
+				os.Exit(130)
+			}
+			r.lastSigInt = now
+			fmt.Print("^C\n(Press Ctrl+C again to exit)\n")
+			if r.readline != nil {
+				r.readline.SetContent("")
+			}
+			r.setupSignalHandler()
+			return
+		}
+
+		// Streaming or non-empty buffer: clear line and cancel the response.
 		if r.readline != nil {
 			fmt.Print("^C\n")
 			r.readline.SetContent("")

@@ -389,36 +389,60 @@ func (s *MCPService) handleStderr(server *MCPServer) {
 	close(server.stderrDone)
 }
 
-// monitorServer monitors the server process and restarts it if it crashes
+// monitorServer monitors the server process and restarts it if it crashes.
+// When the process exits the loop terminates and monitorDone is closed, so a
+// subsequent restart can safely wait on it. The restart itself runs in a
+// separate goroutine to avoid a self-deadlock on monitorDone.
 func (s *MCPService) monitorServer(server *MCPServer) {
-	for server.monitorActive {
-		err := server.Process.Wait()
-		if !server.monitorActive {
-			break
-		}
+	defer close(server.monitorDone)
 
-		if err != nil {
-			log.Printf("ERROR: MCP server '%s' crashed: %v", server.Name, err)
-		} else {
-			log.Printf("ERROR: MCP server '%s' exited unexpectedly", server.Name)
-		}
-
-		time.Sleep(1 * time.Second)
-
-		log.Printf("Restarting MCP server '%s'...", server.Name)
-		if restartErr := s.restartServer(server); restartErr != nil {
-			log.Printf("ERROR: Failed to restart MCP server '%s': %v", server.Name, restartErr)
-		} else {
-			log.Printf("Successfully restarted MCP server '%s'", server.Name)
-		}
+	if !server.monitorActive {
+		return
 	}
-	close(server.monitorDone)
+
+	err := server.Process.Wait()
+	if !server.monitorActive || s.isShuttingDown() {
+		return
+	}
+
+	if err != nil {
+		log.Printf("ERROR: MCP server '%s' crashed: %v", server.Name, err)
+	} else {
+		log.Printf("ERROR: MCP server '%s' exited unexpectedly", server.Name)
+	}
+
+	go s.scheduleRestart(server)
+}
+
+// scheduleRestart is run on a fresh goroutine after monitorServer has exited
+// so restartServer can wait on monitorDone without deadlocking on itself.
+func (s *MCPService) scheduleRestart(server *MCPServer) {
+	time.Sleep(1 * time.Second)
+	if s.isShuttingDown() || !server.monitorActive {
+		return
+	}
+	log.Printf("Restarting MCP server '%s'...", server.Name)
+	if err := s.restartServer(server); err != nil {
+		log.Printf("ERROR: Failed to restart MCP server '%s': %v", server.Name, err)
+	} else {
+		log.Printf("Successfully restarted MCP server '%s'", server.Name)
+	}
+}
+
+func (s *MCPService) isShuttingDown() bool {
+	s.Mutex.RLock()
+	defer s.Mutex.RUnlock()
+	return s.shuttingDown
 }
 
 // restartServer restarts a crashed MCP server
 func (s *MCPService) restartServer(server *MCPServer) error {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
+
+	if s.shuttingDown {
+		return fmt.Errorf("service is shutting down")
+	}
 
 	server.stderrActive = false
 	server.monitorActive = false
@@ -433,8 +457,8 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 		server.Stderr.Close()
 	}
 
-	<-server.stderrDone
-	<-server.monitorDone
+	waitClosed(server.stderrDone, 2*time.Second)
+	waitClosed(server.monitorDone, 2*time.Second)
 
 	parts := strings.Fields(server.Command)
 	if len(parts) == 0 {
@@ -496,15 +520,17 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 	return nil
 }
 
-// stopServer stops an MCP server
+// stopServer stops an MCP server. The monitor goroutine owns Process.Wait(),
+// so we kill the process, close the pipes, and wait for the monitor/stderr
+// goroutines to drain — we do not Wait() ourselves here to avoid racing with
+// the monitor's own call.
 func (s *MCPService) stopServer(server *MCPServer) {
 	server.stderrActive = false
 	server.monitorActive = false
 
 	if !server.IsHTTP {
-		if server.Process != nil {
-			server.Process.Process.Kill()
-			server.Process.Wait()
+		if server.Process != nil && server.Process.Process != nil {
+			_ = server.Process.Process.Kill()
 		}
 		if server.Stdin != nil {
 			server.Stdin.Close()
@@ -516,14 +542,28 @@ func (s *MCPService) stopServer(server *MCPServer) {
 			server.Stderr.Close()
 		}
 
-		<-server.stderrDone
-		<-server.monitorDone
+		// Drain the monitor/stderr goroutines. Use a generous timeout so a
+		// misbehaving server can't pin the REPL on shutdown.
+		waitClosed(server.stderrDone, 2*time.Second)
+		waitClosed(server.monitorDone, 2*time.Second)
+	}
+}
+
+// waitClosed blocks until ch is closed or the timeout fires.
+func waitClosed(ch chan struct{}, timeout time.Duration) {
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	case <-time.After(timeout):
 	}
 }
 
 // StopAllServers stops all MCP servers
 func (s *MCPService) StopAllServers() {
 	s.Mutex.Lock()
+	s.shuttingDown = true
 	defer s.Mutex.Unlock()
 
 	for name, server := range s.Servers {

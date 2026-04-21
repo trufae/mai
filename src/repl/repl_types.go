@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/term"
 
@@ -54,6 +55,7 @@ type REPL struct {
 	wmcpPort         int
 	mcpProcesses     map[string]*MCPProcess // Track individual MCP processes
 	mcpConfig        *MCPConfig             // Current MCP configuration
+	lastSigInt       time.Time              // timestamp of last idle-prompt SIGINT, used for double-^C exit
 }
 
 type pendingFile struct {

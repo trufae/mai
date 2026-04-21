@@ -252,4 +252,5 @@ type MCPService struct {
 	reportLock           sync.RWMutex
 	sessionLock          sync.Mutex
 	sessionID            string
+	shuttingDown         bool
 }
