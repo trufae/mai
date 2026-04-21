@@ -1,10 +1,11 @@
-package main
+package wmcplib
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // MaiOptions represents configuration options for the mai-wmcp service
@@ -16,7 +17,7 @@ type MaiOptions struct {
 	DrunkMode      bool   `json:"drunkMode,omitempty"`
 	NoPrompts      bool   `json:"noPrompts,omitempty"`
 	NonInteractive bool   `json:"nonInteractive,omitempty"`
-	SessionMode    bool   `json:"sessionMode,omitempty"` // Enable session ID in bridge responses (disabled by default)
+	SessionMode    bool   `json:"sessionMode,omitempty"`
 }
 
 // Config represents the main configuration structure
@@ -27,29 +28,26 @@ type Config struct {
 
 // MCPServerConfig represents the configuration for a single MCP server
 type MCPServerConfig struct {
-	Type        string            `json:"type"`              // "stdio", "http", or "sse"
-	Command     string            `json:"command,omitempty"` // for stdio type
-	Args        []string          `json:"args,omitempty"`    // for stdio type
-	URL         string            `json:"url,omitempty"`     // for http or sse type
+	Type        string            `json:"type"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	URL         string            `json:"url,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
-	Tools       map[string]bool   `json:"tools,omitempty"`       // Tool name -> enabled status
-	SessionMode bool              `json:"sessionMode,omitempty"` // Enable session ID tracking (disabled by default to prevent SSE hijacking)
+	Tools       map[string]bool   `json:"tools,omitempty"`
+	SessionMode bool              `json:"sessionMode,omitempty"`
 }
 
 // LoadConfigFromJSON loads the configuration from a JSON string
 func LoadConfigFromJSON(jsonStr string) (*Config, error) {
-	// Parse the JSON
 	var config Config
 	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config JSON: %v", err)
 	}
 
-	// Set defaults for MaiOptions if not specified
 	if config.MaiOptions.BaseURL == "" {
 		config.MaiOptions.BaseURL = ":8989"
 	}
 
-	// Validate the config
 	for name, server := range config.MCPServers {
 		if server.Type != "stdio" && server.Type != "http" && server.Type != "sse" {
 			return nil, fmt.Errorf("server %s: type must be 'stdio', 'http', or 'sse'", name)
@@ -67,7 +65,6 @@ func LoadConfigFromJSON(jsonStr string) (*Config, error) {
 
 // LoadConfig loads the configuration from a file
 func LoadConfig(configPath string) (*Config, error) {
-	// If configPath is empty, use default path ~/.config/mai/mcps.json
 	if configPath == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -76,29 +73,24 @@ func LoadConfig(configPath string) (*Config, error) {
 		configPath = filepath.Join(home, ".config", "mai", "mcps.json")
 	}
 
-	// Check if the file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return &Config{MCPServers: make(map[string]MCPServerConfig)}, nil
 	}
 
-	// Read the file
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	// Parse the JSON
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %v", err)
 	}
 
-	// Set defaults for MaiOptions if not specified
 	if config.MaiOptions.BaseURL == "" {
 		config.MaiOptions.BaseURL = ":8989"
 	}
 
-	// Validate the config
 	for name, server := range config.MCPServers {
 		if server.Type != "stdio" && server.Type != "http" && server.Type != "sse" {
 			return nil, fmt.Errorf("server %s: type must be 'stdio', 'http', or 'sse'", name)
@@ -122,7 +114,6 @@ func (c *Config) BuildServerCommands() map[string]string {
 		if server.Type == "http" || server.Type == "sse" {
 			commands[name] = server.URL
 		} else {
-			// Build the command string
 			cmdParts := []string{server.Command}
 			cmdParts = append(cmdParts, server.Args...)
 			cmdStr := formatCommandString(cmdParts)
@@ -133,7 +124,6 @@ func (c *Config) BuildServerCommands() map[string]string {
 	return commands
 }
 
-// formatCommandString formats a command and its arguments as a single string
 func formatCommandString(parts []string) string {
 	var result string
 
@@ -141,7 +131,6 @@ func formatCommandString(parts []string) string {
 		if i > 0 {
 			result += " "
 		}
-		// Quote arguments with spaces
 		if containsSpace(part) {
 			result += fmt.Sprintf("\"%s\"", part)
 		} else {
@@ -152,7 +141,6 @@ func formatCommandString(parts []string) string {
 	return result
 }
 
-// containsSpace checks if a string contains any space characters
 func containsSpace(s string) bool {
 	for _, c := range s {
 		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
@@ -173,7 +161,7 @@ type MAIServer struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Enabled bool              `json:"enabled"`
-	Tools   map[string]bool   `json:"tools,omitempty"` // Tool name -> enabled status
+	Tools   map[string]bool   `json:"tools,omitempty"`
 }
 
 // LoadMAIConfig loads configuration from MAI's mcps.json format
@@ -188,19 +176,18 @@ func LoadMAIConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse MAI config file: %v", err)
 	}
 
-	// Convert to wmcp Config format
 	config := &Config{
 		MCPServers: make(map[string]MCPServerConfig),
 		MaiOptions: MaiOptions{
 			BaseURL:        ":8989",
 			YoloMode:       false,
-			NonInteractive: true, // Default to non-interactive for MAI integration
+			NonInteractive: true,
 		},
 	}
 
 	for name, server := range maiConfig.Servers {
 		if !server.Enabled {
-			continue // Skip disabled servers
+			continue
 		}
 
 		config.MCPServers[name] = MCPServerConfig{
@@ -217,16 +204,25 @@ func LoadMAIConfig(configPath string) (*Config, error) {
 
 // StartMCPServersFromConfig starts MCP servers from the given config
 func StartMCPServersFromConfig(service *MCPService, config *Config) {
-	// Build the commands map
 	commands := config.BuildServerCommands()
 
-	// Start each server with its environment variables
 	for name, cmdStr := range commands {
 		serverConfig := config.MCPServers[name]
-
-		// Start server with environment variables, tool filtering, and session mode
 		if err := service.StartServerWithEnvAndTools(name, cmdStr, serverConfig.Env, serverConfig.Tools, serverConfig.SessionMode); err != nil {
 			fmt.Printf("Failed to start server %s: %v\n", name, err)
 		}
 	}
+}
+
+// GetServerNameFromCommand extracts server name from the command string
+func GetServerNameFromCommand(command string) string {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return ""
+	}
+	firstPart := parts[0]
+	if idx := strings.LastIndex(firstPart, "/"); idx != -1 {
+		return firstPart[idx+1:]
+	}
+	return firstPart
 }

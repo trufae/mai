@@ -256,8 +256,12 @@ func NewREPL(configOptions ConfigOptions, initialCommand string, quitAfterAction
 		}
 	}
 
-	// Only start mai-wmcp daemon if mcp.use is enabled
-	if repl.configOptions.GetBool("mcp.use") && repl.configOptions.GetBool("mcp.daemon") {
+	// Embed transport runs wmcp in-process instead of spawning mai-wmcp.
+	if repl.configOptions.GetBool("mcp.use") && replEmbedActive(repl) {
+		if _, err := embedGetService(repl); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting embedded wmcp: %v\n", err)
+		}
+	} else if repl.configOptions.GetBool("mcp.use") && repl.configOptions.GetBool("mcp.daemon") {
 		// Spawn mai-wmcp if mcp.config or mcp.args is set
 		var wmcpArgs []string
 		if v := repl.configOptions.Get("mcp.config"); v != "" {
@@ -367,6 +371,8 @@ func (r *REPL) Run() error {
 }
 
 func (r *REPL) cleanup() {
+	// Shut down the embedded wmcp service, if any. Harmless when not active.
+	embedStop()
 	// Kill wmcp process first to ensure it's stopped regardless of what happens next
 	if r.wmcpProcess != nil && r.wmcpProcess.Process != nil {
 		if err := r.wmcpProcess.Process.Kill(); err != nil {

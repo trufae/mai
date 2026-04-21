@@ -11,10 +11,10 @@ import (
 	"runtime"
 	"strings"
 
+	wmcplib "wmcplib"
+
 	"github.com/gorilla/mux"
 )
-
-const MaiVersion = "1.3.0"
 
 func showHelp() {
 	fmt.Println(`Usage: mai-wmcp [options] "server1" "server2" ...
@@ -32,6 +32,7 @@ func showHelp() {
      -o FILE  Output report to FILE
      -p       Skip loading prompts (only expose tools)
      -s       Enable session ID tracking (disabled by default to prevent SSE hijacking)
+     -S       Serve MCP JSON-RPC over stdio instead of HTTP
      -t       Load MCP servers and list tools, prompts, and resources, then quit
      -v       Show version information
      -y       Yolo mode (skip tool confirmations)
@@ -46,41 +47,38 @@ func showHelp() {
 }
 
 func showVersion() {
-	fmt.Printf("mai-wmcp version %s\n", MaiVersion)
+	fmt.Printf("mai-wmcp version %s\n", wmcplib.MaiVersion)
 }
 
-func listMCPData(service *MCPService, jsonOutput bool) {
-	service.mutex.RLock()
-	defer service.mutex.RUnlock()
+func listMCPData(service *wmcplib.MCPService, jsonOutput bool) {
+	service.Mutex.RLock()
+	defer service.Mutex.RUnlock()
 
 	if jsonOutput {
 		result := make(map[string]interface{})
-		tools := make(map[string][]Tool)
-		prompts := make(map[string][]Prompt)
-		resources := make(map[string][]Resource)
+		tools := make(map[string][]wmcplib.Tool)
+		prompts := make(map[string][]wmcplib.Prompt)
+		resources := make(map[string][]wmcplib.Resource)
 
-		for serverName, server := range service.servers {
-			server.mutex.RLock()
-			// Tools
-			serverTools := make([]Tool, len(server.Tools))
+		for serverName, server := range service.Servers {
+			server.Mutex.RLock()
+			serverTools := make([]wmcplib.Tool, len(server.Tools))
 			copy(serverTools, server.Tools)
 			for i := range serverTools {
 				if len(serverTools[i].Parameters) == 0 && serverTools[i].InputSchema != nil {
-					serverTools[i].Parameters = extractParametersFromSchema(serverTools[i].InputSchema)
+					serverTools[i].Parameters = wmcplib.ExtractParametersFromSchema(serverTools[i].InputSchema)
 				}
 			}
 			tools[serverName] = serverTools
 
-			// Prompts
-			serverPrompts := make([]Prompt, len(server.Prompts))
+			serverPrompts := make([]wmcplib.Prompt, len(server.Prompts))
 			copy(serverPrompts, server.Prompts)
 			prompts[serverName] = serverPrompts
 
-			// Resources
-			serverResources := make([]Resource, len(server.Resources))
+			serverResources := make([]wmcplib.Resource, len(server.Resources))
 			copy(serverResources, server.Resources)
 			resources[serverName] = serverResources
-			server.mutex.RUnlock()
+			server.Mutex.RUnlock()
 		}
 
 		result["tools"] = tools
@@ -94,14 +92,12 @@ func listMCPData(service *MCPService, jsonOutput bool) {
 		}
 		fmt.Println(string(jsonBytes))
 	} else {
-		// Text output
 		var output strings.Builder
 		output.WriteString("# MCP Data\n\n")
 
-		// Tools
 		output.WriteString("## Tools\n\n")
-		for _, server := range service.servers {
-			server.mutex.RLock()
+		for _, server := range service.Servers {
+			server.Mutex.RLock()
 			for _, tool := range server.Tools {
 				output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
 				output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
@@ -118,13 +114,12 @@ func listMCPData(service *MCPService, jsonOutput bool) {
 				}
 				output.WriteString("\n")
 			}
-			server.mutex.RUnlock()
+			server.Mutex.RUnlock()
 		}
 
-		// Prompts
 		output.WriteString("## Prompts\n\n")
-		for _, server := range service.servers {
-			server.mutex.RLock()
+		for _, server := range service.Servers {
+			server.Mutex.RLock()
 			for _, prompt := range server.Prompts {
 				output.WriteString(fmt.Sprintf("PromptName: %s\n", prompt.Name))
 				if prompt.Description != "" {
@@ -146,13 +141,12 @@ func listMCPData(service *MCPService, jsonOutput bool) {
 				}
 				output.WriteString("\n")
 			}
-			server.mutex.RUnlock()
+			server.Mutex.RUnlock()
 		}
 
-		// Resources
 		output.WriteString("## Resources\n\n")
-		for _, server := range service.servers {
-			server.mutex.RLock()
+		for _, server := range service.Servers {
+			server.Mutex.RLock()
 			for _, resource := range server.Resources {
 				output.WriteString(fmt.Sprintf("URI: %s\n", resource.URI))
 				output.WriteString(fmt.Sprintf("Name: %s\n", resource.Name))
@@ -164,7 +158,7 @@ func listMCPData(service *MCPService, jsonOutput bool) {
 				}
 				output.WriteString("\n")
 			}
-			server.mutex.RUnlock()
+			server.Mutex.RUnlock()
 		}
 
 		fmt.Print(output.String())
@@ -172,21 +166,20 @@ func listMCPData(service *MCPService, jsonOutput bool) {
 }
 
 func main() {
-	// Parse command line flags
 	configPath := ""
 	configJSON := ""
 	skipConfig := false
 	toolsList := false
 	jsonOutput := false
+	stdioMode := false
 
 	args := os.Args[1:]
 
 	cmdArgs := []string{}
 
-	var config *Config
+	var config *wmcplib.Config
 	var configErr error
 
-	// First pass: extract config-related flags
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 
@@ -225,44 +218,38 @@ func main() {
 		}
 	}
 
-	// Load configuration if not skipped
 	if !skipConfig {
-		// Check for config JSON from environment variable first
 		if envConfigJSON := os.Getenv("MAI_AGENT_CONFIG"); envConfigJSON != "" {
-			config, configErr = LoadConfigFromJSON(envConfigJSON)
+			config, configErr = wmcplib.LoadConfigFromJSON(envConfigJSON)
 			if configErr == nil {
 				log.Printf("Loaded config from MAI_AGENT_CONFIG environment variable")
 			}
 		}
 
-		// If no env config or env config failed, try -C flag
 		if (configErr != nil || config == nil || len(config.MCPServers) == 0) && configJSON != "" {
-			config, configErr = LoadConfigFromJSON(configJSON)
+			config, configErr = wmcplib.LoadConfigFromJSON(configJSON)
 			if configErr == nil {
 				log.Printf("Loaded config from -C flag")
 			}
 		}
 
-		// If still no config, try loading from file
 		if configErr != nil || config == nil || len(config.MCPServers) == 0 {
-			config, configErr = LoadConfig(configPath)
+			config, configErr = wmcplib.LoadConfig(configPath)
 			if configErr != nil || config == nil || len(config.MCPServers) == 0 {
-				// Try loading as MAI config format from the specified path
 				if configPath != "" {
 					if _, err := os.Stat(configPath); err == nil {
-						config, configErr = LoadMAIConfig(configPath)
+						config, configErr = wmcplib.LoadMAIConfig(configPath)
 						if configErr == nil {
 							log.Printf("Loaded MAI config from %s", configPath)
 						}
 					}
 				}
-				// If still failed, try loading from ~/.config/mai/mcps.json as fallback
 				if configErr != nil || config == nil || len(config.MCPServers) == 0 {
 					home, err := os.UserHomeDir()
 					if err == nil {
 						maiConfigPath := filepath.Join(home, ".config", "mai", "mcps.json")
 						if _, err := os.Stat(maiConfigPath); err == nil {
-							config, configErr = LoadMAIConfig(maiConfigPath)
+							config, configErr = wmcplib.LoadMAIConfig(maiConfigPath)
 							if configErr == nil {
 								log.Printf("Loaded config from %s", maiConfigPath)
 							}
@@ -271,49 +258,35 @@ func main() {
 				}
 				if configErr != nil {
 					log.Printf("Warning: Failed to load config: %v", configErr)
-					config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+					config = &wmcplib.Config{MCPServers: make(map[string]wmcplib.MCPServerConfig)}
 				}
 			}
 		}
 	} else {
-		config = &Config{MCPServers: make(map[string]MCPServerConfig)}
+		config = &wmcplib.Config{MCPServers: make(map[string]wmcplib.MCPServerConfig)}
 	}
 
-	// Set initial defaults (from config if available)
 	baseURL := ":8989"
 	if config != nil && config.MaiOptions.BaseURL != "" {
 		baseURL = config.MaiOptions.BaseURL
 	}
 	yoloMode := false
-	if config != nil {
-		yoloMode = config.MaiOptions.YoloMode
-	}
 	drunkMode := false
-	if config != nil {
-		drunkMode = config.MaiOptions.DrunkMode
-	}
 	nonInteractiveMode := false
-	if config != nil {
-		nonInteractiveMode = config.MaiOptions.NonInteractive
-	}
 	outputReport := ""
-	if config != nil {
-		outputReport = config.MaiOptions.OutputReport
-	}
 	debugMode := false
-	if config != nil {
-		debugMode = config.MaiOptions.DebugMode
-	}
 	noPromptsMode := false
-	if config != nil {
-		noPromptsMode = config.MaiOptions.NoPrompts
-	}
 	sessionMode := false
 	if config != nil {
+		yoloMode = config.MaiOptions.YoloMode
+		drunkMode = config.MaiOptions.DrunkMode
+		nonInteractiveMode = config.MaiOptions.NonInteractive
+		outputReport = config.MaiOptions.OutputReport
+		debugMode = config.MaiOptions.DebugMode
+		noPromptsMode = config.MaiOptions.NoPrompts
 		sessionMode = config.MaiOptions.SessionMode
 	}
 
-	// Second pass: process other command line arguments (can override config)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 
@@ -366,18 +339,15 @@ func main() {
 				noPromptsMode = true
 			case "-s":
 				sessionMode = true
+			case "-S":
+				stdioMode = true
 			case "-c":
-				// Already handled in first pass
-				i++ // Skip the value
+				i++
 			case "-C":
-				// Already handled in first pass
-				i++ // Skip the value
+				i++
 			case "-n":
-				// Already handled in first pass
 			case "-t":
-				// Already handled in first pass
 			case "-j":
-				// Already handled in first pass
 			case "-b":
 				if i+1 < len(args) {
 					baseURL = args[i+1]
@@ -406,12 +376,10 @@ func main() {
 		}
 	}
 
-	// Skip config when -t is used with arguments
 	if toolsList && len(cmdArgs) > 0 {
 		skipConfig = true
 	}
 
-	// Auto skip config if URLs are provided and no config path specified
 	if len(cmdArgs) > 0 && configPath == "" && !skipConfig {
 		allURLs := true
 		for _, arg := range cmdArgs {
@@ -425,9 +393,8 @@ func main() {
 		}
 	}
 
-	// Check if we have any commands to run or servers in config
 	cmdProvided := len(cmdArgs) > 0
-	configServers := len(config.MCPServers) > 0
+	configServers := config != nil && len(config.MCPServers) > 0
 
 	if !cmdProvided && !configServers {
 		fmt.Println("Error: No MCP commands provided and no servers in config")
@@ -435,18 +402,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := NewMCPService(yoloMode, drunkMode, outputReport, noPromptsMode, nonInteractiveMode, sessionMode)
+	service := wmcplib.NewMCPService(wmcplib.Options{
+		YoloMode:       yoloMode,
+		DrunkMode:      drunkMode,
+		ReportFile:     outputReport,
+		NoPrompts:      noPromptsMode,
+		NonInteractive: nonInteractiveMode,
+		SessionMode:    sessionMode,
+		DebugMode:      debugMode,
+		Prompter:       wmcplib.NewStdinPrompter(),
+	})
 
-	// Set debug flag
-	service.debugMode = debugMode
-
-	// Ensure cleanup on exit
 	defer service.StopAllServers()
 
-	// Start MCP servers from command line arguments
 	if len(cmdArgs) > 0 {
 		for _, command := range cmdArgs {
-			serverName := GetServerNameFromCommand(command)
+			serverName := wmcplib.GetServerNameFromCommand(command)
 			if err := service.StartServer(serverName, command); err != nil {
 				log.Printf("Failed to start server %s: %v", serverName, err)
 				continue
@@ -454,11 +425,10 @@ func main() {
 		}
 	}
 
-	// Start MCP servers from config
-	if !skipConfig && len(config.MCPServers) > 0 {
-		StartMCPServersFromConfig(service, config)
+	if !skipConfig && config != nil && len(config.MCPServers) > 0 {
+		wmcplib.StartMCPServersFromConfig(service, config)
 	}
-	if len(service.servers) == 0 {
+	if len(service.Servers) == 0 {
 		if toolsList {
 			fmt.Println("Error: No MCP servers available to list")
 			os.Exit(1)
@@ -467,114 +437,47 @@ func main() {
 		os.Exit(1)
 	}
 
-	// If -t flag is set, list tools, prompts, and resources and exit
 	if toolsList {
 		listMCPData(service, jsonOutput)
 		os.Exit(0)
 	}
 
-	// Setup HTTP routes
+	if stdioMode {
+		runStdioBridge(service)
+		return
+	}
+
 	router := mux.NewRouter()
 
-	// MCP JSON-RPC endpoint
-	service.registerMCPRoutes(router)
+	registerMCPRoutes(router, service)
 
-	// List all tools
-	router.HandleFunc("/tools", service.listToolsHandler).Methods("GET", "OPTIONS")
-	// JSON list of all tools
-	router.HandleFunc("/tools/json", service.jsonToolsHandler).Methods("GET", "OPTIONS")
-	// Quiet list of all tools
-	router.HandleFunc("/tools/quiet", service.quietToolsHandler).Methods("GET", "OPTIONS")
-	// Simple list of all tools (for small models)
-	router.HandleFunc("/tools/simple", service.simpleToolsHandler).Methods("GET", "OPTIONS")
-	// Markdown list of all tools
-	router.HandleFunc("/tools/markdown", service.markdownToolsHandler).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tools", listToolsHandler(service)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tools/json", jsonToolsHandler(service)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tools/quiet", quietToolsHandler(service)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tools/simple", simpleToolsHandler(service)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/tools/markdown", markdownToolsHandler(service)).Methods("GET", "OPTIONS")
 
-	// Prompts endpoints
-	router.HandleFunc("/prompts", service.listPromptsHandler).Methods("GET")
-	router.HandleFunc("/prompts/json", service.jsonPromptsHandler).Methods("GET")
-	router.HandleFunc("/prompts/quiet", service.quietPromptsHandler).Methods("GET")
-	router.HandleFunc("/prompts/{prompt}", service.getPromptHandler).Methods("GET", "POST")
-	router.HandleFunc("/prompts/{server}/{prompt}", service.getPromptHandler).Methods("GET", "POST")
+	router.HandleFunc("/prompts", listPromptsHandler(service)).Methods("GET")
+	router.HandleFunc("/prompts/json", jsonPromptsHandler(service)).Methods("GET")
+	router.HandleFunc("/prompts/quiet", quietPromptsHandler(service)).Methods("GET")
+	router.HandleFunc("/prompts/{prompt}", getPromptHandler(service)).Methods("GET", "POST")
+	router.HandleFunc("/prompts/{server}/{prompt}", getPromptHandler(service)).Methods("GET", "POST")
 
-	// Resources endpoints
-	router.HandleFunc("/resources", service.listResourcesHandler).Methods("GET")
-	router.HandleFunc("/resources/json", service.jsonResourcesHandler).Methods("GET")
-	router.HandleFunc("/resources/{server}/{uri}", service.readResourceHandler).Methods("GET")
+	router.HandleFunc("/resources", listResourcesHandler(service)).Methods("GET")
+	router.HandleFunc("/resources/json", jsonResourcesHandler(service)).Methods("GET")
+	router.HandleFunc("/resources/{server}/{uri}", readResourceHandler(service)).Methods("GET")
 
-	// Get service status
-	router.HandleFunc("/status", service.statusHandler).Methods("GET")
+	router.HandleFunc("/status", statusHandler(service)).Methods("GET")
 
-	// OpenAPI specification
-	router.HandleFunc("/openapi.json", service.openapiHandler).Methods("GET", "OPTIONS")
+	router.HandleFunc("/openapi.json", openapiHandler(service)).Methods("GET", "OPTIONS")
 
-	// Call a specific tool (old endpoint for backward compatibility)
-	router.HandleFunc("/tools/{server}/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
-	// Call a specific tool (new endpoint)
-	router.HandleFunc("/call/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
-	router.HandleFunc("/call/{server}/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
-	// Call a specific tool (OpenAPI-compatible endpoint)
-	router.HandleFunc("/v1/tool/{tool}", service.callToolHandler).Methods("GET", "POST", "OPTIONS")
+	router.HandleFunc("/tools/{server}/{tool}", callToolHandler(service)).Methods("GET", "POST", "OPTIONS")
+	router.HandleFunc("/call/{tool}", callToolHandler(service)).Methods("GET", "POST", "OPTIONS")
+	router.HandleFunc("/call/{server}/{tool}", callToolHandler(service)).Methods("GET", "POST", "OPTIONS")
+	router.HandleFunc("/v1/tool/{tool}", callToolHandler(service)).Methods("GET", "POST", "OPTIONS")
 
-	// Root endpoint with usage info
-	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("HTTP %s %s", r.Method, r.URL.String())
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call")
+	router.HandleFunc("/", rootHandler).Methods("GET")
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/plain")
-		usage := `# MCP REST Bridge
-
-Available endpoints:
-
-- GET /status - Service status
-- GET /tools - List all available tools
-- GET /tools/json - List all available tools in JSON format
-- GET /tools/quiet - List all tools in minimal format
-- GET /tools/markdown - List all tools in markdown format
-- GET /tools/{server}/{tool}?param=value - Call tool with query parameters (legacy)
-- GET /call/{server}/{tool}?param=value - Call tool with query parameters
-- GET /call/{tool}?param=value - Call tool on auto-discovered server
-- POST /tools/{server}/{tool} - Call tool with JSON body or form data (legacy)
-- POST /call/{server}/{tool} - Call tool with JSON body or form data
-- POST /call/{tool} - Call tool with JSON body or form data (auto-discovered server)
-
-  Prompts endpoints:
-  - GET /prompts - List all available prompts
-  - GET /prompts/json - List all available prompts in JSON format
-  - GET /prompts/quiet - List all available prompts in quiet format (names only)
-  - GET /prompts/{server}/{prompt} - Get a prompt by name from a server (args as query)
-  - GET /prompts/{prompt} - Get a prompt by name via auto-discovery
-  - POST /prompts/{server}/{prompt} - Get a prompt with JSON body of arguments
-  - POST /prompts/{prompt} - Get a prompt with JSON body (auto-discovery)
-
- Resources endpoints:
- - GET /resources - List all available resources
- - GET /resources/json - List all available resources in JSON format
- - GET /resources/{server}/{uri} - Read a resource by URI from a server
-
- Examples:
- - curl http://localhost:8989/tools
- - curl http://localhost:8989/tools/json
- - curl http://localhost:8989/tools/quiet
- - curl http://localhost:8989/tools/markdown
- - curl http://localhost:8989/tools/server1/mytool?arg1=value1
- - curl -X POST http://localhost:8989/tools/server1/mytool -H "Content-Type: application/json" -d '{"arg1":"value1"}'
- - curl http://localhost:8989/prompts
- - curl http://localhost:8989/prompts/json
- - curl http://localhost:8989/prompts/server1/myPrompt?topic=xyz
- - curl -X POST http://localhost:8989/prompts/server1/myPrompt -H "Content-Type: application/json" -d '{"topic":"xyz"}'
-`
-		w.Write([]byte(usage))
-	}).Methods("GET")
-
-	// Start HTTP server
 	if envBaseURL := os.Getenv("MAI_WMCP_BASEURL"); envBaseURL != "" {
 		baseURL = envBaseURL
 	}

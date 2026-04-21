@@ -12,6 +12,9 @@ import (
 
 // GetAvailableMCPrompts runs 'mai-tool prompts list' and returns the output as a string
 func GetAvailableMCPrompts(f Format) (string, error) {
+	if embedActiveRepl != nil {
+		return embedListPromptsSimple(embedActiveRepl)
+	}
 	var cmd *exec.Cmd
 	switch f {
 	case Quiet:
@@ -33,6 +36,9 @@ func GetAvailableMCPrompts(f Format) (string, error) {
 
 // GetMCPromptContent fetches a specific prompt's rendered content
 func GetMCPromptContent(fullName string) (string, error) {
+	if embedActiveRepl != nil {
+		return embedGetPrompt(embedActiveRepl, fullName, nil)
+	}
 	// fullName format: server/prompt or just prompt
 	cmd := exec.Command("mai-tool", "prompts", "get", fullName)
 	var out bytes.Buffer

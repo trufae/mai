@@ -66,6 +66,9 @@ func parseToolFormat(formatStr string) Format {
 
 // GetAvailableTools runs the 'mai-tool list' command and returns the output as a string
 func GetAvailableTools(f Format) (string, error) {
+	if embedActiveRepl != nil {
+		return embedListToolsFormatted(embedActiveRepl, f)
+	}
 	var cmd *exec.Cmd
 	switch f {
 	case Quiet:
@@ -183,6 +186,10 @@ func callTool(tool *Tool, debug bool, format string, timeoutSeconds int) (string
 		}
 	}
 
+	if embedActiveRepl != nil {
+		return embedCallToolStringArgs(embedActiveRepl, toolName, safeArgs, timeoutSeconds)
+	}
+
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmdArgs := append([]string{"call", toolName}, safeArgs...)
@@ -254,6 +261,10 @@ func (r *REPL) executeToolNative(toolName string, args ...string) (string, error
 	var params map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonArgs), &params); err != nil {
 		return "", fmt.Errorf("failed to parse tool arguments JSON: %v", err)
+	}
+
+	if replEmbedActive(r) {
+		return embedCallTool(r, toolName, params, 60)
 	}
 
 	// Build mai-tool command arguments: mai-tool call <tool> [key=value ...]

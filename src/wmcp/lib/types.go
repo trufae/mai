@@ -1,4 +1,4 @@
-package main
+package wmcplib
 
 import (
 	"io"
@@ -48,8 +48,7 @@ type ToolsListResult struct {
 	Tools []Tool `json:"tools"`
 }
 
-// MCP Prompt structures (MCP Prompts API)
-// PromptArgument represents a parameter for a prompt
+// MCP Prompt structures
 type PromptArgument struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
@@ -57,37 +56,31 @@ type PromptArgument struct {
 	Required    bool   `json:"required,omitempty"`
 }
 
-// Prompt represents a single prompt available on the server
 type Prompt struct {
 	Name        string           `json:"name"`
 	Description string           `json:"description,omitempty"`
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
 }
 
-// PromptsListResult is the result for prompts/list
 type PromptsListResult struct {
 	Prompts []Prompt `json:"prompts"`
 }
 
-// GetPromptParams is the params object for prompts/get
 type GetPromptParams struct {
 	Name      string                 `json:"name"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
 }
 
-// PromptMessageContent models a prompt message's content item
 type PromptMessageContent struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 }
 
-// PromptMessage models a message returned by prompts/get
 type PromptMessage struct {
 	Role    string                 `json:"role"`
 	Content []PromptMessageContent `json:"content"`
 }
 
-// GetPromptResult is the result for prompts/get
 type GetPromptResult struct {
 	Messages []PromptMessage `json:"messages"`
 }
@@ -115,7 +108,9 @@ type Content struct {
 	Text string `json:"text"`
 }
 
-// Yolo prompt decision type
+// YoloDecision represents a decision made when prompting the user for tool
+// execution. Values also cover the "tool not found" flow since the two share
+// a code path.
 type YoloDecision int
 
 const (
@@ -133,7 +128,7 @@ const (
 	YoloAlwaysRespondToolNotFound
 )
 
-// Prompt decision type
+// PromptDecision mirrors YoloDecision for the MCP prompts API.
 type PromptDecision int
 
 const (
@@ -147,17 +142,17 @@ const (
 	PromptList
 )
 
-// Tool permission record
+// ToolPermission records the stored answer for a previously-approved tool.
 type ToolPermission struct {
 	ToolName   string
-	Parameters string // JSON string of parameters for exact matching
+	Parameters string
 	Approved   bool
 }
 
-// Prompt permission record
+// PromptPermission records the stored answer for a previously-approved prompt.
 type PromptPermission struct {
 	PromptName string
-	Arguments  string // JSON string of arguments for exact matching
+	Arguments  string
 	Approved   bool
 }
 
@@ -171,7 +166,6 @@ type ReportEntry struct {
 	Error     string      `json:"error,omitempty"`
 }
 
-// Report represents a collection of tool executions
 type Report struct {
 	Entries []ReportEntry `json:"entries"`
 }
@@ -184,22 +178,18 @@ type Resource struct {
 	MimeType    string `json:"mimeType,omitempty"`
 }
 
-// ResourcesListResult is the result for resources/list
 type ResourcesListResult struct {
 	Resources []Resource `json:"resources"`
 }
 
-// ReadResourceParams is the params object for resources/read
 type ReadResourceParams struct {
 	URI string `json:"uri"`
 }
 
-// ReadResourceResult is the result for resources/read
 type ReadResourceResult struct {
 	Contents []ResourceContent `json:"contents"`
 }
 
-// ResourceContent represents content returned by resources/read
 type ResourceContent struct {
 	URI      string `json:"uri"`
 	MimeType string `json:"mimeType,omitempty"`
@@ -207,11 +197,14 @@ type ResourceContent struct {
 	Blob     string `json:"blob,omitempty"`
 }
 
-// MCP Server represents a running MCP server process or HTTP endpoint
+// MCPServer represents a running MCP server process or HTTP endpoint.
+// The mutex and the process/pipe handles are public so callers that need
+// to inspect the server state without going through the service can do so
+// safely.
 type MCPServer struct {
 	Name          string
 	Command       string
-	URL           string // for HTTP/SSE servers
+	URL           string
 	IsHTTP        bool
 	IsSSE         bool
 	Process       *exec.Cmd
@@ -221,40 +214,42 @@ type MCPServer struct {
 	Tools         []Tool
 	Prompts       []Prompt
 	Resources     []Resource
-	EnabledTools  map[string]bool // Tool name -> enabled status (nil means all enabled)
-	UseSession    bool            // Whether to track/send session IDs (opt-in per server)
+	EnabledTools  map[string]bool
+	UseSession    bool
 	SessionID     string
-	SSEURL        string // Original SSE endpoint URL for receiving responses
-	SSEConnected  bool   // Whether SSE connection is established
-	mutex         sync.RWMutex
+	SSEURL        string
+	SSEConnected  bool
+	Mutex         sync.RWMutex
 	stderrDone    chan struct{}
 	stderrActive  bool
 	monitorDone   chan struct{}
 	monitorActive bool
-	// SSE response handling
+
 	sseResponseChan chan *JSONRPCResponse
 	sseRequestID    chan string
 }
 
-// MCPService manages multiple MCP servers
+// MCPService manages multiple MCP servers. Fields with uppercase names are
+// safe to read/write by callers that hold MCPService.Mutex appropriately.
 type MCPService struct {
-	servers              map[string]*MCPServer
-	mutex                sync.RWMutex
-	yoloMode             bool
-	drunkMode            bool
-	noPrompts            bool
-	nonInteractive       bool
-	debugMode            bool
-	yoloToolNotFoundMode bool                      // Always respond that tool doesn't exist
-	toolPerms            map[string]ToolPermission // Map tool name or tool+params hash to permission
+	Servers              map[string]*MCPServer
+	Mutex                sync.RWMutex
+	YoloMode             bool
+	DrunkMode            bool
+	NoPrompts            bool
+	NonInteractive       bool
+	DebugMode            bool
+	SessionMode          bool
+	prompter             Prompter
+	yoloToolNotFoundMode bool
+	toolPerms            map[string]ToolPermission
 	toolPermsLock        sync.RWMutex
-	promptPerms          map[string]PromptPermission // Map prompt name or prompt+args hash to permission
+	promptPerms          map[string]PromptPermission
 	promptPermsLock      sync.RWMutex
 	reportEnabled        bool
 	reportFile           string
 	report               Report
 	reportLock           sync.RWMutex
-	sessionMode          bool // Whether the bridge emits session IDs in its own responses
 	sessionLock          sync.Mutex
 	sessionID            string
 }

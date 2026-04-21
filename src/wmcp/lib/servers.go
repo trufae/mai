@@ -1,4 +1,4 @@
-package main
+package wmcplib
 
 import (
 	"bufio"
@@ -15,23 +15,6 @@ import (
 	"time"
 )
 
-// GetServerNameFromCommand extracts server name from the command string
-func GetServerNameFromCommand(command string) string {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return ""
-	}
-
-	firstPart := parts[0]
-	serverName := firstPart
-
-	if idx := strings.LastIndex(firstPart, "/"); idx != -1 {
-		serverName = firstPart[idx+1:]
-	}
-
-	return serverName
-}
-
 // StartServer starts an MCP server process or connects to HTTP endpoint
 func (s *MCPService) StartServer(name, command string) error {
 	return s.StartServerWithEnvAndTools(name, command, nil, nil, false)
@@ -44,21 +27,18 @@ func (s *MCPService) StartServerWithEnv(name, command string, env map[string]str
 
 // StartServerWithEnvAndTools starts an MCP server process with custom environment variables and tool filtering
 func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[string]string, enabledTools map[string]bool, sessionMode bool) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
 
-	// Check if this is an HTTP or SSE server
 	isHTTP := strings.HasPrefix(command, "http://") || strings.HasPrefix(command, "https://")
 	isSSE := strings.HasPrefix(command, "sse://") || strings.HasPrefix(command, "sses://")
 
-	// Check if URL path ends with /sse (SSE endpoint)
 	if isHTTP && strings.HasSuffix(command, "/sse") {
 		isSSE = true
 		isHTTP = false
 	}
 
 	if isHTTP || isSSE {
-		// HTTP or SSE server
 		server := &MCPServer{
 			Name:          name,
 			Command:       command,
@@ -71,38 +51,33 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 			EnabledTools:  enabledTools,
 			UseSession:    sessionMode,
 			stderrDone:    make(chan struct{}),
-			stderrActive:  false, // no stderr for HTTP/SSE
+			stderrActive:  false,
 			monitorDone:   make(chan struct{}),
-			monitorActive: false, // no monitoring for HTTP/SSE
+			monitorActive: false,
 		}
 
-		s.servers[name] = server
+		s.Servers[name] = server
 
-		// Initialize SSE response channels
 		server.sseResponseChan = make(chan *JSONRPCResponse, 10)
 		server.sseRequestID = make(chan string, 1)
 
-		// For SSE servers, first establish SSE connection to get endpoint URL
 		if isSSE {
 			endpointURL, err := s.connectSSE(server)
 			if err != nil {
-				delete(s.servers, name)
+				delete(s.Servers, name)
 				return fmt.Errorf("failed to connect to SSE server: %v", err)
 			}
-			// Extract session_id from endpoint URL if present (only when sessionMode is enabled)
 			if server.UseSession && strings.Contains(endpointURL, "session_id=") {
 				u, _ := url.Parse(endpointURL)
 				if u != nil {
 					sessionID := u.Query().Get("session_id")
 					if sessionID != "" {
 						server.SessionID = sessionID
-						debugLog(s.debugMode, "Extracted session ID: %s", sessionID)
+						debugLog(s.DebugMode, "Extracted session ID: %s", sessionID)
 					}
 				}
 			}
-			// If endpoint is relative, combine with base URL
 			if strings.HasPrefix(endpointURL, "/") {
-				// Get base URL (without the /sse suffix)
 				baseURL := server.URL
 				if strings.HasSuffix(baseURL, "/sse") {
 					baseURL = strings.TrimSuffix(baseURL, "/sse")
@@ -114,33 +89,28 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 				endpointURL = baseURL + endpointURL
 			}
 			server.URL = endpointURL
-			server.IsHTTP = true // Now treat as HTTP server
+			server.IsHTTP = true
 			server.IsSSE = false
 			server.SSEConnected = true
 
-			// Start SSE listener in background
 			go s.listenSSEResponses(server)
 		}
 
-		// Initialize the server (handshake)
 		if err := s.InitializeServer(server); err != nil {
-			delete(s.servers, name)
+			delete(s.Servers, name)
 			return fmt.Errorf("failed to initialize server: %v", err)
 		}
 
-		// Load tools
 		if err := s.loadTools(server); err != nil {
 			log.Printf("Warning: failed to load tools for server %s: %v", name, err)
 		}
 
-		// Load prompts (best-effort) unless disabled
-		if !s.noPrompts {
+		if !s.NoPrompts {
 			if err := s.loadPrompts(server); err != nil {
 				log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
 			}
 		}
 
-		// Load resources (best-effort)
 		if err := s.loadResources(server); err != nil {
 			log.Printf("Warning: failed to load resources for server %s: %v", name, err)
 		}
@@ -153,8 +123,6 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 		return nil
 	}
 
-	// Stdio server
-	// Parse command string
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
 		return fmt.Errorf("empty command")
@@ -162,17 +130,11 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 
 	cmd := exec.Command(parts[0], parts[1:]...)
 
-	// Apply custom environment variables if provided
-	if env != nil && len(env) > 0 {
-		// Start with current environment
+	if len(env) > 0 {
 		cmdEnv := os.Environ()
-
-		// Add or override with custom variables
 		for key, value := range env {
 			cmdEnv = append(cmdEnv, fmt.Sprintf("%s=%s", key, value))
 		}
-
-		// Set the environment for the command
 		cmd.Env = cmdEnv
 	}
 
@@ -180,12 +142,10 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %v", err)
 	}
-
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %v", err)
 	}
-
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %v", err)
@@ -212,34 +172,27 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 		monitorActive: true,
 	}
 
-	s.servers[name] = server
+	s.Servers[name] = server
 
-	// Start a goroutine to handle stderr output
 	go s.handleStderr(server)
-
-	// Start a goroutine to monitor the server process
 	go s.monitorServer(server)
 
-	// Initialize the server (handshake)
 	if err := s.InitializeServer(server); err != nil {
 		s.stopServer(server)
-		delete(s.servers, name)
+		delete(s.Servers, name)
 		return fmt.Errorf("failed to initialize server: %v", err)
 	}
 
-	// Load tools
 	if err := s.loadTools(server); err != nil {
 		log.Printf("Warning: failed to load tools for server %s: %v", name, err)
 	}
 
-	// Load prompts (best-effort) unless disabled
-	if !s.noPrompts {
+	if !s.NoPrompts {
 		if err := s.loadPrompts(server); err != nil {
 			log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
 		}
 	}
 
-	// Load resources (best-effort)
 	if err := s.loadResources(server); err != nil {
 		log.Printf("Warning: failed to load resources for server %s: %v", name, err)
 	}
@@ -252,16 +205,9 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 func (s *MCPService) InitializeServer(server *MCPServer) error {
 	clientCapabilities := map[string]interface{}{
 		"experimental": map[string]interface{}{},
-		"prompts": map[string]interface{}{
-			"listChanged": false,
-		},
-		"resources": map[string]interface{}{
-			"subscribe":   false,
-			"listChanged": false,
-		},
-		"tools": map[string]interface{}{
-			"listChanged": false,
-		},
+		"prompts":      map[string]interface{}{"listChanged": false},
+		"resources":    map[string]interface{}{"subscribe": false, "listChanged": false},
+		"tools":        map[string]interface{}{"listChanged": false},
 	}
 
 	initRequest := JSONRPCRequest{
@@ -269,16 +215,13 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		Method:  "initialize",
 		Params: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
-			"clientInfo": map[string]interface{}{
-				"name":    "mai-wmcp",
-				"version": MaiVersion,
-			},
-			"capabilities": clientCapabilities,
+			"clientInfo":      map[string]interface{}{"name": "mai-wmcp", "version": MaiVersion},
+			"capabilities":    clientCapabilities,
 		},
 		ID: "1",
 	}
 
-	response, err := s.sendRequest(server, initRequest)
+	response, err := s.SendRequest(server, initRequest)
 	if err != nil {
 		return err
 	}
@@ -287,7 +230,6 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		return fmt.Errorf("initialization failed: %v", response.Error)
 	}
 
-	// Send initialized notification
 	initNotification := JSONRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "notifications/initialized",
@@ -295,7 +237,6 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 	}
 
 	if server.IsHTTP {
-		// Send notification via HTTP
 		reqBytes, _ := json.Marshal(initNotification)
 		httpReq, err := http.NewRequest("POST", server.URL, bytes.NewBuffer(reqBytes))
 		if err != nil {
@@ -306,9 +247,9 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
 		if server.UseSession {
-			server.mutex.RLock()
+			server.Mutex.RLock()
 			sessionID := server.SessionID
-			server.mutex.RUnlock()
+			server.Mutex.RUnlock()
 			if sessionID != "" {
 				httpReq.Header.Set("Mcp-Session-Id", sessionID)
 			}
@@ -324,14 +265,13 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		}
 		if server.UseSession {
 			if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
-				server.mutex.Lock()
+				server.Mutex.Lock()
 				server.SessionID = newSessionID
-				server.mutex.Unlock()
+				server.Mutex.Unlock()
 			}
 		}
-		resp.Body.Close() // Ignore response
+		resp.Body.Close()
 	} else {
-		// Send notification (no response expected)
 		reqBytes, _ := json.Marshal(initNotification)
 		server.Stdin.Write(reqBytes)
 		server.Stdin.Write([]byte("\n"))
@@ -342,14 +282,9 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 
 // loadTools loads available tools from the server
 func (s *MCPService) loadTools(server *MCPServer) error {
-	toolsRequest := JSONRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "tools/list",
-		Params:  map[string]interface{}{},
-		ID:      "2",
-	}
+	toolsRequest := JSONRPCRequest{JSONRPC: "2.0", Method: "tools/list", Params: map[string]interface{}{}, ID: "2"}
 
-	response, err := s.sendRequest(server, toolsRequest)
+	response, err := s.SendRequest(server, toolsRequest)
 	if err != nil {
 		return err
 	}
@@ -358,26 +293,21 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 		return fmt.Errorf("tools/list failed: %v", response.Error)
 	}
 
-	// Parse tools response
 	resultBytes, _ := json.Marshal(response.Result)
 	var toolsResult ToolsListResult
 	if err := json.Unmarshal(resultBytes, &toolsResult); err != nil {
 		return fmt.Errorf("failed to parse tools response: %v", err)
 	}
 
-	// Process tool parameters
 	for i := range toolsResult.Tools {
 		tool := &toolsResult.Tools[i]
-		tool.Parameters = extractParametersFromSchema(tool.InputSchema)
+		tool.Parameters = ExtractParametersFromSchema(tool.InputSchema)
 	}
 
-	// Filter tools based on enabled list
 	var filteredTools []Tool
-	if server.EnabledTools == nil || len(server.EnabledTools) == 0 {
-		// All tools enabled
+	if len(server.EnabledTools) == 0 {
 		filteredTools = toolsResult.Tools
 	} else {
-		// Filter to only enabled tools
 		for _, tool := range toolsResult.Tools {
 			if enabled, exists := server.EnabledTools[tool.Name]; exists && enabled {
 				filteredTools = append(filteredTools, tool)
@@ -385,9 +315,9 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 		}
 	}
 
-	server.mutex.Lock()
+	server.Mutex.Lock()
 	server.Tools = filteredTools
-	server.mutex.Unlock()
+	server.Mutex.Unlock()
 
 	log.Printf("Loaded %d tools for server %s", len(filteredTools), server.Name)
 	return nil
@@ -395,20 +325,14 @@ func (s *MCPService) loadTools(server *MCPServer) error {
 
 // loadPrompts loads available prompts from the server
 func (s *MCPService) loadPrompts(server *MCPServer) error {
-	promptsRequest := JSONRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "prompts/list",
-		Params:  map[string]interface{}{},
-		ID:      "3",
-	}
+	promptsRequest := JSONRPCRequest{JSONRPC: "2.0", Method: "prompts/list", Params: map[string]interface{}{}, ID: "3"}
 
-	response, err := s.sendRequest(server, promptsRequest)
+	response, err := s.SendRequest(server, promptsRequest)
 	if err != nil {
 		return err
 	}
 
 	if response.Error != nil {
-		// Not all servers implement prompts; don't treat as fatal
 		log.Printf("prompts/list failed on %s: %v", server.Name, response.Error)
 		return nil
 	}
@@ -419,9 +343,9 @@ func (s *MCPService) loadPrompts(server *MCPServer) error {
 		return fmt.Errorf("failed to parse prompts response: %v", err)
 	}
 
-	server.mutex.Lock()
+	server.Mutex.Lock()
 	server.Prompts = list.Prompts
-	server.mutex.Unlock()
+	server.Mutex.Unlock()
 
 	log.Printf("Loaded %d prompts for server %s", len(list.Prompts), server.Name)
 	return nil
@@ -429,20 +353,14 @@ func (s *MCPService) loadPrompts(server *MCPServer) error {
 
 // loadResources loads available resources from the server
 func (s *MCPService) loadResources(server *MCPServer) error {
-	resourcesRequest := JSONRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "resources/list",
-		Params:  map[string]interface{}{},
-		ID:      "4",
-	}
+	resourcesRequest := JSONRPCRequest{JSONRPC: "2.0", Method: "resources/list", Params: map[string]interface{}{}, ID: "4"}
 
-	response, err := s.sendRequest(server, resourcesRequest)
+	response, err := s.SendRequest(server, resourcesRequest)
 	if err != nil {
 		return err
 	}
 
 	if response.Error != nil {
-		// Not all servers implement resources; don't treat as fatal
 		log.Printf("resources/list failed on %s: %v", server.Name, response.Error)
 		return nil
 	}
@@ -453,9 +371,9 @@ func (s *MCPService) loadResources(server *MCPServer) error {
 		return fmt.Errorf("failed to parse resources response: %v", err)
 	}
 
-	server.mutex.Lock()
+	server.Mutex.Lock()
 	server.Resources = list.Resources
-	server.mutex.Unlock()
+	server.Mutex.Unlock()
 
 	log.Printf("Loaded %d resources for server %s", len(list.Resources), server.Name)
 	return nil
@@ -474,27 +392,22 @@ func (s *MCPService) handleStderr(server *MCPServer) {
 // monitorServer monitors the server process and restarts it if it crashes
 func (s *MCPService) monitorServer(server *MCPServer) {
 	for server.monitorActive {
-		// Wait for the process to exit
 		err := server.Process.Wait()
 		if !server.monitorActive {
 			break
 		}
 
-		// Process has exited, log the error
 		if err != nil {
 			log.Printf("ERROR: MCP server '%s' crashed: %v", server.Name, err)
 		} else {
 			log.Printf("ERROR: MCP server '%s' exited unexpectedly", server.Name)
 		}
 
-		// Wait 1 second before restarting
 		time.Sleep(1 * time.Second)
 
-		// Restart the server
 		log.Printf("Restarting MCP server '%s'...", server.Name)
 		if restartErr := s.restartServer(server); restartErr != nil {
 			log.Printf("ERROR: Failed to restart MCP server '%s': %v", server.Name, restartErr)
-			// Continue monitoring in case we can restart later
 		} else {
 			log.Printf("Successfully restarted MCP server '%s'", server.Name)
 		}
@@ -504,14 +417,12 @@ func (s *MCPService) monitorServer(server *MCPServer) {
 
 // restartServer restarts a crashed MCP server
 func (s *MCPService) restartServer(server *MCPServer) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
 
-	// Stop existing goroutines and close pipes
 	server.stderrActive = false
 	server.monitorActive = false
 
-	// Close existing pipes if they exist
 	if server.Stdin != nil {
 		server.Stdin.Close()
 	}
@@ -522,11 +433,9 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 		server.Stderr.Close()
 	}
 
-	// Wait for goroutines to finish
 	<-server.stderrDone
 	<-server.monitorDone
 
-	// Parse command string
 	parts := strings.Fields(server.Command)
 	if len(parts) == 0 {
 		return fmt.Errorf("empty command")
@@ -538,12 +447,10 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 	if err != nil {
 		return fmt.Errorf("failed to create stdin pipe: %v", err)
 	}
-
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %v", err)
 	}
-
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %v", err)
@@ -553,43 +460,35 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 		return fmt.Errorf("failed to start command: %v", err)
 	}
 
-	// Recreate channels
 	server.stderrDone = make(chan struct{})
 	server.monitorDone = make(chan struct{})
 
-	// Update server with new process and pipes
 	server.Process = cmd
 	server.Stdin = stdin
 	server.Stdout = stdout
 	server.Stderr = stderr
 
-	// Reset monitoring flags
 	server.stderrActive = true
 	server.monitorActive = true
 
-	// Start new goroutines for stderr and monitoring
 	go s.handleStderr(server)
 	go s.monitorServer(server)
 
-	// Re-initialize the server (handshake)
 	if err := s.InitializeServer(server); err != nil {
 		s.stopServer(server)
 		return fmt.Errorf("failed to initialize server: %v", err)
 	}
 
-	// Re-load tools
 	if err := s.loadTools(server); err != nil {
 		log.Printf("Warning: failed to load tools for restarted server %s: %v", server.Name, err)
 	}
 
-	// Re-load prompts unless disabled
-	if !s.noPrompts {
+	if !s.NoPrompts {
 		if err := s.loadPrompts(server); err != nil {
 			log.Printf("Warning: failed to load prompts for restarted server %s: %v", server.Name, err)
 		}
 	}
 
-	// Re-load resources
 	if err := s.loadResources(server); err != nil {
 		log.Printf("Warning: failed to load resources for restarted server %s: %v", server.Name, err)
 	}
@@ -599,7 +498,6 @@ func (s *MCPService) restartServer(server *MCPServer) error {
 
 // stopServer stops an MCP server
 func (s *MCPService) stopServer(server *MCPServer) {
-	// Mark handlers as inactive
 	server.stderrActive = false
 	server.monitorActive = false
 
@@ -618,7 +516,6 @@ func (s *MCPService) stopServer(server *MCPServer) {
 			server.Stderr.Close()
 		}
 
-		// Wait for goroutines to finish
 		<-server.stderrDone
 		<-server.monitorDone
 	}
@@ -626,43 +523,38 @@ func (s *MCPService) stopServer(server *MCPServer) {
 
 // StopAllServers stops all MCP servers
 func (s *MCPService) StopAllServers() {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
 
-	for name, server := range s.servers {
+	for name, server := range s.Servers {
 		s.stopServer(server)
 		log.Printf("Stopped MCP server: %s", name)
 	}
 }
 
 // connectSSE establishes an SSE connection and returns the endpoint URL
-// It also starts a goroutine to listen for responses on this connection
 func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
-	// Convert sse:// to http:// for the connection
 	sseURL := strings.Replace(server.URL, "sse://", "http://", 1)
 	sseURL = strings.Replace(sseURL, "sses://", "https://", 1)
 
-	// If URL ends with /sse, strip it to get base URL for SSE connection
 	baseURL := sseURL
 	if strings.HasSuffix(sseURL, "/sse") {
 		baseURL = strings.TrimSuffix(sseURL, "/sse")
 		sseURL = baseURL + "/sse"
 	}
 
-	// Store the SSE URL for later use
 	server.SSEURL = sseURL
 
-	debugLog(s.debugMode, "Connecting to SSE endpoint: %s", sseURL)
+	debugLog(s.DebugMode, "Connecting to SSE endpoint: %s", sseURL)
 
 	req, err := http.NewRequest("GET", sseURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create SSE request: %v", err)
 	}
 
-	// Add bearer token if available
 	if token := s.GetBearerToken(server); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
-		debugLog(s.debugMode, "Using bearer token for SSE connection")
+		debugLog(s.DebugMode, "Using bearer token for SSE connection")
 	}
 
 	req.Header.Set("Accept", "text/event-stream")
@@ -674,31 +566,26 @@ func (s *MCPService) connectSSE(server *MCPServer) (string, error) {
 		return "", fmt.Errorf("SSE connection failed: %v", err)
 	}
 
-	// Store the response body for the listener to use
 	server.Stdout = resp.Body
 
-	// Read SSE events to find the endpoint (blocking until we get it)
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		debugLog(s.debugMode, "SSE line: %s", line)
+		debugLog(s.DebugMode, "SSE line: %s", line)
 
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimPrefix(line, "data: ")
-			// Try JSON format first: {"endpoint": "/mcp"}
 			if strings.HasPrefix(data, "{\"endpoint\":\"") {
-				// Parse the endpoint from the JSON data
 				var eventData map[string]string
 				if err := json.Unmarshal([]byte(data), &eventData); err != nil {
 					return "", fmt.Errorf("failed to parse SSE endpoint data: %v", err)
 				}
 				if endpoint, ok := eventData["endpoint"]; ok {
-					debugLog(s.debugMode, "Received SSE endpoint: %s", endpoint)
+					debugLog(s.DebugMode, "Received SSE endpoint: %s", endpoint)
 					return endpoint, nil
 				}
 			} else if strings.HasPrefix(data, "/") {
-				// Plain endpoint path (e.g., /messages/?session_id=xxx)
-				debugLog(s.debugMode, "Received SSE endpoint: %s", data)
+				debugLog(s.DebugMode, "Received SSE endpoint: %s", data)
 				return data, nil
 			}
 		}
@@ -720,7 +607,7 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 
 	requestID := fmt.Sprintf("%v", request.ID)
 
-	debugLog(s.debugMode, "Sending SSE request to %s (ID: %s): %s", server.URL, requestID, string(reqBytes))
+	debugLog(s.DebugMode, "Sending SSE request to %s (ID: %s): %s", server.URL, requestID, string(reqBytes))
 
 	httpReq, err := http.NewRequest("POST", server.URL, bytes.NewBuffer(reqBytes))
 	if err != nil {
@@ -731,9 +618,9 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
 	if server.UseSession {
-		server.mutex.RLock()
+		server.Mutex.RLock()
 		sessionID := server.SessionID
-		server.mutex.RUnlock()
+		server.Mutex.RUnlock()
 		if sessionID != "" {
 			httpReq.Header.Set("Mcp-Session-Id", sessionID)
 			httpReq.Header.Set("X-SSE-Session-ID", sessionID)
@@ -742,7 +629,7 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 
 	if token := s.GetBearerToken(server); token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
-		debugLog(s.debugMode, "Using bearer token for %s", server.URL)
+		debugLog(s.DebugMode, "Using bearer token for %s", server.URL)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -751,31 +638,26 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
 
-	// Read the response body regardless of status
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	debugLog(s.debugMode, "HTTP response status: %d, body: %s", resp.StatusCode, string(respBytes))
+	debugLog(s.DebugMode, "HTTP response status: %d, body: %s", resp.StatusCode, string(respBytes))
 
-	// Accept both 200 OK and 202 Accepted (SSE may return 202)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return nil, fmt.Errorf("HTTP request failed with status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
-	// Try to parse the response body as JSON-RPC
 	var response JSONRPCResponse
 	if err := json.Unmarshal(respBytes, &response); err != nil {
-		// If direct parsing fails, try to get response from SSE channel
-		debugLog(s.debugMode, "Direct response parse failed, waiting for SSE response")
+		debugLog(s.DebugMode, "Direct response parse failed, waiting for SSE response")
 
-		// Wait for response from SSE channel
 		timeout := 30 * time.Second
 		select {
 		case response := <-server.sseResponseChan:
-			debugLog(s.debugMode, "Received SSE response for ID %v", response.ID)
+			debugLog(s.DebugMode, "Received SSE response for ID %v", response.ID)
 			return response, nil
 		case <-time.After(timeout):
 			return nil, fmt.Errorf("timeout waiting for SSE response, HTTP body: %s", string(respBytes))
@@ -787,13 +669,12 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 
 // listenSSEResponses listens for responses from the already-established SSE connection
 func (s *MCPService) listenSSEResponses(server *MCPServer) {
-	// Use the existing SSE connection stored in Stdout
 	if server.Stdout == nil {
 		log.Printf("ERROR: SSE listener: no SSE connection available")
 		return
 	}
 
-	debugLog(s.debugMode, "SSE listener using existing connection, waiting for responses")
+	debugLog(s.DebugMode, "SSE listener using existing connection, waiting for responses")
 
 	scanner := bufio.NewScanner(server.Stdout)
 	var dataBuffer bytes.Buffer
@@ -819,45 +700,38 @@ func (s *MCPService) listenSSEResponses(server *MCPServer) {
 			payload := dataBuffer.String()
 			dataBuffer.Reset()
 
-			debugLog(s.debugMode, "SSE listener received event=%s data=%s", currentEvent, payload)
+			debugLog(s.DebugMode, "SSE listener received event=%s data=%s", currentEvent, payload)
 
-			// Only process message events as responses, or if no event is specified
 			if currentEvent == "message" || currentEvent == "" {
-				// Try to parse as JSON-RPC response
 				var response JSONRPCResponse
 				if err := json.Unmarshal([]byte(payload), &response); err != nil {
-					// If it's not a JSON-RPC response, it might be an endpoint or other data
 					if currentEvent == "message" {
-						debugLog(s.debugMode, "SSE listener: failed to unmarshal message: %v", err)
+						debugLog(s.DebugMode, "SSE listener: failed to unmarshal message: %v", err)
 					}
-					// For empty event (default), just log but don't fail
 					if currentEvent == "" && strings.HasPrefix(payload, "{") {
-						debugLog(s.debugMode, "SSE listener: failed to unmarshal: %v", err)
+						debugLog(s.DebugMode, "SSE listener: failed to unmarshal: %v", err)
 					}
 					continue
 				}
 
-				// Only send if it's a valid response (has JSONRPC field)
 				if response.JSONRPC != "" {
-					// Send response to the waiting request handler
 					select {
 					case server.sseResponseChan <- &response:
-						debugLog(s.debugMode, "SSE listener: sent response for ID %v", response.ID)
+						debugLog(s.DebugMode, "SSE listener: sent response for ID %v", response.ID)
 					default:
-						debugLog(s.debugMode, "SSE listener: channel full, dropped response")
+						debugLog(s.DebugMode, "SSE listener: channel full, dropped response")
 					}
 				}
 			} else if currentEvent == "endpoint" {
-				// New endpoint - extract session ID if present (only when sessionMode is enabled)
 				if server.UseSession && strings.Contains(payload, "session_id=") {
 					u, _ := url.Parse(payload)
 					if u != nil {
 						newSessionID := u.Query().Get("session_id")
 						if newSessionID != "" && newSessionID != server.SessionID {
-							server.mutex.Lock()
+							server.Mutex.Lock()
 							server.SessionID = newSessionID
-							server.mutex.Unlock()
-							debugLog(s.debugMode, "SSE listener: updated session ID to %s", newSessionID)
+							server.Mutex.Unlock()
+							debugLog(s.DebugMode, "SSE listener: updated session ID to %s", newSessionID)
 						}
 					}
 				}
@@ -873,7 +747,6 @@ func (s *MCPService) listenSSEResponses(server *MCPServer) {
 
 // sendHTTPRequest sends a JSONRPC request to an HTTP MCP server
 func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) (*JSONRPCResponse, error) {
-	// For SSE-connected servers, use the SSE channel to get responses
 	if server.SSEConnected && server.sseResponseChan != nil {
 		return s.sendHTTPRequestViaSSE(server, request)
 	}
@@ -883,7 +756,7 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
-	debugLog(s.debugMode, "Sending HTTP request to %s: %s", server.URL, string(reqBytes))
+	debugLog(s.DebugMode, "Sending HTTP request to %s: %s", server.URL, string(reqBytes))
 
 	httpReq, err := http.NewRequest("POST", server.URL, bytes.NewBuffer(reqBytes))
 	if err != nil {
@@ -893,23 +766,21 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-	// Reuse existing session if available (only when sessionMode is enabled)
 	if server.UseSession {
-		server.mutex.RLock()
+		server.Mutex.RLock()
 		sessionID := server.SessionID
-		server.mutex.RUnlock()
+		server.Mutex.RUnlock()
 		if sessionID != "" {
 			httpReq.Header.Set("Mcp-Session-Id", sessionID)
 			httpReq.Header.Set("X-SSE-Session-ID", sessionID)
 		}
 	}
 
-	// Add bearer token if available
 	if token := s.GetBearerToken(server); token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
-		debugLog(s.debugMode, "Using bearer token for %s", server.URL)
+		debugLog(s.DebugMode, "Using bearer token for %s", server.URL)
 	} else {
-		debugLog(s.debugMode, "No bearer token found for %s", server.URL)
+		debugLog(s.DebugMode, "No bearer token found for %s", server.URL)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -919,16 +790,15 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	}
 	defer resp.Body.Close()
 
-	// Accept both 200 OK and 202 Accepted (SSE may return 202)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		return nil, fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
 	}
 
 	if server.UseSession {
 		if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
-			server.mutex.Lock()
+			server.Mutex.Lock()
 			server.SessionID = newSessionID
-			server.mutex.Unlock()
+			server.Mutex.Unlock()
 		}
 	}
 
@@ -948,7 +818,7 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 
 			if line == "" && dataBuffer.Len() > 0 {
 				payload := dataBuffer.String()
-				debugLog(s.debugMode, "Received HTTP SSE payload from %s: %s", server.URL, payload)
+				debugLog(s.DebugMode, "Received HTTP SSE payload from %s: %s", server.URL, payload)
 
 				var response JSONRPCResponse
 				if err := json.Unmarshal([]byte(payload), &response); err != nil {
@@ -965,7 +835,7 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 
 		if dataBuffer.Len() > 0 {
 			payload := dataBuffer.String()
-			debugLog(s.debugMode, "Received HTTP SSE payload from %s: %s", server.URL, payload)
+			debugLog(s.DebugMode, "Received HTTP SSE payload from %s: %s", server.URL, payload)
 
 			var response JSONRPCResponse
 			if err := json.Unmarshal([]byte(payload), &response); err != nil {
@@ -983,7 +853,7 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	debugLog(s.debugMode, "Received HTTP response from %s: %s", server.URL, string(respBytes))
+	debugLog(s.DebugMode, "Received HTTP response from %s: %s", server.URL, string(respBytes))
 
 	var response JSONRPCResponse
 	if err := json.Unmarshal(respBytes, &response); err != nil {
@@ -999,13 +869,11 @@ func (s *MCPService) GetBearerToken(server *MCPServer) string {
 		return ""
 	}
 
-	// Parse the URL to get the domain
 	u, err := url.Parse(server.URL)
 	if err != nil {
 		return ""
 	}
 
-	// Sanitize domain: replace dots and hyphens with underscores, uppercase
 	domain := strings.ReplaceAll(u.Host, ".", "_")
 	domain = strings.ReplaceAll(domain, "-", "_")
 	envVar := "MAI_MCP_AUTH_" + strings.ToUpper(domain)

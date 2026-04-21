@@ -1,4 +1,4 @@
-package main
+package wmcplib
 
 import (
 	"fmt"
@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-type quietToolEntry struct {
+// QuietToolEntry is a pre-rendered, sort-ready description of one tool used
+// by the compact catalog formats. It is exported so alternative formatters
+// (e.g. mai-repl's embed backend) can reuse it.
+type QuietToolEntry struct {
 	Server    string
 	Name      string
 	Purpose   string
@@ -15,28 +18,30 @@ type quietToolEntry struct {
 	Args      []ToolParameter
 }
 
-func buildQuietToolEntry(serverName string, tool Tool) quietToolEntry {
-	purpose, whenHint := sanitizeToolDescription(tool.Description)
+// BuildQuietToolEntry renders a single tool into a QuietToolEntry.
+func BuildQuietToolEntry(serverName string, tool Tool) QuietToolEntry {
+	purpose, whenHint := SanitizeToolDescription(tool.Description)
 	params := tool.Parameters
 	if len(params) == 0 && tool.InputSchema != nil {
-		params = extractParametersFromSchema(tool.InputSchema)
+		params = ExtractParametersFromSchema(tool.InputSchema)
 	}
 	arguments := make([]ToolParameter, len(params))
 	copy(arguments, params)
 	sort.Slice(arguments, func(i, j int) bool { return arguments[i].Name < arguments[j].Name })
 
-	entry := quietToolEntry{
+	return QuietToolEntry{
 		Server:    serverName,
 		Name:      tool.Name,
 		Purpose:   purpose,
-		WhenToUse: formatWhenToUse(purpose, whenHint),
-		Category:  categorizeTool(tool.Name, purpose),
+		WhenToUse: FormatWhenToUse(purpose, whenHint),
+		Category:  CategorizeTool(tool.Name, purpose),
 		Args:      arguments,
 	}
-	return entry
 }
 
-func sanitizeToolDescription(desc string) (string, string) {
+// SanitizeToolDescription strips <think></think> blocks from a tool
+// description and returns (purpose, when-to-use-hint).
+func SanitizeToolDescription(desc string) (string, string) {
 	if desc == "" {
 		return "", ""
 	}
@@ -65,7 +70,8 @@ func sanitizeToolDescription(desc string) (string, string) {
 	return purpose, whenHint
 }
 
-func formatWhenToUse(purpose, hint string) string {
+// FormatWhenToUse synthesises a short "Use to ..." hint from a tool purpose.
+func FormatWhenToUse(purpose, hint string) string {
 	if hint != "" {
 		return compactSpaces(hint)
 	}
@@ -99,7 +105,8 @@ func deriveWhenFromPurpose(purpose string) string {
 	return compactSpaces(fmt.Sprintf("Use to %s %s", first, strings.TrimSpace(rest)))
 }
 
-func formatQuietArgument(arg ToolParameter) string {
+// FormatQuietArgument renders a single tool parameter in quiet format.
+func FormatQuietArgument(arg ToolParameter) string {
 	name := strings.TrimSpace(arg.Name)
 	if name == "" {
 		name = "argument"
@@ -119,7 +126,8 @@ func formatQuietArgument(arg ToolParameter) string {
 	return fmt.Sprintf("- %s=<%s> (%s)", name, typeLabel, requiredLabel)
 }
 
-func categorizeTool(name, description string) string {
+// CategorizeTool classifies a tool into a coarse human-friendly category.
+func CategorizeTool(name, description string) string {
 	text := strings.ToLower(name + " " + description)
 	if containsAny(text, []string{"write", "rename", "set", "update", "replace", "apply", "append", "delete", "remove", "create", "format", "patch", "edit", "modify", "use ", "use_", "toggle", "enable", "disable"}) {
 		return "Editing"
