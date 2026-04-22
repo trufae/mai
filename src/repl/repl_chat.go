@@ -92,7 +92,7 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 		output.WriteString("  /chat list        - Display conversation messages (truncated)\r\n")
 		output.WriteString("  /chat log         - Display full conversation with preserved formatting\r\n")
 		output.WriteString("  /chat undo [N]    - Remove last or Nth message\r\n")
-		output.WriteString("  /chat compact     - Compact conversation into a single message\r\n")
+		output.WriteString("  /chat compact [text] - Compact conversation; optional text is appended to the compact prompt\r\n")
 		return output.String(), nil
 	}
 
@@ -137,7 +137,11 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 		}
 		return "", nil
 	case "compact":
-		return "", r.handleCompactCommand()
+		extra := ""
+		if len(args) > 2 {
+			extra = strings.Join(args[2:], " ")
+		}
+		return "", r.handleCompactCommand(extra)
 	case "memory":
 		// Generate or manage consolidated memory file
 		if len(args) < 3 || args[2] == "generate" {

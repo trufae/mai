@@ -2261,9 +2261,11 @@ func (r *REPL) getCurrentModelForProvider() string {
 
 // handleCompactCommand processes the /compact command
 // It loads the compact.txt prompt and submits the entire conversation history
-// to the AI, then replaces all messages with the AI's response
+// to the AI, then replaces all messages with the AI's response.
+// The optional extra argument is appended to the compact prompt to let the
+// caller steer the summarization (e.g. "focus on the API changes").
 
-func (r *REPL) handleCompactCommand() error {
+func (r *REPL) handleCompactCommand(extra ...string) error {
 	// Check if there are enough messages to compact
 	if len(r.messages) < 2 {
 		fmt.Print("Not enough messages to compact. Need at least one exchange.\r\n")
@@ -2282,6 +2284,11 @@ func (r *REPL) handleCompactCommand() error {
 		return fmt.Errorf("failed to read compact prompt: %v", err)
 	}
 
+	promptText := string(compactPrompt)
+	if extraText := strings.TrimSpace(strings.Join(extra, " ")); extraText != "" {
+		promptText = strings.TrimRight(promptText, "\n") + "\n\n" + extraText
+	}
+
 	// Create a serialized version of the conversation for the AI
 	var conversationText strings.Builder
 	conversationText.WriteString("# Conversation History\n\n")
@@ -2294,7 +2301,7 @@ func (r *REPL) handleCompactCommand() error {
 	// Create a new message with the compact prompt and conversation history
 	compactMessage := llm.Message{
 		Role:    "user",
-		Content: string(compactPrompt) + "\n\n" + conversationText.String(),
+		Content: promptText + "\n\n" + conversationText.String(),
 	}
 
 	// Save original messages for recovery if needed
