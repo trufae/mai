@@ -28,6 +28,8 @@ func showHelp() {
      -i       Non-interactive mode (return errors instead of prompting)
      -j       Print tools, prompts, and resources in JSON format (with -t)
      -k       Drunk mode (permissive tool matching and parameter assignment)
+     -K DIR   Directory with cert.pem and key.pem for HTTPS (default: ~/.config/mai/wmcp-certs)
+     -l URL   Listen URL with scheme, e.g. http://:8989 or https://:9999
      -n       Skip loading config file
      -o FILE  Output report to FILE
      -p       Skip loading prompts (only expose tools)
@@ -41,6 +43,7 @@ func showHelp() {
     Local servers: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
     HTTP servers: mai-wmcp "https://api.example.com/mcp"
     SSE servers: mai-wmcp "sse://api.example.com/mcp"
+    HTTPS listen: mai-wmcp -l https://:9999 -K /path/to/certs
     Config file: mai-wmcp -c /path/to/config.json
     Config JSON: mai-wmcp -C '{"mcpServers":{"myserver":{"type":"stdio","command":"mycommand"}}}'
     List mode: mai-wmcp -t "r2pm -r r2mcp" "timemcp"
@@ -305,6 +308,8 @@ func main() {
 	if config != nil && config.MaiOptions.BaseURL != "" {
 		baseURL = config.MaiOptions.BaseURL
 	}
+	useTLS := false
+	certDir := ""
 	yoloMode := false
 	drunkMode := false
 	nonInteractiveMode := false
@@ -393,6 +398,34 @@ func main() {
 					i++
 				} else {
 					fmt.Println("Error: -b requires a base URL")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-l":
+				if i+1 < len(args) {
+					listenURL := args[i+1]
+					i++
+					switch {
+					case strings.HasPrefix(listenURL, "https://"):
+						useTLS = true
+						baseURL = strings.TrimPrefix(listenURL, "https://")
+					case strings.HasPrefix(listenURL, "http://"):
+						useTLS = false
+						baseURL = strings.TrimPrefix(listenURL, "http://")
+					default:
+						baseURL = listenURL
+					}
+				} else {
+					fmt.Println("Error: -l requires a URL (e.g. https://:9999)")
+					showHelp()
+					os.Exit(1)
+				}
+			case "-K":
+				if i+1 < len(args) {
+					certDir = args[i+1]
+					i++
+				} else {
+					fmt.Println("Error: -K requires a directory")
 					showHelp()
 					os.Exit(1)
 				}
@@ -522,11 +555,75 @@ func main() {
 		baseURL = envBaseURL
 	}
 
-	log.Printf("Starting MCP REST service on %s", baseURL)
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+
+	log.Printf("Starting MCP REST service on %s://%s", scheme, baseURL)
 	accessAddr := strings.Replace(baseURL, "0.0.0.0", "localhost", 1)
-	log.Printf("Access tools at: http://%s/tools", accessAddr)
+	log.Printf("Access tools at: %s://%s/tools", scheme, accessAddr)
+
+	if useTLS {
+		certFile, keyFile, err := resolveTLSCerts(certDir)
+		if err != nil {
+			log.Fatalf("Failed to prepare TLS certificates: %v", err)
+		}
+		log.Printf("Using TLS cert=%s key=%s", certFile, keyFile)
+		if err := http.ListenAndServeTLS(baseURL, certFile, keyFile, router); err != nil {
+			log.Fatal("Failed to start HTTPS server:", err)
+		}
+		return
+	}
 
 	if err := http.ListenAndServe(baseURL, router); err != nil {
 		log.Fatal("Failed to start HTTP server:", err)
 	}
+}
+
+func resolveTLSCerts(certDir string) (string, string, error) {
+	if certDir == "" {
+		if env := os.Getenv("MAI_WMCP_CERTDIR"); env != "" {
+			certDir = env
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", "", fmt.Errorf("cannot resolve home directory: %w", err)
+			}
+			certDir = filepath.Join(home, ".config", "mai", "wmcp-certs")
+		}
+	}
+
+	certFile := filepath.Join(certDir, "cert.pem")
+	keyFile := filepath.Join(certDir, "key.pem")
+
+	missing := []string{}
+	if _, err := os.Stat(certFile); err != nil {
+		missing = append(missing, certFile)
+	}
+	if _, err := os.Stat(keyFile); err != nil {
+		missing = append(missing, keyFile)
+	}
+	if len(missing) > 0 {
+		printOpensslHelp(certDir, missing)
+		return "", "", fmt.Errorf("TLS certificates not found in %s", certDir)
+	}
+	return certFile, keyFile, nil
+}
+
+func printOpensslHelp(certDir string, missing []string) {
+	fmt.Fprintf(os.Stderr, "\nHTTPS requested but TLS files are missing:\n")
+	for _, m := range missing {
+		fmt.Fprintf(os.Stderr, "  - %s\n", m)
+	}
+	fmt.Fprintf(os.Stderr, "\nCreate a self-signed certificate with openssl:\n\n")
+	fmt.Fprintf(os.Stderr, "  mkdir -p %q\n", certDir)
+	fmt.Fprintf(os.Stderr, "  openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \\\n")
+	fmt.Fprintf(os.Stderr, "    -keyout %q \\\n", filepath.Join(certDir, "key.pem"))
+	fmt.Fprintf(os.Stderr, "    -out %q \\\n", filepath.Join(certDir, "cert.pem"))
+	fmt.Fprintf(os.Stderr, "    -subj \"/CN=localhost\" \\\n")
+	fmt.Fprintf(os.Stderr, "    -addext \"subjectAltName=DNS:localhost,IP:127.0.0.1\"\n\n")
+	fmt.Fprintf(os.Stderr, "Or supply a directory with cert.pem and key.pem via -K DIR (or MAI_WMCP_CERTDIR).\n\n")
+	fmt.Fprintf(os.Stderr, "Once the server is running, test it with:\n\n")
+	fmt.Fprintf(os.Stderr, "  curl -k https://localhost:9999/status\n\n")
 }
