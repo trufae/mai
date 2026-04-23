@@ -388,10 +388,16 @@ func (s *MCPService) ProcessMCPRequest(req JSONRPCRequest) (*JSONRPCResponse, bo
 	case "notifications/initialized":
 		return nil, true
 	case "tools/list":
+		var tools []Tool
+		if s.ProxyToolsMode {
+			tools = ProxyTools()
+		} else {
+			tools = s.AggregateToolList()
+		}
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result:  map[string]interface{}{"tools": s.AggregateToolList()},
+			Result:  map[string]interface{}{"tools": tools},
 		}, false
 	case "tools/call":
 		var params CallToolParams
@@ -400,6 +406,27 @@ func (s *MCPService) ProcessMCPRequest(req JSONRPCRequest) (*JSONRPCResponse, bo
 		}
 		if params.Name == "" {
 			return &JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: RPCError{Code: -32602, Message: "tool name is required"}}, false
+		}
+		if s.ProxyToolsMode {
+			switch params.Name {
+			case ProxyToolSearchName:
+				result := s.HandleProxySearchTools(params.Arguments)
+				return &JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: result}, false
+			case ProxyToolCallName:
+				realName, innerArgs, err := ExtractProxyCallArguments(params.Arguments)
+				if err != nil {
+					return &JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: RPCError{Code: -32602, Message: err.Error()}}, false
+				}
+				params.Name = realName
+				params.Arguments = innerArgs
+				// fall through to the normal dispatch below with rewritten params
+			default:
+				return &JSONRPCResponse{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error:   RPCError{Code: -32601, Message: fmt.Sprintf("proxy-tools mode: only '%s' and '%s' are exposed; got '%s'", ProxyToolSearchName, ProxyToolCallName, params.Name)},
+				}, false
+			}
 		}
 		server, toolName, err := s.ResolveTool(params.Name)
 		if err != nil {

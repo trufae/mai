@@ -35,6 +35,7 @@ func showHelp() {
      -S       Serve MCP JSON-RPC over stdio instead of HTTP
      -t       Load MCP servers and list tools, prompts, and resources, then quit
      -v       Show version information
+     -x       Proxy tools mode: expose only 'search-tools' and 'call-tool' (real tools are hidden behind them)
      -y       Yolo mode (skip tool confirmations)
   Examples:
     Local servers: mai-wmcp -y "r2pm -r r2mcp" "timemcp"
@@ -59,6 +60,20 @@ func listMCPData(service *wmcplib.MCPService, jsonOutput bool) {
 		tools := make(map[string][]wmcplib.Tool)
 		prompts := make(map[string][]wmcplib.Prompt)
 		resources := make(map[string][]wmcplib.Resource)
+
+		if service.ProxyToolsMode {
+			tools["proxy"] = wmcplib.ProxyTools()
+			result["tools"] = tools
+			result["prompts"] = prompts
+			result["resources"] = resources
+			jsonBytes, err := json.Marshal(result)
+			if err != nil {
+				fmt.Printf("Error marshaling JSON: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println(string(jsonBytes))
+			return
+		}
 
 		for serverName, server := range service.Servers {
 			server.Mutex.RLock()
@@ -96,6 +111,26 @@ func listMCPData(service *wmcplib.MCPService, jsonOutput bool) {
 		output.WriteString("# MCP Data\n\n")
 
 		output.WriteString("## Tools\n\n")
+		if service.ProxyToolsMode {
+			for _, tool := range wmcplib.ProxyTools() {
+				output.WriteString(fmt.Sprintf("ToolName: %s\n", tool.Name))
+				output.WriteString(fmt.Sprintf("Description: %s\n", tool.Description))
+				if len(tool.Parameters) > 0 {
+					output.WriteString("Parameters:\n")
+					for _, param := range tool.Parameters {
+						req := ""
+						if param.Required {
+							req = " (required)"
+						}
+						output.WriteString(fmt.Sprintf("  - %s=<value> : %s (%s)%s\n",
+							param.Name, param.Description, param.Type, req))
+					}
+				}
+				output.WriteString("\n")
+			}
+			fmt.Print(output.String())
+			return
+		}
 		for _, server := range service.Servers {
 			server.Mutex.RLock()
 			for _, tool := range server.Tools {
@@ -277,6 +312,7 @@ func main() {
 	debugMode := false
 	noPromptsMode := false
 	sessionMode := false
+	proxyToolsMode := false
 	if config != nil {
 		yoloMode = config.MaiOptions.YoloMode
 		drunkMode = config.MaiOptions.DrunkMode
@@ -285,6 +321,7 @@ func main() {
 		debugMode = config.MaiOptions.DebugMode
 		noPromptsMode = config.MaiOptions.NoPrompts
 		sessionMode = config.MaiOptions.SessionMode
+		proxyToolsMode = config.MaiOptions.ProxyToolsMode
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -341,6 +378,8 @@ func main() {
 				sessionMode = true
 			case "-S":
 				stdioMode = true
+			case "-x":
+				proxyToolsMode = true
 			case "-c":
 				i++
 			case "-C":
@@ -410,6 +449,7 @@ func main() {
 		NonInteractive: nonInteractiveMode,
 		SessionMode:    sessionMode,
 		DebugMode:      debugMode,
+		ProxyToolsMode: proxyToolsMode,
 		Prompter:       wmcplib.NewStdinPrompter(),
 	})
 

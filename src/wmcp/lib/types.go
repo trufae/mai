@@ -240,6 +240,7 @@ type MCPService struct {
 	NonInteractive       bool
 	DebugMode            bool
 	SessionMode          bool
+	ProxyToolsMode       bool
 	prompter             Prompter
 	yoloToolNotFoundMode bool
 	toolPerms            map[string]ToolPermission

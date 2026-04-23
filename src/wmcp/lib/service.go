@@ -21,6 +21,7 @@ type Options struct {
 	NonInteractive bool
 	SessionMode    bool
 	DebugMode      bool
+	ProxyToolsMode bool
 	Prompter       Prompter
 }
 
@@ -36,6 +37,7 @@ func NewMCPService(opts Options) *MCPService {
 		NonInteractive: opts.NonInteractive,
 		SessionMode:    opts.SessionMode,
 		DebugMode:      opts.DebugMode,
+		ProxyToolsMode: opts.ProxyToolsMode,
 		prompter:       opts.Prompter,
 		toolPerms:      make(map[string]ToolPermission),
 		promptPerms:    make(map[string]PromptPermission),

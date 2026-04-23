@@ -28,6 +28,26 @@ func setCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call")
 }
 
+// writeProxyToolsText renders the two proxy tools in the plain-text catalog
+// format used by listToolsHandler / simpleToolsHandler / quietToolsHandler.
+func writeProxyToolsText(output *strings.Builder) {
+	for _, tool := range wmcplib.ProxyTools() {
+		output.WriteString(fmt.Sprintf("- ToolName: %s\n", tool.Name))
+		output.WriteString(fmt.Sprintf("  Description: %s\n", tool.Description))
+		if len(tool.Parameters) > 0 {
+			output.WriteString("  Parameters:\n")
+			for _, param := range tool.Parameters {
+				req := ""
+				if param.Required {
+					req = " (required)"
+				}
+				output.WriteString(fmt.Sprintf("  - %s=<value> : %s (%s)%s\n",
+					param.Name, param.Description, param.Type, req))
+			}
+		}
+	}
+}
+
 func listToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("HTTP %s %s", r.Method, r.URL.String())
@@ -43,6 +63,12 @@ func listToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 
 		var output strings.Builder
 		output.WriteString("# Tools Catalog\n\n")
+
+		if s.ProxyToolsMode {
+			writeProxyToolsText(&output)
+			writeTextResponse(w, output.String())
+			return
+		}
 
 		for _, server := range s.Servers {
 			server.Mutex.RLock()
@@ -396,6 +422,16 @@ func jsonToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		res := make(map[string][]wmcplib.Tool)
+		if s.ProxyToolsMode {
+			res["proxy"] = wmcplib.ProxyTools()
+			jsonBytes, err := json.Marshal(res)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Write(jsonBytes)
+			return
+		}
 		for serverName, server := range s.Servers {
 			server.Mutex.RLock()
 			tools := make([]wmcplib.Tool, len(server.Tools))
@@ -434,6 +470,12 @@ func simpleToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 		defer s.Mutex.RUnlock()
 
 		var output strings.Builder
+
+		if s.ProxyToolsMode {
+			writeProxyToolsSimple(&output)
+			writeTextResponse(w, output.String())
+			return
+		}
 
 		for serverName, server := range s.Servers {
 			server.Mutex.RLock()
@@ -486,6 +528,47 @@ func simpleToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 	}
 }
 
+// writeProxyToolsSimple renders the two proxy tools in the "simple" text
+// format used by simpleToolsHandler.
+func writeProxyToolsSimple(output *strings.Builder) {
+	notFirst := false
+	for _, tool := range wmcplib.ProxyTools() {
+		if notFirst {
+			output.WriteString("--\n")
+		}
+		notFirst = true
+		output.WriteString(fmt.Sprintf("TOOLNAME: %s\n", tool.Name))
+		output.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
+		if len(tool.Parameters) > 0 {
+			var mandatory, optional, paramExamples []string
+			for _, param := range tool.Parameters {
+				paramExamples = append(paramExamples, fmt.Sprintf("%s=<value>", param.Name))
+				paramDesc := fmt.Sprintf("%s (%s)", param.Name, param.Type)
+				if param.Required {
+					mandatory = append(mandatory, paramDesc)
+				} else {
+					optional = append(optional, paramDesc)
+				}
+			}
+			output.WriteString(fmt.Sprintf("USAGE: proxy %s %s\n", tool.Name, strings.Join(paramExamples, " ")))
+			if len(mandatory) > 0 {
+				output.WriteString("MANDATORY PARAMS:")
+				for _, param := range mandatory {
+					output.WriteString(" " + param)
+				}
+				output.WriteString("\n")
+			}
+			if len(optional) > 0 {
+				output.WriteString("OPTIONAL PARAMS:")
+				for _, param := range optional {
+					output.WriteString(" " + param)
+				}
+				output.WriteString("\n")
+			}
+		}
+	}
+}
+
 func quietToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("HTTP %s %s", r.Method, r.URL.String())
@@ -498,6 +581,26 @@ func quietToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 
 		s.Mutex.RLock()
 		defer s.Mutex.RUnlock()
+
+		if s.ProxyToolsMode {
+			var output strings.Builder
+			for _, tool := range wmcplib.ProxyTools() {
+				output.WriteString(fmt.Sprintf("- ToolName: %s\n", tool.Name))
+				output.WriteString(fmt.Sprintf("  Description: %s\n", tool.Description))
+				if len(tool.Parameters) > 0 {
+					output.WriteString("  Parameters:\n")
+					for _, p := range tool.Parameters {
+						req := ""
+						if p.Required {
+							req = " [required]"
+						}
+						output.WriteString(fmt.Sprintf("  - %s=<%s> : %s%s\n", p.Name, p.Type, p.Description, req))
+					}
+				}
+			}
+			writeTextResponse(w, strings.TrimRight(output.String(), "\n"))
+			return
+		}
 
 		categoryOrder := []string{"File", "Analysis", "Inspection", "Metadata", "Editing"}
 		toolsByCategory := make(map[string][]wmcplib.QuietToolEntry)
@@ -589,6 +692,35 @@ func markdownToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 		var output strings.Builder
 		output.WriteString("# Tools Catalog\n\n")
 
+		if s.ProxyToolsMode {
+			output.WriteString("## Proxy Tools Mode\n\n")
+			output.WriteString("Only two virtual tools are exposed; they gate access to the real underlying tools.\n\n")
+			for _, tool := range wmcplib.ProxyTools() {
+				output.WriteString(fmt.Sprintf("### %s\n", tool.Name))
+				output.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
+				if len(tool.Parameters) > 0 {
+					output.WriteString("**Parameters:**\n\n")
+					output.WriteString("| Name | Type | Required | Description |\n")
+					output.WriteString("|------|------|----------|-------------|\n")
+					for _, p := range tool.Parameters {
+						req := "No"
+						if p.Required {
+							req = "Yes"
+						}
+						output.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", p.Name, p.Type, req, p.Description))
+					}
+					output.WriteString("\n")
+				}
+				if tool.InputSchema != nil {
+					schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
+					output.WriteString(fmt.Sprintf("**Input Schema:**\n```json\n%s\n```\n\n", string(schemaBytes)))
+				}
+				output.WriteString(fmt.Sprintf("**Usage:** `POST /call/%s`\n\n", tool.Name))
+			}
+			w.Write([]byte(output.String()))
+			return
+		}
+
 		for serverName, server := range s.Servers {
 			server.Mutex.RLock()
 			output.WriteString(fmt.Sprintf("## Server: %s\n", serverName))
@@ -663,6 +795,116 @@ func markdownToolsHandler(s *wmcplib.MCPService) http.HandlerFunc {
 	}
 }
 
+// proxyCallHandler services /call/{tool} when ProxyToolsMode is on. It
+// accepts only the two virtual tool names; everything else is a 404. Results
+// are delivered via ProcessMCPRequest so the HTTP and JSON-RPC transports
+// stay behaviorally identical.
+func proxyCallHandler(s *wmcplib.MCPService, w http.ResponseWriter, r *http.Request, toolName string) {
+	if !wmcplib.IsProxyToolName(toolName) {
+		http.Error(w, fmt.Sprintf("proxy-tools mode: only '%s' and '%s' are exposed; got '%s'",
+			wmcplib.ProxyToolSearchName, wmcplib.ProxyToolCallName, toolName), http.StatusNotFound)
+		return
+	}
+
+	arguments := make(map[string]interface{})
+	if r.Method == "POST" {
+		contentType := r.Header.Get("Content-Type")
+		if strings.Contains(contentType, "application/json") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "failed to read request body", http.StatusBadRequest)
+				return
+			}
+			if len(body) > 0 {
+				if err := json.Unmarshal(body, &arguments); err != nil {
+					http.Error(w, "invalid JSON in request body", http.StatusBadRequest)
+					return
+				}
+			}
+		} else {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "failed to parse form data", http.StatusBadRequest)
+				return
+			}
+			for key, values := range r.Form {
+				if len(values) == 1 {
+					arguments[key] = values[0]
+				} else {
+					arguments[key] = values
+				}
+			}
+		}
+	} else {
+		if err := r.ParseForm(); err != nil && err != http.ErrNotMultipart {
+			http.Error(w, "failed to parse query parameters", http.StatusBadRequest)
+			return
+		}
+		for key, values := range r.Form {
+			if len(values) == 1 {
+				arguments[key] = values[0]
+			} else {
+				arguments[key] = values
+			}
+		}
+	}
+
+	req := wmcplib.JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "tools/call",
+		Params:  wmcplib.CallToolParams{Name: toolName, Arguments: arguments},
+		ID:      time.Now().UnixNano(),
+	}
+	resp, _ := s.ProcessMCPRequest(req)
+	if resp == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if resp.Error != nil {
+		http.Error(w, fmt.Sprintf("tool call failed: %v", resp.Error), http.StatusBadRequest)
+		return
+	}
+
+	nativeFormat := r.URL.Query().Get("native") == "true" || r.Header.Get("X-Native-Tool-Call") == "true"
+
+	resultBytes, _ := json.Marshal(resp.Result)
+	var toolResult wmcplib.CallToolResult
+	if err := json.Unmarshal(resultBytes, &toolResult); err != nil {
+		if nativeFormat {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(resultBytes)
+		} else {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write(resultBytes)
+		}
+		return
+	}
+	if toolResult.Error != nil {
+		if nativeFormat {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": toolResult.Error.Message})
+		} else {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("ERROR: " + toolResult.Error.Message))
+		}
+		return
+	}
+
+	if nativeFormat {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(toolResult)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	var output strings.Builder
+	for i, c := range toolResult.Content {
+		if i > 0 {
+			output.WriteString("\n\n")
+		}
+		output.WriteString(c.Text)
+	}
+	w.Write([]byte(output.String()))
+}
+
 func callToolHandler(s *wmcplib.MCPService) http.HandlerFunc {
 	debugLog := func(format string, args ...interface{}) {
 		if s.DebugMode {
@@ -689,6 +931,11 @@ func callToolHandler(s *wmcplib.MCPService) http.HandlerFunc {
 				serverName = parts[0]
 				toolName = parts[1]
 			}
+		}
+
+		if s.ProxyToolsMode {
+			proxyCallHandler(s, w, r, toolName)
+			return
 		}
 
 		nonInteractiveParam := r.URL.Query().Get("nonInteractive")
@@ -1070,6 +1317,14 @@ func generateOpenAPISpec(s *wmcplib.MCPService) map[string]interface{} {
 func generateOpenAPIPaths(s *wmcplib.MCPService) map[string]interface{} {
 	paths := make(map[string]interface{})
 
+	if s.ProxyToolsMode {
+		for _, tool := range wmcplib.ProxyTools() {
+			path := fmt.Sprintf("/v1/tool/%s", tool.Name)
+			paths[path] = generateOpenAPIToolOperation("proxy", tool)
+		}
+		return paths
+	}
+
 	for serverName, server := range s.Servers {
 		server.Mutex.RLock()
 		for _, tool := range server.Tools {
@@ -1167,42 +1422,49 @@ func generateOpenAPIComponents(s *wmcplib.MCPService) map[string]interface{} {
 	}
 
 	schemas := components["schemas"].(map[string]interface{})
+
+	addToolSchema := func(tool wmcplib.Tool) {
+		if len(tool.Parameters) == 0 {
+			return
+		}
+		properties := make(map[string]interface{})
+		required := []string{}
+		for _, param := range tool.Parameters {
+			paramSchema := map[string]interface{}{
+				"type":        param.Type,
+				"title":       strings.Title(strings.ReplaceAll(param.Name, "_", " ")),
+				"description": param.Description,
+			}
+			if param.Type == "array" {
+				paramSchema["items"] = map[string]interface{}{"type": "string"}
+			}
+			properties[param.Name] = paramSchema
+			if param.Required {
+				required = append(required, param.Name)
+			}
+		}
+		schema := map[string]interface{}{
+			"properties": properties,
+			"type":       "object",
+			"title":      fmt.Sprintf("%s_form_model", tool.Name),
+		}
+		if len(required) > 0 {
+			schema["required"] = required
+		}
+		schemas[fmt.Sprintf("%s_form_model", tool.Name)] = schema
+	}
+
+	if s.ProxyToolsMode {
+		for _, tool := range wmcplib.ProxyTools() {
+			addToolSchema(tool)
+		}
+		return components
+	}
+
 	for _, server := range s.Servers {
 		server.Mutex.RLock()
 		for _, tool := range server.Tools {
-			if len(tool.Parameters) > 0 {
-				properties := make(map[string]interface{})
-				required := []string{}
-
-				for _, param := range tool.Parameters {
-					paramSchema := map[string]interface{}{
-						"type":        param.Type,
-						"title":       strings.Title(strings.ReplaceAll(param.Name, "_", " ")),
-						"description": param.Description,
-					}
-
-					if param.Type == "array" {
-						paramSchema["items"] = map[string]interface{}{"type": "string"}
-					}
-
-					properties[param.Name] = paramSchema
-					if param.Required {
-						required = append(required, param.Name)
-					}
-				}
-
-				schema := map[string]interface{}{
-					"properties": properties,
-					"type":       "object",
-					"title":      fmt.Sprintf("%s_form_model", tool.Name),
-				}
-
-				if len(required) > 0 {
-					schema["required"] = required
-				}
-
-				schemas[fmt.Sprintf("%s_form_model", tool.Name)] = schema
-			}
+			addToolSchema(tool)
 		}
 		server.Mutex.RUnlock()
 	}

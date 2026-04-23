@@ -18,6 +18,7 @@ type MaiOptions struct {
 	NoPrompts      bool   `json:"noPrompts,omitempty"`
 	NonInteractive bool   `json:"nonInteractive,omitempty"`
 	SessionMode    bool   `json:"sessionMode,omitempty"`
+	ProxyToolsMode bool   `json:"proxyToolsMode,omitempty"`
 }
 
 // Config represents the main configuration structure

@@ -58,9 +58,11 @@ func embedGetService(r *REPL) (*wmcplib.MCPService, error) {
 
 	yolo := false
 	debug := false
+	proxy := false
 	if r != nil {
 		yolo = r.configOptions.GetBool("mcp.yolo")
 		debug = r.configOptions.GetBool("mcp.debug")
+		proxy = r.configOptions.GetBool("mcp.proxytools")
 	}
 
 	service := wmcplib.NewMCPService(wmcplib.Options{
@@ -71,6 +73,7 @@ func embedGetService(r *REPL) (*wmcplib.MCPService, error) {
 		NonInteractive: cfg.MaiOptions.NonInteractive,
 		SessionMode:    cfg.MaiOptions.SessionMode,
 		DebugMode:      debug || cfg.MaiOptions.DebugMode,
+		ProxyToolsMode: proxy || cfg.MaiOptions.ProxyToolsMode,
 		Prompter:       newReplPrompter(r),
 	})
 
@@ -147,6 +150,10 @@ func embedListToolsFormatted(r *REPL, f Format) (string, error) {
 	svc.Mutex.RLock()
 	defer svc.Mutex.RUnlock()
 
+	if svc.ProxyToolsMode {
+		return embedFormatProxyTools(f), nil
+	}
+
 	switch f {
 	case JSON:
 		res := make(map[string][]wmcplib.Tool)
@@ -182,6 +189,96 @@ func embedListToolsFormatted(r *REPL, f Format) (string, error) {
 	}
 
 	return embedFormatMarkdown(svc), nil
+}
+
+// embedFormatProxyTools renders the two virtual proxy tools in the format
+// requested by the REPL. Used when the embedded service has ProxyToolsMode
+// enabled — the real underlying tools must not appear in the LLM-facing
+// catalog.
+func embedFormatProxyTools(f Format) string {
+	tools := wmcplib.ProxyTools()
+	switch f {
+	case JSON:
+		b, _ := json.Marshal(map[string][]wmcplib.Tool{"proxy": tools})
+		return string(b)
+	case XML:
+		var out strings.Builder
+		out.WriteString("<tools>\n")
+		for _, tool := range tools {
+			out.WriteString(fmt.Sprintf("  <tool server=%q name=%q>\n", "proxy", tool.Name))
+			out.WriteString(fmt.Sprintf("    <description>%s</description>\n", tool.Description))
+			for _, p := range tool.Parameters {
+				required := ""
+				if p.Required {
+					required = " required=\"true\""
+				}
+				out.WriteString(fmt.Sprintf("    <param name=%q type=%q%s>%s</param>\n",
+					p.Name, p.Type, required, p.Description))
+			}
+			out.WriteString("  </tool>\n")
+		}
+		out.WriteString("</tools>\n")
+		return out.String()
+	case Simple:
+		var out strings.Builder
+		notFirst := false
+		for _, tool := range tools {
+			if notFirst {
+				out.WriteString("--\n")
+			}
+			notFirst = true
+			out.WriteString(fmt.Sprintf("TOOLNAME: %s\n", tool.Name))
+			out.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", tool.Description))
+			if len(tool.Parameters) > 0 {
+				var examples []string
+				for _, p := range tool.Parameters {
+					examples = append(examples, fmt.Sprintf("%s=<value>", p.Name))
+				}
+				out.WriteString(fmt.Sprintf("USAGE: proxy %s %s\n", tool.Name, strings.Join(examples, " ")))
+			}
+		}
+		return out.String()
+	case Quiet:
+		var out strings.Builder
+		for _, tool := range tools {
+			out.WriteString(fmt.Sprintf("- ToolName: %s\n", tool.Name))
+			if tool.Description != "" {
+				out.WriteString(fmt.Sprintf("  Description: %s\n", tool.Description))
+			}
+			if len(tool.Parameters) > 0 {
+				out.WriteString("  Parameters:\n")
+				for _, p := range tool.Parameters {
+					req := ""
+					if p.Required {
+						req = " [required]"
+					}
+					out.WriteString(fmt.Sprintf("  - %s=<%s> : %s%s\n", p.Name, p.Type, p.Description, req))
+				}
+			}
+		}
+		return strings.TrimRight(out.String(), "\n")
+	}
+
+	var out strings.Builder
+	out.WriteString("# Tools Catalog\n\n")
+	out.WriteString("## Proxy Tools Mode\n\n")
+	out.WriteString("Only two virtual tools are exposed; they gate access to the real underlying tools.\n\n")
+	for _, tool := range tools {
+		out.WriteString(fmt.Sprintf("### %s\n", tool.Name))
+		out.WriteString(fmt.Sprintf("**Description:** %s\n\n", tool.Description))
+		if len(tool.Parameters) > 0 {
+			out.WriteString("**Parameters:**\n")
+			for _, p := range tool.Parameters {
+				req := ""
+				if p.Required {
+					req = " (required)"
+				}
+				out.WriteString(fmt.Sprintf("- %s (%s)%s: %s\n", p.Name, p.Type, req, p.Description))
+			}
+			out.WriteString("\n")
+		}
+	}
+	return out.String()
 }
 
 func embedFormatQuiet(svc *wmcplib.MCPService) string {
@@ -353,12 +450,31 @@ func embedCallTool(r *REPL, toolName string, args map[string]interface{}, timeou
 		return "", err
 	}
 
+	_ = timeoutSeconds // the library imposes its own 30s stdio timeout for now
+
+	// In proxy mode the agent may only call the two virtual tools; route them
+	// through ProcessMCPRequest which knows how to handle them.
+	if svc.ProxyToolsMode {
+		req := wmcplib.JSONRPCRequest{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params:  wmcplib.CallToolParams{Name: toolName, Arguments: args},
+			ID:      time.Now().UnixNano(),
+		}
+		resp, _ := svc.ProcessMCPRequest(req)
+		if resp == nil {
+			return "", nil
+		}
+		if resp.Error != nil {
+			return "", fmt.Errorf("%v", resp.Error)
+		}
+		return renderCallToolResult(resp.Result)
+	}
+
 	server, resolvedName, err := svc.ResolveTool(toolName)
 	if err != nil {
 		return "", err
 	}
-
-	_ = timeoutSeconds // the library imposes its own 30s stdio timeout for now
 
 	req := wmcplib.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -375,7 +491,14 @@ func embedCallTool(r *REPL, toolName string, args map[string]interface{}, timeou
 		return "", fmt.Errorf("%v", resp.Error)
 	}
 
-	resultBytes, _ := json.Marshal(resp.Result)
+	return renderCallToolResult(resp.Result)
+}
+
+// renderCallToolResult converts an MCP tools/call Result payload into the
+// plain-text representation the REPL expects (concatenated content text, or
+// raw JSON when the payload doesn't fit the CallToolResult shape).
+func renderCallToolResult(result interface{}) (string, error) {
+	resultBytes, _ := json.Marshal(result)
 	var toolResult wmcplib.CallToolResult
 	if err := json.Unmarshal(resultBytes, &toolResult); err != nil {
 		return string(resultBytes), nil

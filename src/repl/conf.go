@@ -160,6 +160,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("mcp.allowtools", StringOption, "Comma-separated list of allowed tools", "")
 	co.RegisterOption("mcp.denytools", StringOption, "Comma-separated list of forbidden tools", "")
 	co.RegisterOption("mcp.yolotools", StringOption, "Comma-separated list of yolo tools (allowed but potentially risky)", "")
+	co.RegisterOption("mcp.proxytools", BooleanOption, "Expose only 'search-tools' and 'call-tool' to the agent; real tools are proxied behind them", "false")
 
 	co.initialized = true
 
