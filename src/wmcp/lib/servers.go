@@ -246,13 +246,11 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-		if server.UseSession {
-			server.Mutex.RLock()
-			sessionID := server.SessionID
-			server.Mutex.RUnlock()
-			if sessionID != "" {
-				httpReq.Header.Set("Mcp-Session-Id", sessionID)
-			}
+		server.Mutex.RLock()
+		sessionID := server.SessionID
+		server.Mutex.RUnlock()
+		if sessionID != "" {
+			httpReq.Header.Set("Mcp-Session-Id", sessionID)
 		}
 
 		if token := s.GetBearerToken(server); token != "" {
@@ -263,12 +261,10 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 		if err != nil {
 			return fmt.Errorf("notification request failed: %v", err)
 		}
-		if server.UseSession {
-			if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
-				server.Mutex.Lock()
-				server.SessionID = newSessionID
-				server.Mutex.Unlock()
-			}
+		if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+			server.Mutex.Lock()
+			server.SessionID = newSessionID
+			server.Mutex.Unlock()
 		}
 		resp.Body.Close()
 	} else {
@@ -657,12 +653,12 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-	if server.UseSession {
-		server.Mutex.RLock()
-		sessionID := server.SessionID
-		server.Mutex.RUnlock()
-		if sessionID != "" {
-			httpReq.Header.Set("Mcp-Session-Id", sessionID)
+	server.Mutex.RLock()
+	sessionID := server.SessionID
+	server.Mutex.RUnlock()
+	if sessionID != "" {
+		httpReq.Header.Set("Mcp-Session-Id", sessionID)
+		if server.UseSession {
 			httpReq.Header.Set("X-SSE-Session-ID", sessionID)
 		}
 	}
@@ -676,6 +672,12 @@ func (s *MCPService) sendHTTPRequestViaSSE(server *MCPServer, request JSONRPCReq
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
+	}
+
+	if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+		server.Mutex.Lock()
+		server.SessionID = newSessionID
+		server.Mutex.Unlock()
 	}
 
 	respBytes, err := ioutil.ReadAll(resp.Body)
@@ -806,12 +808,12 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
 
-	if server.UseSession {
-		server.Mutex.RLock()
-		sessionID := server.SessionID
-		server.Mutex.RUnlock()
-		if sessionID != "" {
-			httpReq.Header.Set("Mcp-Session-Id", sessionID)
+	server.Mutex.RLock()
+	sessionID := server.SessionID
+	server.Mutex.RUnlock()
+	if sessionID != "" {
+		httpReq.Header.Set("Mcp-Session-Id", sessionID)
+		if server.UseSession {
 			httpReq.Header.Set("X-SSE-Session-ID", sessionID)
 		}
 	}
@@ -830,16 +832,15 @@ func (s *MCPService) sendHTTPRequest(server *MCPServer, request JSONRPCRequest) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return nil, fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
+	if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
+		server.Mutex.Lock()
+		server.SessionID = newSessionID
+		server.Mutex.Unlock()
 	}
 
-	if server.UseSession {
-		if newSessionID := resp.Header.Get("Mcp-Session-Id"); newSessionID != "" {
-			server.Mutex.Lock()
-			server.SessionID = newSessionID
-			server.Mutex.Unlock()
-		}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	contentType := resp.Header.Get("Content-Type")
