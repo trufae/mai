@@ -316,8 +316,64 @@ func (r *REPL) executeToolNative(toolName string, args ...string) (string, error
 	return out.String(), nil
 }
 
+// planList is []string but tolerates LLMs that emit plan entries as objects,
+// numbers, or other non-string JSON values. Non-string elements are preserved
+// as their compact JSON encoding so downstream code can keep treating plan
+// entries as strings.
+type planList []string
+
+func (p *planList) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		*p = nil
+		return nil
+	}
+	// Accept a single string or object as a one-element plan.
+	if trimmed[0] != '[' {
+		var one any
+		if err := json.Unmarshal(data, &one); err != nil {
+			return err
+		}
+		*p = planList{planEntryToString(one)}
+		return nil
+	}
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	out := make(planList, 0, len(raw))
+	for _, item := range raw {
+		var s string
+		if err := json.Unmarshal(item, &s); err == nil {
+			out = append(out, s)
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(item, &v); err != nil {
+			return err
+		}
+		out = append(out, planEntryToString(v))
+	}
+	*p = out
+	return nil
+}
+
+func planEntryToString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case nil:
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
+}
+
 type PlanResponse struct {
-	Plan             []string `json:"plan"`
+	Plan             planList `json:"plan"`
 	CurrentPlanIndex int      `json:"current_plan_index"`
 	Progress         string   `json:"progress"`
 	NextStep         string   `json:"next_step"`
