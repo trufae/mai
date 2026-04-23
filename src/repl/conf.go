@@ -161,6 +161,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("mcp.denytools", StringOption, "Comma-separated list of forbidden tools", "")
 	co.RegisterOption("mcp.yolotools", StringOption, "Comma-separated list of yolo tools (allowed but potentially risky)", "")
 	co.RegisterOption("mcp.proxytools", BooleanOption, "Expose only 'search-tools' and 'call-tool' to the agent; real tools are proxied behind them", "false")
+	co.RegisterOption("mcp.context", BooleanOption, "Isolate the react tool loop in a separate conversation (skip chat history) and pack only its output into the main conversation", "false")
 
 	co.initialized = true
 

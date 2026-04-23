@@ -594,7 +594,16 @@ func (t *Tool) ToString() string {
 // ReactLoop selects between schema/grammar-guided tool loop and
 // markdown-based loop based on the `mcp.grammar` option. This provides a
 // single entry point for tool-calling behavior.
+//
+// When `mcp.context` is enabled the tool-calling loop runs in an isolated
+// conversation: the parent chat history is not forwarded to the planner so
+// the tools catalog and intermediate tool results don't consume tokens in
+// the main thread. The aggregated output is returned and repacked into the
+// parent conversation by the caller.
 func (r *REPL) ReactLoop(messages []llm.Message, input string) (string, error) {
+	if r.configOptions.GetBool("mcp.context") {
+		messages = nil
+	}
 	if r.configOptions.GetBool("mcp.grammar") {
 		return r.ReactJson(messages, input)
 	}
