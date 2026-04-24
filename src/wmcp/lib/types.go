@@ -219,6 +219,9 @@ type MCPServer struct {
 	SessionID     string
 	SSEURL        string
 	SSEConnected  bool
+	HasCapabilities   bool
+	SupportsPrompts   bool
+	SupportsResources bool
 	Mutex         sync.RWMutex
 	stderrDone    chan struct{}
 	stderrActive  bool

@@ -105,14 +105,16 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 			log.Printf("Warning: failed to load tools for server %s: %v", name, err)
 		}
 
-		if !s.NoPrompts {
+		if !s.NoPrompts && (!server.HasCapabilities || server.SupportsPrompts) {
 			if err := s.loadPrompts(server); err != nil {
 				log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
 			}
 		}
 
-		if err := s.loadResources(server); err != nil {
-			log.Printf("Warning: failed to load resources for server %s: %v", name, err)
+		if !server.HasCapabilities || server.SupportsResources {
+			if err := s.loadResources(server); err != nil {
+				log.Printf("Warning: failed to load resources for server %s: %v", name, err)
+			}
 		}
 
 		if isSSE {
@@ -187,14 +189,16 @@ func (s *MCPService) StartServerWithEnvAndTools(name, command string, env map[st
 		log.Printf("Warning: failed to load tools for server %s: %v", name, err)
 	}
 
-	if !s.NoPrompts {
+	if !s.NoPrompts && (!server.HasCapabilities || server.SupportsPrompts) {
 		if err := s.loadPrompts(server); err != nil {
 			log.Printf("Warning: failed to load prompts for server %s: %v", name, err)
 		}
 	}
 
-	if err := s.loadResources(server); err != nil {
-		log.Printf("Warning: failed to load resources for server %s: %v", name, err)
+	if !server.HasCapabilities || server.SupportsResources {
+		if err := s.loadResources(server); err != nil {
+			log.Printf("Warning: failed to load resources for server %s: %v", name, err)
+		}
 	}
 
 	log.Printf("Started MCP server: %s", name)
@@ -228,6 +232,16 @@ func (s *MCPService) InitializeServer(server *MCPServer) error {
 
 	if response.Error != nil {
 		return fmt.Errorf("initialization failed: %v", response.Error)
+	}
+
+	if resultMap, ok := response.Result.(map[string]interface{}); ok {
+		if caps, ok := resultMap["capabilities"].(map[string]interface{}); ok {
+			server.Mutex.Lock()
+			server.HasCapabilities = true
+			_, server.SupportsPrompts = caps["prompts"]
+			_, server.SupportsResources = caps["resources"]
+			server.Mutex.Unlock()
+		}
 	}
 
 	initNotification := JSONRPCRequest{
