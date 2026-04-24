@@ -13,7 +13,7 @@ BINS+=memory
 
 all:
 	for a in $(BINS); do \
-		$(MAKE) -C $$a all & \
+		$(MAKE) -C $$a all ; \
 	done; \
 	wait
 
