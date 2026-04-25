@@ -368,7 +368,8 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 			request["reasoning_effort"] = effort
 		}
 	case "openrouter":
-		if reasoning := openRouterReasoning(p.config.ReasoningEffort, p.config.ThinkHide); reasoning != nil {
+		excludeReasoning := p.config.ThinkHide && !p.config.PreserveThink
+		if reasoning := openRouterReasoning(p.config.ReasoningEffort, excludeReasoning); reasoning != nil {
 			request["reasoning"] = reasoning
 		}
 	}

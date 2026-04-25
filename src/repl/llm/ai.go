@@ -123,6 +123,10 @@ type Config struct {
 	// which are trimmed at the start of responses).
 	ThinkHide bool
 
+	// PreserveThink keeps tagged think regions in returned responses even when
+	// ThinkHide is filtering them from terminal output.
+	PreserveThink bool
+
 	// ShowTPS enables displaying time statistics (time to first token,
 	// generation time, tokens/second, chars/second) after LLM responses.
 	ShowTPS bool

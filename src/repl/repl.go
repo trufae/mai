@@ -1104,23 +1104,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	// Handle conversation history based on logging and reply settings
 	if r.configOptions.GetBool("chat.log") {
-		// When logging is enabled, use normal message history behavior
-		if r.configOptions.GetBool("chat.replies") {
-			// Include all messages
-			messages = append(messages, r.messages...)
-		} else {
-			// Include only user messages
-			for _, msg := range r.messages {
-				if msg.Role == "user" {
-					messages = append(messages, msg)
-				} else {
-					msg2 := msg
-					msg2.Content = ""
-					// include empty response from the llm
-					messages = append(messages, msg2)
-				}
-			}
-		}
+		messages = append(messages, r.messagesForPrompt()...)
 	}
 
 	if r.configOptions.GetBool("mcp.use") {
@@ -1338,7 +1322,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		}
 
 		// Create assistant message
-		assistantMessage := llm.Message{Role: "assistant", Content: response}
+		assistantMessage := r.assistantMessageForLog(response)
 
 		if r.configOptions.GetBool("chat.log") {
 			// Save to conversation history when logging is enabled
@@ -1428,11 +1412,43 @@ func (r *REPL) regularResponse(input string) error {
 func (r *REPL) getLastAssistantReply() (string, error) {
 	// Iterate backwards through messages to find the last assistant message
 	for i := len(r.messages) - 1; i >= 0; i-- {
-		if r.messages[i].Role == "assistant" {
-			return r.messages[i].Content, nil
+		if strings.EqualFold(r.messages[i].Role, "assistant") {
+			return r.messageForLog(r.messages[i]).Content, nil
 		}
 	}
 	return "", fmt.Errorf("no assistant replies found in conversation history")
+}
+
+func (r *REPL) assistantMessageForLog(response string) llm.Message {
+	return r.messageForLog(llm.Message{Role: "assistant", Content: response})
+}
+
+func (r *REPL) messageForLog(msg llm.Message) llm.Message {
+	if strings.EqualFold(msg.Role, "assistant") && !r.configOptions.GetBool("chat.replythink") {
+		msg.Content = strings.TrimLeft(llm.StripThink(msg.Content), " \t\r\n")
+	}
+	return msg
+}
+
+func (r *REPL) messagesForLog() []llm.Message {
+	messages := make([]llm.Message, 0, len(r.messages))
+	for _, msg := range r.messages {
+		messages = append(messages, r.messageForLog(msg))
+	}
+	return messages
+}
+
+func (r *REPL) messagesForPrompt() []llm.Message {
+	messages := make([]llm.Message, 0, len(r.messages))
+	includeReplies := r.configOptions.GetBool("chat.replies")
+	for _, msg := range r.messages {
+		msg = r.messageForLog(msg)
+		if strings.EqualFold(msg.Role, "assistant") && !includeReplies {
+			msg.Content = ""
+		}
+		messages = append(messages, msg)
+	}
+	return messages
 }
 
 // handleShellInput processes input starting with '$' as hybrid AI/shell mode
@@ -1758,7 +1774,7 @@ func (r *REPL) executeLLMQueryWithoutStreaming(query string) (string, error) {
 
 	// Add conversation history if we should include replies
 	if r.configOptions.GetBool("chat.replies") && len(r.messages) > 0 {
-		messages = append(messages, r.messages...)
+		messages = append(messages, r.messagesForPrompt()...)
 	}
 
 	// Add the user query
@@ -1830,7 +1846,7 @@ func (r *REPL) displayConversationLog() string {
 		fmt.Fprintf(&output, "[%d] %s: ", i+1, role)
 
 		// For log display, use a larger truncation limit
-		content := msg.Content
+		content := r.messageForLog(msg).Content
 		if len(content) > 100 {
 			content = content[:97] + "..."
 		}
@@ -1842,8 +1858,9 @@ func (r *REPL) displayConversationLog() string {
 	}
 
 	fmt.Fprintf(&output, "Total messages: %d\r\n", len(r.messages))
-	fmt.Fprintf(&output, "Settings: replies=%t, streaming=%t, reasoning=%s, logging=%t\r\n",
+	fmt.Fprintf(&output, "Settings: replies=%t, replythink=%t, streaming=%t, reasoning=%s, logging=%t\r\n",
 		r.configOptions.GetBool("chat.replies"),
+		r.configOptions.GetBool("chat.replythink"),
 		r.configOptions.GetBool("llm.stream"),
 		r.configOptions.Get("think.reason"),
 		r.configOptions.GetBool("chat.log"))
@@ -1879,7 +1896,7 @@ func (r *REPL) displayFullConversationLog() string {
 
 	output.WriteString("# Full conversation log:\r\n")
 
-	for i, msg := range r.messages {
+	for i, msg := range r.messagesForLog() {
 		role := formatRole(msg.Role)
 
 		fmt.Fprintf(&output, "\r\n## [%d] %s:\r\n", i+1, role)
@@ -2305,7 +2322,7 @@ func (r *REPL) handleCompactCommand(extra ...string) error {
 	var conversationText strings.Builder
 	conversationText.WriteString("# Conversation History\n\n")
 
-	for i, msg := range r.messages {
+	for i, msg := range r.messagesForLog() {
 		role := formatRole(msg.Role)
 		fmt.Fprintf(&conversationText, "## %s %d:\n\n%s\n\n", role, i+1, msg.Content)
 	}
@@ -2348,7 +2365,7 @@ func (r *REPL) handleCompactCommand(extra ...string) error {
 	}
 
 	// Create the assistant response message
-	assistantMessage := llm.Message{Role: "assistant", Content: response}
+	assistantMessage := r.assistantMessageForLog(response)
 
 	// Replace the conversation with just the compact message and response
 	r.messages = []llm.Message{
@@ -2439,7 +2456,7 @@ func (r *REPL) saveConversation(path string) error {
 		Messages     []llm.Message `json:"messages"`
 	}{
 		SystemPrompt: r.currentSystemPrompt(),
-		Messages:     r.messages,
+		Messages:     r.messagesForLog(),
 	}
 
 	// Convert to JSON

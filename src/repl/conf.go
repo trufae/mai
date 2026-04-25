@@ -78,6 +78,7 @@ func NewConfigOptions() *ConfigOptions {
 	// Memory option: load consolidated memory from ~/.config/mai/memory.txt into conversation context
 	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.config/mai and include in context", "false")
 	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "true")
+	co.RegisterOption("chat.replythink", BooleanOption, "Include assistant reasoning in stored chat replies", "false")
 	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
 	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
 	// Number of most recent messages to include when sending to the LLM (0 = all)
@@ -972,6 +973,8 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		fmt.Fprintf(&output, "Streaming mode %s (reverted to default)\r\n", streamStatus)
 	case "chat.replies":
 		output.WriteString("Include replies reverted to default\r\n")
+	case "chat.replythink":
+		output.WriteString("Assistant reasoning in replies reverted to default\r\n")
 	case "llm.think":
 		output.WriteString("AI reasoning reverted to default\r\n")
 	case "think.disable":

@@ -534,6 +534,7 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 	} else if opts.IsSet("ui.think") {
 		config.ThinkHide = !opts.GetBool("ui.think")
 	}
+	config.PreserveThink = opts.GetBool("chat.replythink")
 
 	// Debug flag: when enabled, show raw messages sent to providers
 	if opts.Get("repl.debug") != "" {

@@ -261,7 +261,7 @@ func (r *REPL) saveSession(sessionName string) error {
 	topicFile := filepath.Join(maiDir, "chats", sessionName+".topic")
 
 	sess := sessionData{
-		Messages: r.messages,
+		Messages: r.messagesForLog(),
 		Provider: r.configOptions.Get("ai.provider"),
 		Model:    r.configOptions.Get("ai.model"),
 		BaseURL:  r.configOptions.Get("ai.baseurl"),

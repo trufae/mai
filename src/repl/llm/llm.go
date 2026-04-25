@@ -225,6 +225,31 @@ func TrimLeadingThink(s string) string {
 	return ""
 }
 
+// StripThink removes all <think>...</think> regions from a complete response.
+// If a think block is unterminated, the block and the rest of the response are
+// dropped so internal reasoning is not leaked into conversation logs.
+func StripThink(s string) string {
+	if s == "" {
+		return s
+	}
+	var out strings.Builder
+	for {
+		idx := strings.Index(s, "<think>")
+		if idx < 0 {
+			out.WriteString(s)
+			break
+		}
+		out.WriteString(s[:idx])
+		s = s[idx+len("<think>"):]
+		end := strings.Index(s, "</think>")
+		if end < 0 {
+			break
+		}
+		s = strings.TrimLeft(s[end+len("</think>"):], " \t\r\n")
+	}
+	return out.String()
+}
+
 // StreamDemo centralizes demo/animation notifications for streaming flows.
 // Create one per streaming request and call OnToken with each raw token.
 // It will:
@@ -643,7 +668,7 @@ func (c *LLMClient) SendMessage(messages []Message, stream bool, images []string
 	// client requested hiding of think-regions. When hiding is disabled,
 	// preserve the tags and their content so the UI can show them.
 	if err == nil && resp != "" {
-		if c.Config != nil && c.Config.ThinkHide {
+		if c.Config != nil && c.Config.ThinkHide && !c.Config.PreserveThink {
 			// Trim any leading think block and strip all think sections
 			// from the printed output.
 			resp = TrimLeadingThink(resp)
