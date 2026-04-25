@@ -368,7 +368,7 @@ func showHelp() {
 -M               enable MCP mode (run as MCP agent)
 -m <model>       select the model for the given provider
 -n               do not load rc file and disable REPL history
--N               disable chat replies (alias for /set chat.replies=never)
+-N               disable chat replies (alias for /set chat.replies=false)
 -p <provider>    select the provider to use
 -q               quit after running given actions
 -r <command>     execute command and enter REPL (allows piping input)
@@ -653,7 +653,7 @@ func main() {
 			i--
 		case "-N":
 			// Disable chat replies
-			_ = configOptions.Set("chat.log", "never")
+			_ = configOptions.Set("chat.replies", "false")
 			args = append(args[:i], args[i+1:]...)
 			i--
 		case "-t":
