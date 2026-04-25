@@ -276,8 +276,10 @@ func (r *REPL) handleMCPCommand(args []string) (string, error) {
 
 // handleMCPAdd adds a new MCP server to the configuration.
 // Accepts either:
-//   /mcp add <name> <http-or-sse-url>
-//   /mcp add <name> <command> [args...]
+//
+//	/mcp add <name> <http-or-sse-url>
+//	/mcp add <name> <command> [args...]
+//
 // A single remainder argument starting with http:// or https:// is stored as a
 // URL server (type=http, or type=sse if the URL path ends with /sse). Anything
 // else is treated as a shell one-liner and split into command + args.
@@ -1180,18 +1182,24 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		r.unsavedTopic = strings.Join(snippetWords, " ")
 	}
 
-	// If reasoning is disabled, append /no_think to the last message sent to the LLM
-	if !r.configOptions.GetBool("llm.think") && r.configOptions.GetBool("llm.rawmode") && !r.configOptions.GetBool("ui.think") {
-		// Create a copy of the messages for the API call with /no_think appended
+	disableThinking := r.configOptions.GetBool("think.disable")
+	if !disableThinking {
+		for _, key := range []string{"think.reason", "think.effort", "llm.reason", "llm.effort", "ai.reason", "ai.effort"} {
+			if r.configOptions.IsSet(key) {
+				if effort, ok := llm.NormalizeReasoningEffort(r.configOptions.Get(key)); ok && effort == "none" {
+					disableThinking = true
+					break
+				}
+			}
+		}
+	}
+	if disableThinking && r.configOptions.GetBool("llm.rawmode") {
 		messagesCopy := make([]llm.Message, len(messages))
 		copy(messagesCopy, messages)
-
-		disable_reasoning := "\n# Reasoning\nDo /nothink /no_think\nUse Reasoning: low\n\n"
-		// Append the user message with /no_think to the copy
-		messagesCopy = append(messagesCopy, llm.Message{Role: "user", Content: input + disable_reasoning})
+		disableReasoning := "\n# Reasoning\nDo /nothink /no_think\nUse Reasoning: low\n\n"
+		messagesCopy = append(messagesCopy, llm.Message{Role: "user", Content: input + disableReasoning})
 		messages = messagesCopy
 	} else {
-		// Add the original user message
 		messages = append(messages, userMessage)
 	}
 
@@ -1309,9 +1317,13 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		default:
 			// Normal output
 			if !streamEnabled {
-				// Handle <think> regions based on ui.think option
+				// Handle <think> regions based on think.show option
 				out := response
-				if !r.configOptions.GetBool("ui.think") {
+				showThinking := r.configOptions.GetBool("think.show")
+				if !r.configOptions.IsSet("think.show") && r.configOptions.IsSet("ui.think") {
+					showThinking = r.configOptions.GetBool("ui.think")
+				}
+				if !showThinking {
 					out = llm.FilterOutThinkForOutput(out)
 					out = strings.TrimLeft(out, " \t\r\n")
 				}
@@ -1830,10 +1842,10 @@ func (r *REPL) displayConversationLog() string {
 	}
 
 	fmt.Fprintf(&output, "Total messages: %d\r\n", len(r.messages))
-	fmt.Fprintf(&output, "Settings: replies=%t, streaming=%t, reasoning=%t, logging=%t\r\n",
+	fmt.Fprintf(&output, "Settings: replies=%t, streaming=%t, reasoning=%s, logging=%t\r\n",
 		r.configOptions.GetBool("chat.replies"),
 		r.configOptions.GetBool("llm.stream"),
-		r.configOptions.GetBool("llm.think"),
+		r.configOptions.Get("think.reason"),
 		r.configOptions.GetBool("chat.log"))
 
 	// Display pending files if any

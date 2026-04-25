@@ -144,10 +144,26 @@ func (p *GeminiProvider) SendMessage(messages []Message, stream bool, images []s
 	// json_schema wrapper and direct schema fields for broader compatibility.
 	if p.config.Schema != nil {
 		stream = false
-		request["generationConfig"] = map[string]interface{}{
-			"responseMimeType": "application/json",
-			"responseSchema":   p.config.Schema,
+		generationConfig, _ := request["generationConfig"].(map[string]interface{})
+		if generationConfig == nil {
+			generationConfig = map[string]interface{}{}
 		}
+		generationConfig["responseMimeType"] = "application/json"
+		generationConfig["responseSchema"] = p.config.Schema
+		request["generationConfig"] = generationConfig
+	}
+
+	model := p.config.Model
+	if model == "" {
+		model = p.DefaultModel()
+	}
+	if thinkingConfig := geminiThinkingConfig(model, p.config.ReasoningEffort); thinkingConfig != nil {
+		generationConfig, _ := request["generationConfig"].(map[string]interface{})
+		if generationConfig == nil {
+			generationConfig = map[string]interface{}{}
+		}
+		generationConfig["thinkingConfig"] = thinkingConfig
+		request["generationConfig"] = generationConfig
 	}
 
 	jsonData, err := json.Marshal(request)
@@ -171,10 +187,6 @@ func (p *GeminiProvider) SendMessage(messages []Message, stream bool, images []s
 	}
 
 	// Use the configured base URL if available, otherwise use the default API URL
-	model := p.config.Model
-	if model == "" {
-		model = p.DefaultModel()
-	}
 	var action = "generateContent"
 	if stream {
 		action = "streamGenerateContent"

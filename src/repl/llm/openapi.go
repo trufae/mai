@@ -65,7 +65,7 @@ func (p *OpenAPIProvider) IsAvailable() bool {
 	if err != nil {
 		return false
 	}
-		_ = resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp.StatusCode < 400
 }
 

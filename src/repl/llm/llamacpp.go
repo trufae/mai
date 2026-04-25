@@ -402,4 +402,3 @@ func mergeImagesIntoLastUser(messages []Message, images []string) []interface{} 
 	})
 	return out
 }
-

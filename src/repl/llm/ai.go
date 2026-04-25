@@ -72,6 +72,7 @@ type Config struct {
 	Deterministic    bool
 	Markdown         bool
 	Rawdog           bool
+	ReasoningEffort  string // "", none, minimal, low, medium, high, xhigh
 
 	// DemoMode enables the simple waiting animation in the REPL when set.
 	DemoMode bool

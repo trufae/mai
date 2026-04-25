@@ -173,7 +173,9 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 		if p.config.Schema != nil {
 			request["format"] = p.config.Schema
 		}
-		request["think"] = !p.config.ThinkHide
+		if think, ok := ollamaThinkValue(effectiveModel, p.config.ReasoningEffort); ok {
+			request["think"] = think
+		}
 		if p.config.Deterministic {
 			request["options"] = map[string]float64{
 				"repeat_last_n":  0.0,
@@ -281,12 +283,16 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 			Model   string             `json:"model"`
 			Prompt  string             `json:"prompt"`
 			Stream  bool               `json:"stream"`
+			Think   interface{}        `json:"think,omitempty"`
 			Format  interface{}        `json:"format,omitempty"`
 			Options map[string]float64 `json:"options,omitempty"`
 		}{
 			Stream: stream,
 			Model:  effectiveModel,
 			Prompt: messageline,
+		}
+		if think, ok := ollamaThinkValue(effectiveModel, p.config.ReasoningEffort); ok {
+			request.Think = think
 		}
 		if p.config.Schema != nil {
 			request.Format = p.config.Schema
@@ -357,7 +363,7 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 	request := struct {
 		Stream   bool               `json:"stream"`
 		Model    string             `json:"model"`
-		Think    bool               `json:"think"`
+		Think    interface{}        `json:"think,omitempty"`
 		Messages []Message          `json:"messages"`
 		Prompt   string             `json:"prompt,omitempty"`
 		Format   interface{}        `json:"format,omitempty"`
@@ -365,8 +371,10 @@ func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []s
 	}{
 		Stream:   stream,
 		Model:    effectiveModel,
-		Think:    !p.config.ThinkHide,
 		Messages: messages,
+	}
+	if think, ok := ollamaThinkValue(effectiveModel, p.config.ReasoningEffort); ok {
+		request.Think = think
 	}
 	if p.config.Schema != nil {
 		request.Format = p.config.Schema

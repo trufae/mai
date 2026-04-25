@@ -109,6 +109,15 @@ func (p *ClaudeProvider) SendMessage(messages []Message, stream bool, images []s
 		"max_tokens": 5128,
 		"messages":   messages,
 	}
+	if reasoningEnabled(p.config.ReasoningEffort) {
+		if !claudeThinkingSupported(effectiveModel) {
+			return "", fmt.Errorf("think.reason=%s requires a Claude model with extended thinking support", p.config.ReasoningEffort)
+		}
+		request["thinking"] = map[string]interface{}{
+			"type":          "enabled",
+			"budget_tokens": reasoningBudgetTokens(p.config.ReasoningEffort, 5128),
+		}
+	}
 
 	// If a schema is provided, use tools with forced tool_choice to enforce shape
 	if p.config.Schema != nil {
@@ -130,7 +139,7 @@ func (p *ClaudeProvider) SendMessage(messages []Message, stream bool, images []s
 	}
 
 	// Apply deterministic settings if enabled
-	if p.config.Deterministic {
+	if p.config.Deterministic && !reasoningEnabled(p.config.ReasoningEffort) {
 		request["temperature"] = 0
 		request["top_p"] = 0
 		request["top_k"] = 1

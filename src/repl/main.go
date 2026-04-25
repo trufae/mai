@@ -494,9 +494,44 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 	if opts.Get("llm.rawmode") != "" {
 		config.Rawdog = opts.GetBool("llm.rawmode")
 	}
+	if opts.IsSet("think.disable") && opts.GetBool("think.disable") {
+		config.ReasoningEffort = "none"
+	} else if opts.IsSet("think.reason") {
+		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("think.reason")); ok {
+			config.ReasoningEffort = effort
+		}
+	} else if opts.IsSet("think.effort") {
+		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("think.effort")); ok {
+			config.ReasoningEffort = effort
+		}
+	} else if opts.IsSet("llm.reason") {
+		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("llm.reason")); ok {
+			config.ReasoningEffort = effort
+		}
+	} else if opts.IsSet("llm.effort") {
+		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("llm.effort")); ok {
+			config.ReasoningEffort = effort
+		}
+	} else if opts.IsSet("ai.reason") {
+		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("ai.reason")); ok {
+			config.ReasoningEffort = effort
+		}
+	} else if opts.IsSet("ai.effort") {
+		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("ai.effort")); ok {
+			config.ReasoningEffort = effort
+		}
+	} else if opts.IsSet("llm.think") {
+		if opts.GetBool("llm.think") {
+			config.ReasoningEffort = "medium"
+		} else {
+			config.ReasoningEffort = "none"
+		}
+	}
 
-	// Whether to hide internal <think> regions from user-visible output
-	if opts.Get("ui.think") != "" {
+	// Whether to hide internal <think> regions from user-visible output.
+	if opts.IsSet("think.show") {
+		config.ThinkHide = !opts.GetBool("think.show")
+	} else if opts.IsSet("ui.think") {
 		config.ThinkHide = !opts.GetBool("ui.think")
 	}
 

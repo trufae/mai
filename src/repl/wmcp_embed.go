@@ -602,4 +602,3 @@ func embedGetPrompt(r *REPL, promptName string, args map[string]interface{}) (st
 	}
 	return strings.TrimRight(output.String(), "\n"), nil
 }
-

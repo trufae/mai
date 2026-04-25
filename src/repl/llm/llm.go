@@ -34,7 +34,7 @@ var (
 
 	// thinkHideEnabled toggles whether <think> regions are filtered out
 	// from output. It is initialized from the LLM client config per request
-	// and can be toggled via the ui.think option.
+	// and can be toggled via the think.show option.
 	thinkHideEnabled bool = true
 
 	// thinkDropLeading indicates that the next incoming stream/response
@@ -361,10 +361,10 @@ type Model struct {
 type contextKey string
 
 const (
-	contextConfigKey             contextKey = "config"
-	contextStopCallbackKey       contextKey = "stop_callback"
-	contextFirstTokenCallbackKey contextKey = "first_token_callback"
-	contextStreamEndCallbackKey  contextKey = "stream_end_callback"
+	contextConfigKey              contextKey = "config"
+	contextStopCallbackKey        contextKey = "stop_callback"
+	contextFirstTokenCallbackKey  contextKey = "first_token_callback"
+	contextStreamEndCallbackKey   contextKey = "stream_end_callback"
 	contextAccountTextCallbackKey contextKey = "account_text_callback"
 )
 

@@ -360,6 +360,18 @@ func (p *OpenAIProvider) SendMessage(messages []Message, stream bool, images []s
 		"model":    effectiveModel,
 		"messages": mergeImagesIntoLastUser(messages, images),
 	}
+	switch provider {
+	case "openai":
+		if effort, err := openAIReasoningEffort(effectiveModel, p.config.ReasoningEffort); err != nil {
+			return "", err
+		} else if effort != "" {
+			request["reasoning_effort"] = effort
+		}
+	case "openrouter":
+		if reasoning := openRouterReasoning(p.config.ReasoningEffort, p.config.ThinkHide); reasoning != nil {
+			request["reasoning"] = reasoning
+		}
+	}
 
 	// Add tools if provided
 	if len(tools) > 0 {
