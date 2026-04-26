@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -253,6 +254,22 @@ func (r *REPL) handleSessionNameCompletion(line *strings.Builder, command, parti
 }
 
 func (r *REPL) saveSession(sessionName string) error {
+	return r.saveSessionMessages(sessionName, r.messagesForLog())
+}
+
+func (r *REPL) saveCompactSession(sessionName string) error {
+	if len(r.messages) < 2 {
+		return r.saveSession(sessionName)
+	}
+	fmt.Print("Compacting conversation before saving...\r\n")
+	compacted, err := r.compactMessages(context.Background(), r.messagesForLog(), compactSaveInstructions)
+	if err != nil {
+		return err
+	}
+	return r.saveSessionMessages(sessionName, compacted)
+}
+
+func (r *REPL) saveSessionMessages(sessionName string, messages []llm.Message) error {
 	maiDir, err := findMaiDir()
 	if err != nil {
 		return err
@@ -261,7 +278,7 @@ func (r *REPL) saveSession(sessionName string) error {
 	topicFile := filepath.Join(maiDir, "chats", sessionName+".topic")
 
 	sess := sessionData{
-		Messages: r.messagesForLog(),
+		Messages: messages,
 		Provider: r.configOptions.Get("ai.provider"),
 		Model:    r.configOptions.Get("ai.model"),
 		BaseURL:  r.configOptions.Get("ai.baseurl"),

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ func registerChatCommands(r *REPL) {
 	// Conversation management commands
 	r.commands["/chat"] = Command{
 		Name:        "/chat",
-		Description: "Manage conversation (save, load, clear, list, log, undo, compact)",
+		Description: "Manage conversation (save, load, clear, list, log, undo, compact, bgcompact)",
 		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleChatCommand(args)
 		},
@@ -93,6 +94,7 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 		output.WriteString("  /chat log         - Display full conversation with preserved formatting\r\n")
 		output.WriteString("  /chat undo [N]    - Remove last or Nth message\r\n")
 		output.WriteString("  /chat compact [text] - Compact conversation; optional text is appended to the compact prompt\r\n")
+		output.WriteString("  /chat bgcompact [text] - Compact conversation in the background\r\n")
 		return output.String(), nil
 	}
 
@@ -142,6 +144,12 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 			extra = strings.Join(args[2:], " ")
 		}
 		return "", r.handleCompactCommand(extra)
+	case "bgcompact":
+		extra := ""
+		if len(args) > 2 {
+			extra = strings.Join(args[2:], " ")
+		}
+		return r.startBackgroundCompact(extra)
 	case "memory":
 		// Generate or manage consolidated memory file
 		if len(args) < 3 || args[2] == "generate" {
@@ -170,6 +178,64 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 		}
 		return "Usage: /chat memory [generate|show|clear]\r\n", nil
 	default:
-		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: save, load, sessions, clear, list, log, undo, compact\r\n", action), nil
+		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: save, load, sessions, clear, list, log, undo, compact, bgcompact\r\n", action), nil
 	}
+}
+
+func (r *REPL) startBackgroundCompact(extra string) (string, error) {
+	r.mu.Lock()
+	if r.bgCompactInProgress {
+		r.mu.Unlock()
+		return "Background compact already running\r\n", nil
+	}
+	r.bgCompactInProgress = true
+	r.mu.Unlock()
+
+	r.requestMu.Lock()
+	rawSnapshot := append([]llm.Message(nil), r.messages...)
+	logSnapshot := r.messagesForLog()
+	r.requestMu.Unlock()
+
+	if len(logSnapshot) < 2 {
+		r.mu.Lock()
+		r.bgCompactInProgress = false
+		r.mu.Unlock()
+		return "Not enough messages to compact. Need at least one exchange.\r\n", nil
+	}
+
+	go r.runBackgroundCompact(rawSnapshot, logSnapshot, extra)
+	return "Background compact started\r\n", nil
+}
+
+func (r *REPL) runBackgroundCompact(rawSnapshot, logSnapshot []llm.Message, extra string) {
+	defer func() {
+		r.mu.Lock()
+		r.bgCompactInProgress = false
+		r.mu.Unlock()
+	}()
+
+	compacted, err := r.compactMessages(context.Background(), logSnapshot, extra)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\r\nBackground compact failed: %v\r\n", err)
+		return
+	}
+
+	r.requestMu.Lock()
+	defer r.requestMu.Unlock()
+
+	if !messagesHavePrefix(r.messages, rawSnapshot) {
+		fmt.Fprintf(os.Stderr, "\r\nBackground compact skipped: conversation changed before merge\r\n")
+		return
+	}
+
+	suffix := append([]llm.Message(nil), r.messages[len(rawSnapshot):]...)
+	r.messages = append(append([]llm.Message(nil), compacted...), suffix...)
+	fmt.Fprintf(os.Stderr, "\r\nBackground compact completed\r\n")
+}
+
+func messagesHavePrefix(messages, prefix []llm.Message) bool {
+	if len(messages) < len(prefix) {
+		return false
+	}
+	return reflect.DeepEqual(messages[:len(prefix)], prefix)
 }

@@ -2288,29 +2288,23 @@ func (r *REPL) getCurrentModelForProvider() string {
 	return r.configOptions.Get("ai.model")
 }
 
-// handleCompactCommand processes the /compact command
-// It loads the compact.txt prompt and submits the entire conversation history
-// to the AI, then replaces all messages with the AI's response.
-// The optional extra argument is appended to the compact prompt to let the
-// caller steer the summarization (e.g. "focus on the API changes").
+const compactSaveInstructions = "For saved-session compaction, focus on highlights, decisions, durable facts, open questions, and relevant annotations needed to resume the conversation later."
 
-func (r *REPL) handleCompactCommand(extra ...string) error {
-	// Check if there are enough messages to compact
-	if len(r.messages) < 2 {
-		fmt.Print("Not enough messages to compact. Need at least one exchange.\r\n")
-		return nil
+// compactMessages submits a conversation snapshot to the compact model and
+// returns the compacted replacement history.
+func (r *REPL) compactMessages(ctx context.Context, messages []llm.Message, extra ...string) ([]llm.Message, error) {
+	if len(messages) < 2 {
+		return nil, fmt.Errorf("not enough messages to compact")
 	}
 
-	// Try to find the compact prompt using resolvePromptPath
 	promptPath, err := r.resolvePromptPath("compact")
 	if err != nil {
-		return fmt.Errorf("failed to find compact prompt: %v", err)
+		return nil, fmt.Errorf("failed to find compact prompt: %v", err)
 	}
 
-	// Load the compact prompt from file
 	compactPrompt, err := os.ReadFile(promptPath)
 	if err != nil {
-		return fmt.Errorf("failed to read compact prompt: %v", err)
+		return nil, fmt.Errorf("failed to read compact prompt: %v", err)
 	}
 
 	promptText := string(compactPrompt)
@@ -2322,7 +2316,8 @@ func (r *REPL) handleCompactCommand(extra ...string) error {
 	var conversationText strings.Builder
 	conversationText.WriteString("# Conversation History\n\n")
 
-	for i, msg := range r.messagesForLog() {
+	for i, msg := range messages {
+		msg = r.messageForLog(msg)
 		role := formatRole(msg.Role)
 		fmt.Fprintf(&conversationText, "## %s %d:\n\n%s\n\n", role, i+1, msg.Content)
 	}
@@ -2333,20 +2328,10 @@ func (r *REPL) handleCompactCommand(extra ...string) error {
 		Content: promptText + "\n\n" + conversationText.String(),
 	}
 
-	// Save original messages for recovery if needed
-	originalMessages := r.messages
-
-	// Replace messages with just the compact message
-	r.messages = []llm.Message{compactMessage}
-
-	fmt.Print("Compacting conversation...\r\n")
-
 	// Create client and send message
-	client, err := llm.NewLLMClient(r.buildLLMConfigForTask("compact"), r.ctx)
+	client, err := llm.NewLLMClient(r.buildLLMConfigForTask("compact"), ctx)
 	if err != nil {
-		// Restore original messages on error
-		r.messages = originalMessages
-		return fmt.Errorf("failed to create LLM client: %v", err)
+		return nil, fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
 	// Prepare messages for the API
@@ -2359,20 +2344,36 @@ func (r *REPL) handleCompactCommand(extra ...string) error {
 	// Send the message to the AI (non-streaming mode for this operation)
 	response, err := client.SendMessage(apiMessages, false, nil, nil)
 	if err != nil {
-		// Restore original messages on error
-		r.messages = originalMessages
-		return fmt.Errorf("failed to compact conversation: %v", err)
+		return nil, fmt.Errorf("failed to compact conversation: %v", err)
 	}
 
 	// Create the assistant response message
 	assistantMessage := r.assistantMessageForLog(response)
 
-	// Replace the conversation with just the compact message and response
-	r.messages = []llm.Message{
-		llm.Message{Role: "user", Content: "Please provide a compact response to my questions and needs."},
+	return []llm.Message{
+		{Role: "user", Content: "Please summarize the conversation highlights and relevant annotations."},
 		assistantMessage,
+	}, nil
+}
+
+// handleCompactCommand processes the /chat compact command.
+// It loads the compact prompt and submits the entire conversation history
+// to the AI, then replaces all messages with the compacted response.
+// The optional extra argument is appended to the compact prompt to let the
+// caller steer the summarization.
+func (r *REPL) handleCompactCommand(extra ...string) error {
+	if len(r.messages) < 2 {
+		fmt.Print("Not enough messages to compact. Need at least one exchange.\r\n")
+		return nil
 	}
 
+	snapshot := r.messagesForLog()
+	fmt.Print("Compacting conversation...\r\n")
+	compacted, err := r.compactMessages(r.ctx, snapshot, extra...)
+	if err != nil {
+		return err
+	}
+	r.messages = compacted
 	fmt.Print("Conversation compacted successfully.\r\n")
 
 	return nil

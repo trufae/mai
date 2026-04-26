@@ -48,7 +48,8 @@ type REPL struct {
 	initialCommand   string             // Command to execute on startup
 	quitAfterActions bool               // Exit after executing initial command
 	// Guard to avoid recursive followup execution
-	followupInProgress bool
+	followupInProgress  bool
+	bgCompactInProgress bool
 	// Callback to stop demo animation when first token is received
 	stopDemoCallback func()
 	wmcpProcess      *exec.Cmd

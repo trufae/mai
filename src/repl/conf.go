@@ -79,7 +79,7 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.config/mai and include in context", "false")
 	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "true")
 	co.RegisterOption("chat.replythink", BooleanOption, "Include assistant reasoning in stored chat replies", "false")
-	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, or prompt", "prompt")
+	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, prompt, or compact", "never")
 	co.RegisterOption("chat.system", BooleanOption, "Include chat system messages when building a single prompt", "true")
 	// Number of most recent messages to include when sending to the LLM (0 = all)
 	co.RegisterOption("chat.tail", NumberOption, "Number of most recent messages to include when sending to the LLM (0=all)", "0")
@@ -265,6 +265,12 @@ func (c *ConfigOptions) Set(key, value string) error {
 			}
 			c.values[key] = value
 		default: // StringOption or unknown type
+			if key == "chat.save" {
+				value = strings.ToLower(strings.TrimSpace(value))
+				if !isValidChatSaveMode(value) {
+					return fmt.Errorf("invalid chat.save value: %s (must be one of: always, never, prompt, compact)", value)
+				}
+			}
 			if isReasoningEffortOption(key) {
 				effort, ok := llm.NormalizeReasoningEffort(value)
 				if !ok {
@@ -327,6 +333,20 @@ func (c *ConfigOptions) GetAvailableOptions() []string {
 	return opts
 }
 
+func (c *ConfigOptions) displayValue(key string) string {
+	if c == nil {
+		return "not set"
+	}
+	value := c.Get(key)
+	if value != "" {
+		return value
+	}
+	if info, exists := c.GetOptionInfo(key); exists && info.Default != "" {
+		return fmt.Sprintf("default: %s", info.Default)
+	}
+	return "not set"
+}
+
 // RegisterOptionListener adds a listener function that will be called when an option's value changes
 func (c *ConfigOptions) RegisterOptionListener(key string, callback OptionChangeCallback) {
 	// Create listeners array if it doesn't exist
@@ -370,6 +390,14 @@ func isReasoningEffortOption(key string) bool {
 func isThinkShowOption(key string) bool {
 	switch key {
 	case "think.show", "ui.think":
+		return true
+	}
+	return false
+}
+
+func isValidChatSaveMode(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "always", "never", "prompt", "compact":
 		return true
 	}
 	return false
@@ -518,7 +546,8 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		output.WriteString("Available options:\r\n")
 		for _, option := range r.configOptions.GetAvailableOptions() {
 			optType := r.configOptions.GetOptionType(option)
-			fmt.Fprintf(&output, "  %-20s %-15s %s\r\n", option, "("+optType+")", r.configOptions.GetOptionDescription(option))
+			value := r.configOptions.displayValue(option)
+			fmt.Fprintf(&output, "  %-20s = %-15s %-10s %s\r\n", option, value, "("+optType+")", r.configOptions.GetOptionDescription(option))
 		}
 		return output.String(), nil
 	}
@@ -682,6 +711,11 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 	case "chat.system":
 		_ = r.configOptions.Set("chat.system", value)
 		return "", nil
+	case "chat.save":
+		if err := r.configOptions.Set("chat.save", value); err != nil {
+			return fmt.Sprintf("Error: %v\r\n", err), nil
+		}
+		return fmt.Sprintf("Set chat.save = %s\r\n", r.configOptions.Get("chat.save")), nil
 	case "chat.format":
 		valLower := strings.ToLower(value)
 		if valLower != "plain" && valLower != "labeled" && valLower != "tokens" {

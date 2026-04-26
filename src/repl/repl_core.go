@@ -398,7 +398,7 @@ func (r *REPL) cleanup() {
 	// Auto-save the chat session if history is enabled and messages exist,
 	// updating the current session or creating a new one if none selected
 	if r.configOptions.GetBool("repl.history") && len(r.messages) > 0 {
-		mode := r.configOptions.Get("chat.save")
+		mode := strings.ToLower(r.configOptions.Get("chat.save"))
 		if mode != "never" {
 			var name string
 			if r.currentSession != "" {
@@ -414,7 +414,13 @@ func (r *REPL) cleanup() {
 				}
 			}
 			fmt.Println("")
-			if err := r.saveSession(name); err != nil {
+			var err error
+			if mode == "compact" {
+				err = r.saveCompactSession(name)
+			} else {
+				err = r.saveSession(name)
+			}
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error auto-saving session: %v\n", err)
 			}
 			r.currentSession = name

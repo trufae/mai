@@ -580,7 +580,7 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 
 func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
 	// Available chat subcommands
-	subcommands := []string{"save", "load", "clear", "list", "log", "undo", "compact"}
+	subcommands := []string{"save", "load", "clear", "list", "log", "undo", "compact", "bgcompact"}
 
 	// Filter subcommands by the partial input
 	var filteredCommands []string
