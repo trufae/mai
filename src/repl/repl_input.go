@@ -224,6 +224,15 @@ func (r *REPL) handleTabCompletion(line *strings.Builder) {
 		}
 	}
 
+	// Handle tab completion for /memory subcommands
+	memoryParts := strings.SplitN(input, " ", 3)
+	if strings.HasPrefix(input, "/memory ") && len(memoryParts) >= 2 {
+		if len(memoryParts) == 2 {
+			r.handleMemorySubcommandCompletion(line, memoryParts[1])
+			return
+		}
+	}
+
 	// Handle tab completion for /session subcommands
 	sessionParts := strings.SplitN(input, " ", 3)
 	if strings.HasPrefix(input, "/session ") && len(sessionParts) >= 2 {
@@ -579,79 +588,67 @@ func (r *REPL) handleAtFilePathCompletion(line *strings.Builder, prefix, partial
 }
 
 func (r *REPL) handleChatSubcommandCompletion(line *strings.Builder, partialCmd string) {
-	// Available chat subcommands
-	subcommands := []string{"save", "load", "clear", "list", "log", "undo", "compact", "bgcompact"}
+	subcommands := []string{"save", "load", "clear", "list", "log", "undo", "compact", "bgcompact", "memory"}
+	r.handleSubcommandCompletion(line, "/chat ", partialCmd, subcommands)
+}
 
-	// Filter subcommands by the partial input
+func (r *REPL) handleMemorySubcommandCompletion(line *strings.Builder, partialCmd string) {
+	r.handleSubcommandCompletion(line, "/memory ", partialCmd, memorySubcommands())
+}
+
+func (r *REPL) handleSubcommandCompletion(line *strings.Builder, prefix, partialCmd string, subcommands []string) {
 	var filteredCommands []string
 	for _, cmd := range subcommands {
 		if strings.HasPrefix(cmd, partialCmd) {
 			filteredCommands = append(filteredCommands, cmd)
 		}
 	}
-
-	// If no matches, return
+	sort.Strings(filteredCommands)
 	if len(filteredCommands) == 0 {
 		return
 	}
 
-	// If this is the first tab press, set the state and show the first match
 	if r.completeState == 0 {
 		r.completeState = 1
 		r.completeOptions = filteredCommands
-		r.completePrefix = "/chat "
+		r.completePrefix = prefix
 
-		// Replace current input with the first match
 		currentInput := line.String()
-		// Clear current line
 		for i := 0; i < len(currentInput); i++ {
 			fmt.Print("\b \b")
 		}
 
-		// Get the first match
 		firstMatch := r.completePrefix + filteredCommands[0]
-
-		// Print and set the first match
 		fmt.Print(firstMatch)
 		line.Reset()
 		line.WriteString(firstMatch)
-		// Update cursor position to end of line
 		r.cursorPos = line.Len()
-	} else {
-		// Subsequent tab presses - cycle through options
-		if len(r.completeOptions) <= 1 {
-			return
-		}
-
-		// Find current option
-		currentInput := line.String()
-		currentCmd := strings.TrimPrefix(currentInput, r.completePrefix)
-
-		// Find current index
-		currentIdx := -1
-		for i, opt := range r.completeOptions {
-			if opt == currentCmd {
-				currentIdx = i
-				break
-			}
-		}
-
-		// Get next option
-		nextIdx := (currentIdx + 1) % len(r.completeOptions)
-		nextOption := r.completePrefix + r.completeOptions[nextIdx]
-
-		// Clear current line
-		for i := 0; i < len(currentInput); i++ {
-			fmt.Print("\b \b")
-		}
-
-		// Print next option
-		fmt.Print(nextOption)
-		line.Reset()
-		line.WriteString(nextOption)
-		// Update cursor position to end of line
-		r.cursorPos = line.Len()
+		return
 	}
+
+	if len(r.completeOptions) <= 1 {
+		return
+	}
+
+	currentInput := line.String()
+	currentCmd := strings.TrimPrefix(currentInput, r.completePrefix)
+	currentIdx := -1
+	for i, opt := range r.completeOptions {
+		if opt == currentCmd {
+			currentIdx = i
+			break
+		}
+	}
+
+	nextIdx := (currentIdx + 1) % len(r.completeOptions)
+	nextOption := r.completePrefix + r.completeOptions[nextIdx]
+	for i := 0; i < len(currentInput); i++ {
+		fmt.Print("\b \b")
+	}
+	fmt.Print(nextOption)
+	line.Reset()
+	line.WriteString(nextOption)
+	r.cursorPos = line.Len()
 }
 
 func (r *REPL) handleDirectoryCompletion(line *strings.Builder, cmd, partialPath string) {

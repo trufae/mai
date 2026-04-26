@@ -386,6 +386,7 @@ Files:
 ~/.mairc                               : legacy rc file (also loaded for compatibility)
 ~/.config/mai/history.json            : REPL command history file (JSON array)
 ~/.config/mai/chats                   : storage for chat session files
+~/.config/mai/MEMORY.md               : compact long-term memory loaded when chat.memory=true
 ~/.config/mai/systemprompt.md         : system prompt file (supports '@' include directives)
 ~/.config/mai/prompts                 : directory containing custom prompts
 ./share/mai/prompts                   : directory containing system prompts

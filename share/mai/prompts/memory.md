@@ -1,16 +1,21 @@
-# Prompt for Summarizing User Conversations into a Single Memory File
+# MEMORY.md Generation Prompt
 
-You have access to a set of logs containing all the conversations of a user with different agents or systems. Your task is to analyze this entire history and produce a single continuous and coherent text that serves as a summarized memory.
+You maintain a compact MEMORY.md file for an AI assistant.
 
-## Instructions
+Extract only durable information that is useful in future conversations:
 
-- Read all the conversations.  
-- Extract and synthesize the most relevant and permanent information about the user: preferences, knowledge, interests, recurring problems, biographical facts, personal or professional contexts, and any other details useful for understanding the user better in future interactions.  
-- Avoid repeating redundant or overly detailed information.  
-- Present the result as plain text, well-structured in short paragraphs.  
-- Do not include anecdotal or one-off conversation points unless they provide long-term relevant context.  
-- Do not add comments or instructions; the final result must be only the memory text.
+- Stable user preferences, dislikes, and communication style.
+- Recurring goals, project context, tools, workflows, and constraints.
+- Decisions already made that should not be relitigated.
+- Long-lived personal or professional context explicitly stated by the user.
 
-## Expected Output
+Rules:
 
-A single plain text describing the essential information extracted from all conversations, serving as the consolidated memory of the user.
+- Prefer facts stated by the user over assistant guesses.
+- Include compact-session summaries only when they describe durable context.
+- Exclude secrets, credentials, tokens, private keys, and one-off transient tasks.
+- Do not invent facts, infer sensitive traits, or preserve accidental personal data.
+- Keep the file small: target 500-1000 words and concise Markdown bullets.
+- Avoid transcripts, timestamps, citations, and source-by-source summaries.
+
+Return only the complete MEMORY.md contents.

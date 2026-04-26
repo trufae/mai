@@ -800,79 +800,6 @@ func (r *REPL) startAgentWMCP() error {
 	return nil
 }
 
-// generateMemory walks over all saved chat sessions, summarizes them using the memory prompt, and writes the consolidated memory file to the mai directory
-func (r *REPL) generateMemory() error {
-	maiDir, err := findMaiDir()
-	if err != nil {
-		return err
-	}
-	chatDir := filepath.Join(maiDir, "chats")
-	files, err := os.ReadDir(chatDir)
-	if err != nil {
-		return fmt.Errorf("cannot read chat directory: %v", err)
-	}
-
-	var combined strings.Builder
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(chatDir, file.Name()))
-		if err != nil {
-			continue
-		}
-		var sess sessionData
-		if err := json.Unmarshal(data, &sess); err != nil {
-			continue
-		}
-		sessionName := strings.TrimSuffix(file.Name(), ".json")
-		combined.WriteString("Session: " + sessionName + "\n")
-		for _, m := range sess.Messages {
-			role := m.Role
-			content := fmt.Sprintf("%v", m.Content)
-			fmt.Fprintf(&combined, "%s: %s\n", role, content)
-		}
-		combined.WriteString("\n---\n\n")
-	}
-
-	if combined.Len() == 0 {
-		return fmt.Errorf("no conversation data found in %s", chatDir)
-	}
-
-	// Load memory prompt template
-	promptPath, err := r.resolvePromptPath("memory.md")
-	promptContent := ""
-	if err == nil {
-		if b, err := os.ReadFile(promptPath); err == nil {
-			promptContent = string(b)
-		}
-	}
-
-	client, err := llm.NewLLMClient(r.buildLLMConfig(), r.ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create LLM client: %v", err)
-	}
-
-	messages := []llm.Message{}
-	if promptContent != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: promptContent})
-	}
-	messages = append(messages, llm.Message{Role: "user", Content: combined.String()})
-
-	response, err := client.SendMessage(messages, false, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to generate memory: %v", err)
-	}
-
-	memFile := filepath.Join(maiDir, "memory.txt")
-	if err := os.WriteFile(memFile, []byte(response), 0644); err != nil {
-		return fmt.Errorf("cannot write memory file: %v", err)
-	}
-
-	fmt.Printf("Memory written to %s\r\n", memFile)
-	return nil
-}
-
 // getVDBContext executes mai-vdb with the configured directory and current message
 // Returns the context output to be used as [CONTEXT] for the LLM
 func (r *REPL) getVDBContext(message string) (string, error) {
@@ -1079,16 +1006,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 		messages = append(messages, llm.Message{Role: "system", Content: "USER CONTEXT:\n" + userDetails})
 	}
 
-	// If memory option is enabled, load consolidated memory and include as system context
-	if r.configOptions.GetBool("chat.memory") {
-		maiDir, err := findMaiDir()
-		if err == nil {
-			memFile := filepath.Join(maiDir, "memory.txt")
-			if b, err := os.ReadFile(memFile); err == nil && len(b) > 0 {
-				messages = append(messages, llm.Message{Role: "system", Content: "MEMORY:\n" + string(b)})
-			}
-		}
-	}
+	messages = r.appendMemoryContext(messages)
 
 	var vdbContext string
 	var vdbErr error

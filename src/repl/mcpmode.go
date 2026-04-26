@@ -107,6 +107,7 @@ func sendMessageCore(repl *REPL, args map[string]interface{}) (mcplib.ToolCallRe
 	} else if sp := repl.currentSystemPrompt(); sp != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: sp})
 	}
+	messages = repl.appendMemoryContext(messages)
 	messages = append(messages, llm.Message{Role: "user", Content: message})
 
 	if stream {

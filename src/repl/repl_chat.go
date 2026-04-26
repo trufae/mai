@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -28,6 +27,13 @@ func registerChatCommands(r *REPL) {
 		Description: "Manage chat sessions (new, list, use, del, purge)",
 		Handler: func(r *REPL, args []string) (string, error) {
 			return r.handleSessionCommand(args)
+		},
+	}
+	r.commands["/memory"] = Command{
+		Name:        "/memory",
+		Description: "Manage MEMORY.md (status, show, edit, update, recreate, wipe)",
+		Handler: func(r *REPL, args []string) (string, error) {
+			return r.handleMemoryCommand(args)
 		},
 	}
 
@@ -95,6 +101,7 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 		output.WriteString("  /chat undo [N]    - Remove last or Nth message\r\n")
 		output.WriteString("  /chat compact [text] - Compact conversation; optional text is appended to the compact prompt\r\n")
 		output.WriteString("  /chat bgcompact [text] - Compact conversation in the background\r\n")
+		output.WriteString("  /memory ...       - Manage long-term MEMORY.md\r\n")
 		return output.String(), nil
 	}
 
@@ -151,34 +158,10 @@ func (r *REPL) handleChatCommand(args []string) (string, error) {
 		}
 		return r.startBackgroundCompact(extra)
 	case "memory":
-		// Generate or manage consolidated memory file
-		if len(args) < 3 || args[2] == "generate" {
-			return "", r.generateMemory()
-		}
-		if args[2] == "show" {
-			maiDir, err := findMaiDir()
-			if err != nil {
-				return fmt.Sprintf("Cannot find mai directory: %v\r\n", err), nil
-			}
-			memFile := filepath.Join(maiDir, "memory.txt")
-			b, err := os.ReadFile(memFile)
-			if err != nil {
-				return fmt.Sprintf("Cannot read memory file: %v\r\n", err), nil
-			}
-			return fmt.Sprintf("%s\r\n", string(b)), nil
-		}
-		if args[2] == "clear" {
-			maiDir, err := findMaiDir()
-			if err != nil {
-				return fmt.Sprintf("Cannot find mai directory: %v\r\n", err), nil
-			}
-			memFile := filepath.Join(maiDir, "memory.txt")
-			_ = os.Remove(memFile)
-			return "Memory file removed\r\n", nil
-		}
-		return "Usage: /chat memory [generate|show|clear]\r\n", nil
+		memoryArgs := append([]string{"/memory"}, args[2:]...)
+		return r.handleMemoryCommand(memoryArgs)
 	default:
-		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: save, load, sessions, clear, list, log, undo, compact, bgcompact\r\n", action), nil
+		return fmt.Sprintf("Unknown action: %s\r\nAvailable actions: save, load, sessions, clear, list, log, undo, compact, bgcompact, memory\r\n", action), nil
 	}
 }
 

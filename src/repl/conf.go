@@ -75,8 +75,8 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("chat.followup", BooleanOption, "Automatically run #followup after assistant replies", "false")
 	co.RegisterOption("chat.format", StringOption, "Chat formatting: tokens, labeled, or plain", "plain")
 	co.RegisterOption("chat.log", BooleanOption, "Enable conversation logging", "true")
-	// Memory option: load consolidated memory from ~/.config/mai/memory.txt into conversation context
-	co.RegisterOption("chat.memory", BooleanOption, "Load memory.txt from ~/.config/mai and include in context", "false")
+	// Memory option: load consolidated memory from MEMORY.md into conversation context
+	co.RegisterOption("chat.memory", BooleanOption, "Load MEMORY.md and include it in context with <MEMORY> tags", "false")
 	co.RegisterOption("chat.replies", BooleanOption, "Include chat replies when building a single prompt", "true")
 	co.RegisterOption("chat.replythink", BooleanOption, "Include assistant reasoning in stored chat replies", "false")
 	co.RegisterOption("chat.save", StringOption, "Session save behavior on exit: always, never, prompt, or compact", "never")
