@@ -2180,7 +2180,7 @@ func (r *REPL) listModels() (string, error) {
 	currentModel := r.getCurrentModelForProvider()
 
 	// Format and display each model
-	for i, model := range models {
+	for _, model := range models {
 		// Add indicator for current model
 		current := ""
 		if model.ID == currentModel {
@@ -2188,11 +2188,11 @@ func (r *REPL) listModels() (string, error) {
 		}
 
 		// Display model with description if available
+		fmt.Fprintf(&output, "- %s%s", model.ID, current)
 		if model.Description != "" {
-			fmt.Fprintf(&output, "[%d] %s%s - %s\r\n", i+1, model.ID, current, model.Description)
-		} else {
-			fmt.Fprintf(&output, "[%d] %s%s\r\n", i+1, model.ID, current)
+			fmt.Fprintf(&output, " - %s", model.Description)
 		}
+		output.WriteString("\r\n")
 	}
 
 	fmt.Fprintf(&output, "Total models: %d\r\n", len(models))
