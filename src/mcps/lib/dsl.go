@@ -8,6 +8,32 @@ import (
 	"strings"
 )
 
+func tokenize(s string) []string {
+	var tokens []string
+	var current strings.Builder
+	inQuotes := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case ch == '"':
+			inQuotes = !inQuotes
+			current.WriteByte(ch)
+		case (ch == ' ' || ch == '\t') && !inQuotes:
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteByte(ch)
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
 // RunDSLTests executes DSL commands for testing tools
 func RunDSLTests(tools []Tool, dsl string) error {
 	// Create a map of tool names to handlers for quick lookup
@@ -25,7 +51,7 @@ func RunDSLTests(tools []Tool, dsl string) error {
 		}
 
 		// Parse statement: toolName key1=val1 key2=val2 ...
-		parts := strings.Fields(stmt)
+		parts := tokenize(stmt)
 		if len(parts) == 0 {
 			continue
 		}
