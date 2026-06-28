@@ -63,6 +63,7 @@ type Config struct {
 	NoStream  bool
 	ImagePath string
 	BaseURL   string
+	APIType   string
 	UserAgent string
 
 	IsStdinMode      bool

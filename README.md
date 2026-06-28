@@ -152,6 +152,7 @@ MAI_USERAGENT=mai-repl/1.0
 mai
 /set provider ollama
 /set model gemma3:1b
+/set ai.apitype chat|generate
 /set listen 0.0.0.0:9000
 ```
 

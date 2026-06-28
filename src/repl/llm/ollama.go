@@ -17,6 +17,57 @@ type OllamaProvider struct {
 	BaseProvider
 }
 
+type ollamaRequest struct {
+	Stream   bool               `json:"stream"`
+	Model    string             `json:"model"`
+	Messages interface{}        `json:"messages,omitempty"`
+	Prompt   string             `json:"prompt,omitempty"`
+	System   string             `json:"system,omitempty"`
+	Images   []string           `json:"images,omitempty"`
+	Think    interface{}        `json:"think,omitempty"`
+	Format   interface{}        `json:"format,omitempty"`
+	Options  map[string]float64 `json:"options,omitempty"`
+}
+
+type ollamaToolCall struct {
+	Function struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments"`
+	} `json:"function"`
+}
+
+type ollamaResponse struct {
+	Message struct {
+		Content   string           `json:"content"`
+		Thinking  string           `json:"thinking,omitempty"`
+		ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+	} `json:"message"`
+	Response string `json:"response,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+const (
+	ollamaAPITypeChat     = "chat"
+	ollamaAPITypeGenerate = "generate"
+)
+
+func NormalizeOllamaAPIType(value string) (string, bool) {
+	apiType := strings.ToLower(strings.TrimSpace(value))
+	switch apiType {
+	case "", ollamaAPITypeChat:
+		return ollamaAPITypeChat, true
+	case ollamaAPITypeGenerate:
+		return ollamaAPITypeGenerate, true
+	default:
+		return "", false
+	}
+}
+
+func OllamaAPITypeValues() string {
+	return ollamaAPITypeChat + ", " + ollamaAPITypeGenerate
+}
+
 func NewOllamaProvider(config *Config, ctx context.Context) *OllamaProvider {
 	if config.BaseURL == "" {
 		config.BaseURL = "http://localhost:11434"
@@ -27,6 +78,216 @@ func NewOllamaProvider(config *Config, ctx context.Context) *OllamaProvider {
 			ctx:    ctx,
 		},
 	}
+}
+
+func (p *OllamaProvider) apiType() string {
+	if apiType, ok := NormalizeOllamaAPIType(p.config.APIType); ok {
+		return apiType
+	}
+	return ollamaAPITypeChat
+}
+
+func ollamaEndpointCandidates(baseURL, apiType string) []string {
+	switch apiType {
+	case ollamaAPITypeGenerate:
+		return []string{
+			buildURL("", baseURL, "", "", "/api/generate"),
+			buildURL("", baseURL, "", "", "/v1/generate"),
+		}
+	default:
+		return []string{
+			buildURL("", baseURL, "", "", "/api/chat"),
+			buildURL("", baseURL, "", "", "/v1/chat/completions"),
+		}
+	}
+}
+
+func ollamaGeneratePromptFromMessages(messages []Message) (string, string) {
+	var prompt strings.Builder
+	system := ""
+	for _, msg := range messages {
+		content := msg.Content
+		if strings.TrimSpace(content) == "" {
+			continue
+		}
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		if role == "" {
+			role = "user"
+		}
+		if role == "system" || role == "developer" {
+			if system == "" {
+				system = content
+				continue
+			}
+		}
+		prompt.WriteString(role)
+		prompt.WriteString(": ")
+		prompt.WriteString(content)
+		prompt.WriteString("\n\n")
+	}
+	text := strings.TrimSpace(prompt.String())
+	if text == "" {
+		text = system
+	}
+	return text, system
+}
+
+func ollamaRawPrompt(messages []Message) string {
+	var prompt strings.Builder
+	for _, msg := range messages {
+		prompt.WriteString(msg.Content)
+	}
+	return prompt.String()
+}
+
+func ollamaRawImages(images []string) []string {
+	rawImages := make([]string, 0, len(images))
+	for _, uri := range images {
+		if idx := strings.Index(uri, ","); idx != -1 && strings.HasPrefix(uri, "data:") {
+			rawImages = append(rawImages, uri[idx+1:])
+		} else {
+			rawImages = append(rawImages, uri)
+		}
+	}
+	return rawImages
+}
+
+func ollamaMessagesWithImages(messages []Message, rawImages []string) []map[string]interface{} {
+	var apiMessages []map[string]interface{}
+	for i, msg := range messages {
+		apiMessage := map[string]interface{}{
+			"role":    msg.Role,
+			"content": msg.Content,
+		}
+		if i == len(messages)-1 && len(rawImages) > 0 {
+			apiMessage["images"] = rawImages
+		}
+		apiMessages = append(apiMessages, apiMessage)
+	}
+	return apiMessages
+}
+
+func ollamaDeterministicOptions(seed float64) map[string]float64 {
+	return map[string]float64{
+		"repeat_last_n":  0,
+		"top_p":          0,
+		"top_k":          1,
+		"temperature":    0,
+		"repeat_penalty": 1,
+		"seed":           seed,
+	}
+}
+
+func (r *ollamaRequest) setInput(apiType string, messages interface{}, prompt, system string) {
+	if apiType == ollamaAPITypeGenerate {
+		r.Prompt = prompt
+		r.System = system
+		return
+	}
+	r.Messages = messages
+}
+
+func (p *OllamaProvider) effectiveModel() string {
+	if p.config.Model != "" {
+		return p.config.Model
+	}
+	return p.DefaultModel()
+}
+
+func (p *OllamaProvider) newOllamaRequest(model string, stream bool, seed float64) ollamaRequest {
+	request := ollamaRequest{
+		Stream: stream,
+		Model:  model,
+	}
+	if think, ok := ollamaThinkValue(model, p.config.ReasoningEffort); ok {
+		request.Think = think
+	}
+	if p.config.Schema != nil {
+		request.Format = p.config.Schema
+	}
+	if p.config.Deterministic {
+		request.Options = ollamaDeterministicOptions(seed)
+	}
+	return request
+}
+
+func ollamaHeaders() map[string]string {
+	return map[string]string{"Content-Type": "application/json"}
+}
+
+func (p *OllamaProvider) ollamaRequestJSON(request ollamaRequest) ([]byte, error) {
+	jsonData, err := MarshalNoEscape(request)
+	if err != nil {
+		return nil, err
+	}
+	if p.config.Debug {
+		art.DebugBanner("Ollama Request", string(jsonData))
+	}
+	return jsonData, nil
+}
+
+func (p *OllamaProvider) postOllama(apiType string, request ollamaRequest) ([]byte, error) {
+	jsonData, err := p.ollamaRequestJSON(request)
+	if err != nil {
+		return nil, err
+	}
+	respBody, err := tryPostCandidatesNonStream(p.ctx, ollamaEndpointCandidates(p.config.BaseURL, apiType), ollamaHeaders(), jsonData)
+	if err != nil {
+		return nil, err
+	}
+	if len(respBody) == 0 {
+		return nil, fmt.Errorf("empty response from %s server", p.GetName())
+	}
+	if p.config.Debug {
+		art.DebugBanner("Ollama Response", string(respBody))
+	}
+	return respBody, nil
+}
+
+func (p *OllamaProvider) streamOllama(apiType string, request ollamaRequest) (string, error) {
+	jsonData, err := p.ollamaRequestJSON(request)
+	if err != nil {
+		return "", err
+	}
+	return tryPostCandidatesStream(p.ctx, ollamaEndpointCandidates(p.config.BaseURL, apiType), ollamaHeaders(), jsonData, p.parseStreamWithTiming)
+}
+
+func parseOllamaResponse(respBody []byte) (ollamaResponse, string, string, error) {
+	var response ollamaResponse
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return response, "", "", err
+	}
+	if response.Error != "" {
+		return response, "", "", fmt.Errorf("%s", response.Error)
+	}
+	content := response.Message.Content
+	thinking := response.Message.Thinking
+	if response.Response != "" {
+		content = response.Response
+	}
+	if response.Thinking != "" {
+		thinking = response.Thinking
+	}
+	return response, content, thinking, nil
+}
+
+func ollamaToolPlan(toolCall ollamaToolCall, thinking string) (string, error) {
+	planResponse := map[string]interface{}{
+		"plan":               []string{"Call tool " + toolCall.Function.Name},
+		"current_plan_index": 0,
+		"progress":           thinking,
+		"reasoning":          thinking,
+		"next_step":          "Execute the tool",
+		"action":             "Iterate",
+		"tool_required":      true,
+		"tool":               toolCall.Function.Name,
+		"tool_params":        toolCall.Function.Arguments,
+	}
+	jsonBytes, err := json.Marshal(planResponse)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal tool call response: %v", err)
+	}
+	return string(jsonBytes), nil
 }
 
 func (p *OllamaProvider) GetName() string {
@@ -135,390 +396,104 @@ func tryPostCandidatesStream(ctx context.Context, candidates []string, headers m
 
 // image sending handled inside Provider.SendMessage
 func (p *OllamaProvider) SendMessage(messages []Message, stream bool, images []string, tools []OpenAITool) (string, error) {
-
-	// If images are attached, construct request injecting images into the last user message
+	apiType := p.apiType()
+	model := p.effectiveModel()
 	if len(images) > 0 {
-		// Build request JSON, injecting only raw base64 images into the first/last user message
-		var rawImages []string
-		for _, uri := range images {
-			if idx := strings.Index(uri, ","); idx != -1 && strings.HasPrefix(uri, "data:") {
-				rawImages = append(rawImages, uri[idx+1:])
-			} else {
-				rawImages = append(rawImages, uri)
-			}
-		}
-
-		var apiMessages []map[string]interface{}
-		for i, m := range messages {
-			msg := map[string]interface{}{
-				"role":    m.Role,
-				"content": m.Content,
-			}
-			// attach to the last message
-			if i == len(messages)-1 && len(rawImages) > 0 {
-				msg["images"] = rawImages
-			}
-			apiMessages = append(apiMessages, msg)
-		}
-
-		effectiveModel := p.config.Model
-		if effectiveModel == "" {
-			effectiveModel = p.DefaultModel()
-		}
-		request := map[string]interface{}{
-			"stream":   stream,
-			"model":    effectiveModel,
-			"messages": apiMessages,
-		}
-		if p.config.Schema != nil {
-			request["format"] = p.config.Schema
-		}
-		if think, ok := ollamaThinkValue(effectiveModel, p.config.ReasoningEffort); ok {
-			request["think"] = think
-		}
-		if p.config.Deterministic {
-			request["options"] = map[string]float64{
-				"repeat_last_n":  0.0,
-				"top_p":          0.0,
-				"top_k":          1.0,
-				"temperature":    0.0,
-				"repeat_penalty": 1.0,
-				"seed":           123.0,
-			}
-		}
-
-		jsonData, err := MarshalNoEscape(request)
-		if err != nil {
-			return "", err
-		}
-
-		headers := map[string]string{
-			"Content-Type": "application/json",
-		}
-
-		// Choose candidate endpoints to try; prefer /api/generate when a schema
-		candidates := []string{
-			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
-			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
-		}
-
-		if stream {
-			return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
-		}
-
-		respBody, err := tryPostCandidatesNonStream(p.ctx, candidates, headers, jsonData)
-		if err != nil {
-			return "", err
-		}
-
-		var response struct {
-			Message struct {
-				Content   string `json:"content"`
-				Thinking  string `json:"thinking,omitempty"`
-				ToolCalls []struct {
-					Function struct {
-						Name      string                 `json:"name"`
-						Arguments map[string]interface{} `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls,omitempty"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal(respBody, &response); err != nil {
-			return "", err
-		}
-
-		if p.config.Debug {
-			fmt.Printf("DEBUG: Ollama response: content=%q thinking=%q\n", response.Message.Content, response.Message.Thinking)
-		}
-
-		accountResponseText(p.ctx, response.Message.Thinking)
-		accountResponseText(p.ctx, response.Message.Content)
-
-		// Handle tool_calls if content is empty
-		if len(response.Message.ToolCalls) > 0 {
-			// Construct JSON response for tool calling
-			toolCall := response.Message.ToolCalls[0] // Assume one tool call
-			planResponse := map[string]interface{}{
-				"plan":               []string{"Call tool " + toolCall.Function.Name},
-				"current_plan_index": 0,
-				"progress":           response.Message.Thinking,
-				"reasoning":          response.Message.Thinking,
-				"next_step":          "Execute the tool",
-				"action":             "Iterate",
-				"tool_required":      true,
-				"tool":               toolCall.Function.Name,
-				"tool_params":        toolCall.Function.Arguments,
-			}
-			jsonBytes, err := json.Marshal(planResponse)
-			if err != nil {
-				return "", fmt.Errorf("failed to marshal tool call response: %v", err)
-			}
-			return string(jsonBytes), nil
-		}
-
-		content := response.Message.Content
-		if response.Message.Thinking != "" && !p.config.ThinkHide {
-			content = "\033[36m" + response.Message.Thinking + "\033[0m" + content
-		}
-		if p.config.Debug {
-			fmt.Printf("DEBUG: Final content: %q\n", content)
-		}
-		if content == "" {
-			fmt.Printf("DEBUG: Ollama provider returned empty content in image mode. Response body: %s\n", string(respBody))
-		}
-		return content, nil
+		return p.sendOllamaImageMessage(apiType, model, messages, stream, images)
 	}
 	if p.config.Rawdog {
-		messageline := "" // <start_of_turn>user\nhello world<end_of_turn>\n<start_of_turn>model\n"
-		for _, msg := range messages {
-			messageline += msg.Content
-		}
-		effectiveModel := p.config.Model
-		if effectiveModel == "" {
-			effectiveModel = p.DefaultModel()
-		}
-		request := struct {
-			Model   string             `json:"model"`
-			Prompt  string             `json:"prompt"`
-			Stream  bool               `json:"stream"`
-			Think   interface{}        `json:"think,omitempty"`
-			Format  interface{}        `json:"format,omitempty"`
-			Options map[string]float64 `json:"options,omitempty"`
-		}{
-			Stream: stream,
-			Model:  effectiveModel,
-			Prompt: messageline,
-		}
-		if think, ok := ollamaThinkValue(effectiveModel, p.config.ReasoningEffort); ok {
-			request.Think = think
-		}
-		if p.config.Schema != nil {
-			request.Format = p.config.Schema
-		}
-		// Apply deterministic settings if enabled
-		if p.config.Deterministic {
-			request.Options = map[string]float64{
-				"repeat_last_n":  0,
-				"top_p":          0.0,
-				"top_k":          1.0,
-				"temperature":    0.0,
-				"repeat_penalty": 1.0,
-				"seed":           0,
-			}
-		}
-		jsonData, err := MarshalNoEscape(request)
-		if err != nil {
-			return "", err
-		}
-
-		headers := map[string]string{
-			"Content-Type": "application/json",
-		}
-
-		// fmt.Println("(send)" + string(jsonData))
-		// Try multiple endpoints for Rawdog mode too.
-		candidates := []string{
-			buildURL("", p.config.BaseURL, "", "", "/api/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
-			buildURL("", p.config.BaseURL, "", "", "/api/chat"),
-			buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
-		}
-
-		if stream {
-			if p.config.Debug {
-				art.DebugBanner("Ollama Request", string(jsonData))
-			}
-			return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, p.parseStreamWithTiming)
-		}
-
-		respBody, err := tryPostCandidatesNonStream(p.ctx, candidates, headers, jsonData)
-		if err != nil {
-			return "", err
-		}
-
-		// fmt.Println(string(respBody))
-		var response struct {
-			Response string `json:"response"`
-			Error    string `json:"error,omitempty"`
-		}
-
-		if err := json.Unmarshal(respBody, &response); err != nil {
-			return "", err
-		}
-		if response.Error != "" {
-			return "", fmt.Errorf("%s", response.Error)
-		}
-		if response.Response == "" {
-			fmt.Printf("DEBUG: Ollama provider returned empty response in rawdog mode. Response body: %s\n", string(respBody))
-		}
-		// Return raw content - newline conversion happens in the REPL
-		return response.Response, nil
+		return p.sendOllamaRawMessage(apiType, model, messages, stream)
 	}
-	effectiveModel := p.config.Model
-	if effectiveModel == "" {
-		effectiveModel = p.DefaultModel()
-	}
-	request := struct {
-		Stream   bool               `json:"stream"`
-		Model    string             `json:"model"`
-		Think    interface{}        `json:"think,omitempty"`
-		Messages []Message          `json:"messages"`
-		Prompt   string             `json:"prompt,omitempty"`
-		Format   interface{}        `json:"format,omitempty"`
-		Options  map[string]float64 `json:"options,omitempty"`
-	}{
-		Stream:   stream,
-		Model:    effectiveModel,
-		Messages: messages,
-	}
-	if think, ok := ollamaThinkValue(effectiveModel, p.config.ReasoningEffort); ok {
-		request.Think = think
-	}
-	if p.config.Schema != nil {
-		request.Format = p.config.Schema
-		// If conversation formatting options are not set, preserve the
-		// historical behavior of using the first message as the prompt.
-		// Build a conversation string according to configuration
-		request.Prompt = BuildConversationString(messages, p.config.ConversationIncludeLLM, p.config.ConversationIncludeSystem, p.config.ConversationFormat, p.config.ConversationUseLastUser)
-		// fmt.Println(request.Prompt)
-	}
+	return p.sendOllamaChatMessage(apiType, model, messages, stream)
+}
 
-	// Apply deterministic settings if enabled
-	if p.config.Deterministic {
-		request.Options = map[string]float64{
-			"repeat_last_n":  0,
-			"top_p":          0.0,
-			"top_k":          1.0,
-			"temperature":    0.0,
-			"repeat_penalty": 1.0,
-			"seed":           123,
-		}
-	}
-
-	jsonData, err := MarshalNoEscape(request)
-	if err != nil {
-		return "", err
-	}
-
-	headers := map[string]string{
-		"Content-Type": "application/json",
-	}
-
-	// Build candidate endpoints and try them (handles shimmy/ollama/openai-like servers)
-	candidates := []string{
-		buildURL("", p.config.BaseURL, "", "", "/api/chat"),
-		buildURL("", p.config.BaseURL, "", "", "/v1/chat/completions"),
-		buildURL("", p.config.BaseURL, "", "", "/api/generate"),
-		buildURL("", p.config.BaseURL, "", "", "/v1/generate"),
-	}
-
-	if p.config.Debug {
-		art.DebugBanner("Ollama Request", string(jsonData))
+func (p *OllamaProvider) sendOllamaImageMessage(apiType, model string, messages []Message, stream bool, images []string) (string, error) {
+	rawImages := ollamaRawImages(images)
+	request := p.newOllamaRequest(model, stream, 123)
+	if apiType == ollamaAPITypeGenerate {
+		prompt, system := ollamaGeneratePromptFromMessages(messages)
+		request.setInput(apiType, nil, prompt, system)
+		request.Images = rawImages
+	} else {
+		request.setInput(apiType, ollamaMessagesWithImages(messages, rawImages), "", "")
 	}
 	if stream {
-		parseFunc := func(reader io.Reader, stop, first, end func()) (string, error) {
-			return p.parseStreamWithTiming(reader, stop, first, end)
-		}
-		return tryPostCandidatesStream(p.ctx, candidates, headers, jsonData, parseFunc)
+		return p.streamOllama(apiType, request)
 	}
-
-	respBody, err := tryPostCandidatesNonStream(p.ctx, candidates, headers, jsonData)
+	respBody, err := p.postOllama(apiType, request)
 	if err != nil {
 		return "", err
 	}
-	if len(respBody) == 0 {
-		return "", fmt.Errorf("empty response from %s server", p.GetName())
-	}
-	if p.config.Debug {
-		art.DebugBanner("Ollama Response", string(respBody))
-	}
+	return p.finishOllamaResponse(respBody, "content in image mode", false, true, true)
+}
 
-	var response struct {
-		Message struct {
-			Content   string `json:"content"`
-			Thinking  string `json:"thinking,omitempty"`
-			ToolCalls []struct {
-				Function struct {
-					Name      string                 `json:"name"`
-					Arguments map[string]interface{} `json:"arguments"`
-				} `json:"function"`
-			} `json:"tool_calls,omitempty"`
-		} `json:"message"`
-		Response string `json:"response,omitempty"`
-		Error    string `json:"error,omitempty"`
+func (p *OllamaProvider) sendOllamaRawMessage(apiType, model string, messages []Message, stream bool) (string, error) {
+	prompt := ollamaRawPrompt(messages)
+	request := p.newOllamaRequest(model, stream, 0)
+	request.setInput(apiType, []Message{{Role: "user", Content: prompt}}, prompt, "")
+	if stream {
+		return p.streamOllama(apiType, request)
 	}
-
-	if err := json.Unmarshal(respBody, &response); err != nil {
-		fmt.Printf("Failed to parse Ollama response: %s\nError: %v\n", string(respBody), err)
+	respBody, err := p.postOllama(apiType, request)
+	if err != nil {
 		return "", err
 	}
-	if response.Error != "" {
-		return "", fmt.Errorf("%s", response.Error)
-	}
-	if p.config.Schema != nil {
-		if response.Message.Content != "" {
-			return response.Message.Content, nil
-		}
-		// Handle tool_calls if present
-		if len(response.Message.ToolCalls) > 0 {
-			// Construct JSON response for tool calling
-			toolCall := response.Message.ToolCalls[0] // Assume one tool call
-			planResponse := map[string]interface{}{
-				"plan":               []string{"Call tool " + toolCall.Function.Name},
-				"current_plan_index": 0,
-				"progress":           response.Message.Thinking,
-				"reasoning":          response.Message.Thinking,
-				"next_step":          "Execute the tool",
-				"action":             "Iterate",
-				"tool_required":      true,
-				"tool":               toolCall.Function.Name,
-				"tool_params":        toolCall.Function.Arguments,
-			}
-			jsonBytes, err := json.Marshal(planResponse)
-			if err != nil {
-				return "", fmt.Errorf("failed to marshal tool call response: %v", err)
-			}
-			return string(jsonBytes), nil
-		}
-		if response.Response == "" {
-			if response.Message.Thinking != "" {
-				art.DebugBanner("Thinking", response.Message.Thinking)
-			}
-			fmt.Printf("DEBUG: Ollama provider returned empty response with schema. Response body: %s\n", string(respBody))
-			return "", fmt.Errorf("LLM returned empty response in schema mode - this may indicate the model cannot generate valid structured output")
-		}
-		return response.Response, nil
-	}
+	return p.finishOllamaResponse(respBody, "response in rawdog mode", false, false, false)
+}
 
-	// Handle tool_calls if content is empty
-	if response.Message.Content == "" && len(response.Message.ToolCalls) > 0 {
-		// Construct JSON response for tool calling
-		toolCall := response.Message.ToolCalls[0] // Assume one tool call
-		planResponse := map[string]interface{}{
-			"plan":               []string{"Call tool " + toolCall.Function.Name},
-			"current_plan_index": 0,
-			"progress":           response.Message.Thinking,
-			"reasoning":          response.Message.Thinking,
-			"next_step":          "Execute the tool",
-			"action":             "Iterate",
-			"tool_required":      true,
-			"tool":               toolCall.Function.Name,
-			"tool_params":        toolCall.Function.Arguments,
-		}
-		jsonBytes, err := json.Marshal(planResponse)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal tool call response: %v", err)
-		}
-		return string(jsonBytes), nil
+func (p *OllamaProvider) sendOllamaChatMessage(apiType, model string, messages []Message, stream bool) (string, error) {
+	request := p.newOllamaRequest(model, stream, 123)
+	if apiType == ollamaAPITypeGenerate {
+		prompt, system := ollamaGeneratePromptFromMessages(messages)
+		request.setInput(apiType, nil, prompt, system)
+	} else {
+		request.setInput(apiType, messages, "", "")
 	}
+	if p.config.Schema != nil && apiType != ollamaAPITypeGenerate {
+		request.Prompt = BuildConversationString(messages, p.config.ConversationIncludeLLM, p.config.ConversationIncludeSystem, p.config.ConversationFormat, p.config.ConversationUseLastUser)
+	}
+	if stream {
+		return p.streamOllama(apiType, request)
+	}
+	respBody, err := p.postOllama(apiType, request)
+	if err != nil {
+		return "", err
+	}
+	return p.finishOllamaResponse(respBody, "message content", p.config.Schema != nil, false, false)
+}
 
-	// Return raw content - newline conversion happens in the REPL
-	if response.Message.Content == "" {
-		fmt.Printf("DEBUG: Ollama provider returned empty message content. Response body: %s\n", string(respBody))
+func (p *OllamaProvider) finishOllamaResponse(respBody []byte, emptyLabel string, schemaMode, colorThinking, account bool) (string, error) {
+	response, content, thinking, err := parseOllamaResponse(respBody)
+	if err != nil {
+		return "", err
 	}
-	return response.Message.Content, nil
+	if p.config.Debug {
+		fmt.Printf("DEBUG: Ollama response: content=%q thinking=%q\n", content, thinking)
+	}
+	if account {
+		accountResponseText(p.ctx, thinking)
+		accountResponseText(p.ctx, content)
+	}
+	if content == "" && len(response.Message.ToolCalls) > 0 {
+		return ollamaToolPlan(response.Message.ToolCalls[0], thinking)
+	}
+	if schemaMode && content == "" {
+		if thinking != "" {
+			art.DebugBanner("Thinking", thinking)
+		}
+		fmt.Printf("DEBUG: Ollama provider returned empty response with schema. Response body: %s\n", string(respBody))
+		return "", fmt.Errorf("LLM returned empty response in schema mode - this may indicate the model cannot generate valid structured output")
+	}
+	if colorThinking && thinking != "" && !p.config.ThinkHide {
+		content = "\033[36m" + thinking + "\033[0m" + content
+	}
+	if p.config.Debug {
+		fmt.Printf("DEBUG: Final content: %q\n", content)
+	}
+	if content == "" {
+		fmt.Printf("DEBUG: Ollama provider returned empty %s. Response body: %s\n", emptyLabel, string(respBody))
+	}
+	return content, nil
 }
 
 func (p *OllamaProvider) parseStream(reader io.Reader) (string, error) {
@@ -574,7 +549,10 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 		} else if p.config.Rawdog {
 			var response struct {
 				Response string `json:"response"`
-				Done     bool   `json:"done"`
+				Message  struct {
+					Content string `json:"content"`
+				} `json:"message"`
+				Done bool `json:"done"`
 			}
 
 			if err := json.Unmarshal([]byte(line), &response); err != nil {
@@ -582,6 +560,9 @@ func (p *OllamaProvider) parseStreamWithTiming(reader io.Reader, stopCallback, f
 			}
 
 			raw = response.Response
+			if raw == "" {
+				raw = response.Message.Content
+			}
 			isDone = response.Done
 		} else {
 			var response struct {

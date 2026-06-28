@@ -60,6 +60,7 @@ func NewConfigOptions() *ConfigOptions {
 
 	// AI provider options
 	co.RegisterOption("ai.baseurl", StringOption, "Custom base URL for API requests", "")
+	co.RegisterOption("ai.apitype", StringOption, "Ollama API endpoint type: chat or generate", "chat")
 	co.RegisterOption("ai.deterministic", BooleanOption, "Force deterministic output from LLMs", "false")
 	co.RegisterOption("ai.provider", StringOption, "AI provider to use", DefaultProvider)
 	co.RegisterOption("ai.model", StringOption, "AI model to use", DefaultModel)
@@ -265,6 +266,13 @@ func (c *ConfigOptions) Set(key, value string) error {
 			}
 			c.values[key] = value
 		default: // StringOption or unknown type
+			if key == "ai.apitype" {
+				apiType, ok := llm.NormalizeOllamaAPIType(value)
+				if !ok {
+					return fmt.Errorf("invalid ai.apitype value: %s (must be one of: %s)", value, llm.OllamaAPITypeValues())
+				}
+				value = apiType
+			}
 			if key == "chat.save" {
 				value = strings.ToLower(strings.TrimSpace(value))
 				if !isValidChatSaveMode(value) {

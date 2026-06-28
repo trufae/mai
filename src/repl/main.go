@@ -274,6 +274,7 @@ func loadConfig() *llm.Config {
 	config := &llm.Config{
 		PROVIDER:  getEnvOrDefault("MAI_PROVIDER", "ollama"),
 		BaseURL:   getEnvOrDefault("MAI_BASEURL", ""),
+		APIType:   "chat",
 		UserAgent: getEnvOrDefault("MAI_USERAGENT", "mai-repl/1.0"),
 		NoStream:  false,
 	}
@@ -455,6 +456,11 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 	}
 	if v := opts.Get("ai.baseurl"); v != "" {
 		config.BaseURL = v
+	}
+	if v := opts.Get("ai.apitype"); v != "" {
+		if apiType, ok := llm.NormalizeOllamaAPIType(v); ok {
+			config.APIType = apiType
+		}
 	}
 	if v := opts.Get("http.useragent"); v != "" {
 		config.UserAgent = v
@@ -822,7 +828,10 @@ func main() {
 				}
 				// Set the option in config
 				key, value := parts[0], parts[1]
-				_ = configOptions.Set(key, value)
+				if err := configOptions.Set(key, value); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
 				args = append(args[:i], args[i+2:]...)
 				i--
 			} else {
