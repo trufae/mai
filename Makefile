@@ -14,11 +14,13 @@ fmt:
 	go fmt $(shell ls src/repl/*.go )
 	go fmt $(shell ls src/wmcp/*.go )
 	go fmt $(shell ls src/tool/*.go )
+	go fmt $(shell ls src/acp/*.go )
 
 install:
 	$(MAKE) -C src/wmcp install
 	$(MAKE) -C src/repl install
 	$(MAKE) -C src/tool install
+	$(MAKE) -C src/acp install
 	$(MAKE) -C src/swan install
 	$(MAKE) -C src/mcps install
 	$(MAKE) -C src/vdb install
@@ -28,6 +30,7 @@ uninstall:
 	$(MAKE) -C src/wmcp uninstall
 	$(MAKE) -C src/repl uninstall
 	$(MAKE) -C src/tool uninstall
+	$(MAKE) -C src/acp uninstall
 	$(MAKE) -C src/mcps uninstall
 	$(MAKE) -C src/swan uninstall
 	$(MAKE) -C src/vdb uninstall

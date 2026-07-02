@@ -1,5 +1,6 @@
 src/repl/mai-repl
 src/tool/mai-tool
+src/acp/mai-acp
 src/wmcp/mai-wmcp
 src/swan/mai-swan
 src/mcps/wttr/mai-mcp-wttr

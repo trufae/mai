@@ -1,4 +1,4 @@
-SUBS=mcps repl tool vdb wmcp bot term swan
+SUBS=mcps repl tool acp vdb wmcp bot term swan
 
 all clean: $(SUBS)
 
