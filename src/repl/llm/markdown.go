@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // ANSI color codes for terminal output
@@ -844,21 +845,25 @@ func normalizeTableRow(cells []string, width int) []string {
 
 func renderMarkdownTable(table markdownTable) string {
 	widths := tableColumnWidths(table)
-	border := tableBorder(widths)
 	var out strings.Builder
 
-	out.WriteString(border)
+	out.WriteString(tableBorder(widths, "┌", "┬", "┐"))
 	out.WriteByte('\n')
 	out.WriteString(renderTableRow(table.headers, widths, table.aligns))
 	out.WriteByte('\n')
-	out.WriteString(border)
+	out.WriteString(tableBorder(widths, "├", "┼", "┤"))
 	for _, row := range table.rows {
 		out.WriteByte('\n')
 		out.WriteString(renderTableRow(row, widths, table.aligns))
+		out.WriteByte('\n')
+		out.WriteString(tableBorder(widths, "├", "┼", "┤"))
 	}
-	out.WriteByte('\n')
-	out.WriteString(border)
-	return out.String()
+	rendered := out.String()
+	separator := tableBorder(widths, "├", "┼", "┤")
+	if strings.HasSuffix(rendered, separator) {
+		return strings.TrimSuffix(rendered, separator) + tableBorder(widths, "└", "┴", "┘")
+	}
+	return rendered + "\n" + tableBorder(widths, "└", "┴", "┘")
 }
 
 func tableColumnWidths(table markdownTable) []int {
@@ -867,7 +872,7 @@ func tableColumnWidths(table markdownTable) []int {
 	rows := append([][]string{table.headers}, table.rows...)
 	for _, row := range rows {
 		for i, cell := range row {
-			width := tableTextWidth(cell)
+			width := tableTextWidth(renderTableCellMarkdown(cell))
 			if width > maxColumnWidth {
 				width = maxColumnWidth
 			}
@@ -924,14 +929,14 @@ func tableRenderedWidthSum(widths []int) int {
 	return total
 }
 
-func tableBorder(widths []int) string {
+func tableBorder(widths []int, left, middle, right string) string {
 	var out strings.Builder
-	out.WriteByte('+')
+	out.WriteString(left)
 	for _, width := range widths {
-		out.WriteString(strings.Repeat("-", width+2))
-		out.WriteByte('+')
+		out.WriteString(strings.Repeat("─", width+2))
+		out.WriteString(middle)
 	}
-	return out.String()
+	return strings.TrimSuffix(out.String(), middle) + right
 }
 
 func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
@@ -939,7 +944,7 @@ func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
 	height := 1
 	for i, width := range widths {
 		if i < len(row) {
-			wrapped[i] = wrapTableCell(row[i], width)
+			wrapped[i] = wrapTableCell(renderTableCellMarkdown(row[i]), width)
 		} else {
 			wrapped[i] = []string{""}
 		}
@@ -953,7 +958,7 @@ func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
 		if line > 0 {
 			out.WriteByte('\n')
 		}
-		out.WriteByte('|')
+		out.WriteString("│")
 		for col, width := range widths {
 			cell := ""
 			if line < len(wrapped[col]) {
@@ -961,10 +966,19 @@ func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
 			}
 			out.WriteByte(' ')
 			out.WriteString(alignTableCell(cell, width, aligns[col]))
-			out.WriteString(" |")
+			out.WriteString(" │")
 		}
 	}
 	return out.String()
+}
+
+func renderTableCellMarkdown(cell string) string {
+	renderer := NewMarkdownRenderer(false)
+	renderer.isInLineStart = false
+	out := renderer.Process(cell)
+	out = strings.ReplaceAll(out, "\r\n", " ")
+	out = strings.ReplaceAll(out, "\n", " ")
+	return strings.TrimSpace(out)
 }
 
 func alignTableCell(cell string, width int, align tableAlign) string {
@@ -996,7 +1010,7 @@ func wrapTableCell(cell string, width int) []string {
 		for tableTextWidth(word) > width {
 			prefix, rest := splitTableWord(word, width)
 			if current != "" {
-				lines = append(lines, current)
+				lines = append(lines, closeTableLine(current))
 				current = ""
 			}
 			lines = append(lines, prefix)
@@ -1009,12 +1023,16 @@ func wrapTableCell(cell string, width int) []string {
 		if tableTextWidth(current)+1+tableTextWidth(word) <= width {
 			current += " " + word
 		} else {
-			lines = append(lines, current)
+			active := tableActiveANSI(current)
+			lines = append(lines, closeTableLine(current))
+			if active != "" {
+				word = active + word
+			}
 			current = word
 		}
 	}
 	if current != "" {
-		lines = append(lines, current)
+		lines = append(lines, closeTableLine(current))
 	}
 	if len(lines) == 0 {
 		return []string{""}
@@ -1026,15 +1044,112 @@ func splitTableWord(word string, width int) (string, string) {
 	if width < 1 {
 		return "", word
 	}
-	runes := []rune(word)
-	if len(runes) <= width {
+	if tableTextWidth(word) <= width {
 		return word, ""
 	}
-	return string(runes[:width]), string(runes[width:])
+	var prefix strings.Builder
+	var rest strings.Builder
+	var active strings.Builder
+	visible := 0
+	inRest := false
+	for i := 0; i < len(word); {
+		if seq, next := readANSISequence(word, i); seq != "" {
+			if inRest {
+				rest.WriteString(seq)
+			} else {
+				prefix.WriteString(seq)
+			}
+			if seq == Reset {
+				active.Reset()
+			} else if strings.HasSuffix(seq, "m") {
+				active.WriteString(seq)
+			}
+			i = next
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(word[i:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if visible >= width {
+			if !inRest {
+				if active.Len() > 0 {
+					prefix.WriteString(Reset)
+					rest.WriteString(active.String())
+				}
+				inRest = true
+			}
+			rest.WriteRune(r)
+		} else {
+			prefix.WriteRune(r)
+			visible++
+		}
+		i += size
+	}
+	return prefix.String(), rest.String()
+}
+
+func closeTableLine(line string) string {
+	if tableActiveANSI(line) == "" {
+		return line
+	}
+	return line + Reset
+}
+
+func tableActiveANSI(s string) string {
+	var active strings.Builder
+	for i := 0; i < len(s); {
+		seq, next := readANSISequence(s, i)
+		if seq == "" {
+			_, size := utf8.DecodeRuneInString(s[i:])
+			if size == 0 {
+				break
+			}
+			i += size
+			continue
+		}
+		if seq == Reset {
+			active.Reset()
+		} else if strings.HasSuffix(seq, "m") {
+			active.WriteString(seq)
+		}
+		i = next
+	}
+	return active.String()
 }
 
 func tableTextWidth(s string) int {
-	return len([]rune(s))
+	return len([]rune(stripANSI(s)))
+}
+
+func stripANSI(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); {
+		if _, next := readANSISequence(s, i); next > i {
+			i = next
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		out.WriteRune(r)
+		i += size
+	}
+	return out.String()
+}
+
+func readANSISequence(s string, start int) (string, int) {
+	if start+1 >= len(s) || s[start] != 0x1b || s[start+1] != '[' {
+		return "", start
+	}
+	for i := start + 2; i < len(s); i++ {
+		if (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') {
+			return s[start : i+1], i + 1
+		}
+	}
+	return "", start
 }
 
 // Flush handles any remaining content in the buffer
