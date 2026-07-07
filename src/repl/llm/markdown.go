@@ -2,6 +2,8 @@ package llm
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -99,6 +101,7 @@ type MarkdownRenderer struct {
 	boldMarker        rune // '*' or '_' for bold
 	italicMarker      rune // '*' or '_' for italic
 	nestingLevel      int  // For handling nested formatting
+	tableBuffer       []string
 
 	// Streaming-specific pending state to handle cross-chunk emphasis markers
 	pendingEmphasis bool
@@ -151,13 +154,13 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			}
 			line := r.currentLineBuffer[:idx]
 			r.currentLineBuffer = r.currentLineBuffer[idx+1:]
-			// Render a complete line with context (headers/lists) and code fence state
-			result.WriteString(r.renderStreamLine(line))
-			result.WriteString("\r\n")
+			result.WriteString(r.renderStreamLine(line, true))
 			r.isInLineStart = true
 		}
 		return result.String()
 	}
+
+	chunk = renderMarkdownTables(chunk)
 
 	// Process character by character, supporting multibyte UTF-8 runes
 	runes := []rune(chunk)
@@ -576,11 +579,18 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 	return result.String()
 }
 
-// renderStreamLine formats a single line for streaming mode, keeping multi-line state like code fences.
-func (r *MarkdownRenderer) renderStreamLine(line string) string {
+// renderStreamLine formats a single line for streaming mode, keeping multi-line
+// state like code fences and markdown tables.
+func (r *MarkdownRenderer) renderStreamLine(line string, complete bool) string {
 	trimmed := strings.TrimSpace(line)
+	newline := ""
+	if complete {
+		newline = "\r\n"
+	}
+
 	// Handle code fences in streaming mode
 	if strings.HasPrefix(trimmed, "```") {
+		prefix := r.flushTableBuffer(true)
 		fenceRest := strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
 		if !r.inCodeFence {
 			// Opening fence: capture language (optional) and enter code block
@@ -592,22 +602,439 @@ func (r *MarkdownRenderer) renderStreamLine(line string) string {
 			r.codeLanguage = ""
 		}
 		// Do not render the fence line itself
-		return ""
+		return prefix + newline
 	}
 	if r.inCodeFence {
 		// Inside code block: render raw content with code color
 		if line == "" {
-			return ""
+			return newline
 		}
-		return CodeBlockColor + line + Reset
+		return CodeBlockColor + line + Reset + newline
 	}
 
+	if isPotentialTableLine(line) {
+		r.tableBuffer = append(r.tableBuffer, line)
+		return ""
+	}
+
+	prefix := r.flushTableBuffer(true)
+	return prefix + renderStreamPlainLine(line) + newline
+}
+
+func renderStreamPlainLine(line string) string {
 	// For regular markdown lines, reuse the non-streaming renderer to format the full line.
 	// Append a newline so header/list parsing finalizes; then strip the CRLF we get back.
 	tmp := NewMarkdownRenderer(false)
 	out := tmp.Process(line + "\n")
 	out = strings.TrimSuffix(out, "\r\n")
 	return out
+}
+
+func (r *MarkdownRenderer) flushTableBuffer(terminated bool) string {
+	if len(r.tableBuffer) == 0 {
+		return ""
+	}
+	lines := r.tableBuffer
+	r.tableBuffer = nil
+
+	var out string
+	if table, ok := parseMarkdownTable(lines); ok {
+		out = strings.ReplaceAll(renderMarkdownTable(table), "\n", "\r\n")
+	} else {
+		rendered := make([]string, 0, len(lines))
+		for _, line := range lines {
+			rendered = append(rendered, renderStreamPlainLine(line))
+		}
+		out = strings.Join(rendered, "\r\n")
+	}
+	if terminated {
+		return out + "\r\n"
+	}
+	return out
+}
+
+type tableAlign int
+
+const (
+	tableAlignLeft tableAlign = iota
+	tableAlignRight
+	tableAlignCenter
+)
+
+type markdownTable struct {
+	headers []string
+	aligns  []tableAlign
+	rows    [][]string
+}
+
+func renderMarkdownTables(text string) string {
+	lines := strings.Split(text, "\n")
+	trailingNewline := strings.HasSuffix(text, "\n")
+	var out strings.Builder
+	inCodeFence := false
+
+	for i := 0; i < len(lines); {
+		if i == len(lines)-1 && lines[i] == "" && trailingNewline {
+			break
+		}
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeFence = !inCodeFence
+		}
+		if !inCodeFence && i+1 < len(lines) {
+			tableLines := collectMarkdownTable(lines[i:])
+			if len(tableLines) > 0 {
+				if table, ok := parseMarkdownTable(tableLines); ok {
+					out.WriteString(renderMarkdownTable(table))
+					i += len(tableLines)
+					if i < len(lines)-1 || trailingNewline {
+						out.WriteByte('\n')
+					}
+					continue
+				}
+			}
+		}
+		out.WriteString(lines[i])
+		if i < len(lines)-1 {
+			out.WriteByte('\n')
+		}
+		i++
+	}
+	return out.String()
+}
+
+func collectMarkdownTable(lines []string) []string {
+	if len(lines) < 2 || !isPotentialTableLine(lines[0]) || !isMarkdownTableSeparator(lines[1]) {
+		return nil
+	}
+	tableLines := []string{lines[0], lines[1]}
+	for i := 2; i < len(lines); i++ {
+		if !isPotentialTableLine(lines[i]) {
+			break
+		}
+		tableLines = append(tableLines, lines[i])
+	}
+	return tableLines
+}
+
+func isPotentialTableLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || !strings.Contains(trimmed, "|") {
+		return false
+	}
+	return strings.HasPrefix(trimmed, "|") || strings.HasSuffix(trimmed, "|") || strings.Count(trimmed, "|") > 1
+}
+
+func isMarkdownTableSeparator(line string) bool {
+	cells := splitMarkdownTableRow(line)
+	if len(cells) == 0 {
+		return false
+	}
+	for _, cell := range cells {
+		if _, ok := parseTableSeparatorCell(cell); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func parseMarkdownTable(lines []string) (markdownTable, bool) {
+	if len(lines) < 2 {
+		return markdownTable{}, false
+	}
+	headers := splitMarkdownTableRow(lines[0])
+	separatorCells := splitMarkdownTableRow(lines[1])
+	if len(headers) == 0 || len(headers) != len(separatorCells) {
+		return markdownTable{}, false
+	}
+
+	aligns := make([]tableAlign, len(separatorCells))
+	for i, cell := range separatorCells {
+		align, ok := parseTableSeparatorCell(cell)
+		if !ok {
+			return markdownTable{}, false
+		}
+		aligns[i] = align
+	}
+
+	table := markdownTable{
+		headers: normalizeTableRow(headers, len(headers)),
+		aligns:  aligns,
+	}
+	for _, line := range lines[2:] {
+		table.rows = append(table.rows, normalizeTableRow(splitMarkdownTableRow(line), len(headers)))
+	}
+	return table, true
+}
+
+func splitMarkdownTableRow(line string) []string {
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "|") {
+		line = line[1:]
+	}
+	if strings.HasSuffix(line, "|") {
+		line = line[:len(line)-1]
+	}
+
+	var cells []string
+	var cell strings.Builder
+	escaped := false
+	for _, r := range line {
+		if escaped {
+			if r != '|' {
+				cell.WriteRune('\\')
+			}
+			cell.WriteRune(r)
+			escaped = false
+			continue
+		}
+		switch r {
+		case '\\':
+			escaped = true
+		case '|':
+			cells = append(cells, strings.TrimSpace(cell.String()))
+			cell.Reset()
+		default:
+			cell.WriteRune(r)
+		}
+	}
+	if escaped {
+		cell.WriteRune('\\')
+	}
+	cells = append(cells, strings.TrimSpace(cell.String()))
+	return cells
+}
+
+func parseTableSeparatorCell(cell string) (tableAlign, bool) {
+	cell = strings.TrimSpace(cell)
+	if cell == "" {
+		return tableAlignLeft, false
+	}
+	left := strings.HasPrefix(cell, ":")
+	right := strings.HasSuffix(cell, ":")
+	cell = strings.TrimPrefix(cell, ":")
+	cell = strings.TrimSuffix(cell, ":")
+	if len(cell) < 3 {
+		return tableAlignLeft, false
+	}
+	for _, r := range cell {
+		if r != '-' {
+			return tableAlignLeft, false
+		}
+	}
+	switch {
+	case left && right:
+		return tableAlignCenter, true
+	case right:
+		return tableAlignRight, true
+	default:
+		return tableAlignLeft, true
+	}
+}
+
+func normalizeTableRow(cells []string, width int) []string {
+	row := make([]string, width)
+	for i := range row {
+		if i < len(cells) {
+			row[i] = cells[i]
+		}
+	}
+	return row
+}
+
+func renderMarkdownTable(table markdownTable) string {
+	widths := tableColumnWidths(table)
+	border := tableBorder(widths)
+	var out strings.Builder
+
+	out.WriteString(border)
+	out.WriteByte('\n')
+	out.WriteString(renderTableRow(table.headers, widths, table.aligns))
+	out.WriteByte('\n')
+	out.WriteString(border)
+	for _, row := range table.rows {
+		out.WriteByte('\n')
+		out.WriteString(renderTableRow(row, widths, table.aligns))
+	}
+	out.WriteByte('\n')
+	out.WriteString(border)
+	return out.String()
+}
+
+func tableColumnWidths(table markdownTable) []int {
+	const maxColumnWidth = 32
+	widths := make([]int, len(table.headers))
+	rows := append([][]string{table.headers}, table.rows...)
+	for _, row := range rows {
+		for i, cell := range row {
+			width := tableTextWidth(cell)
+			if width > maxColumnWidth {
+				width = maxColumnWidth
+			}
+			if width > widths[i] {
+				widths[i] = width
+			}
+		}
+	}
+	for i := range widths {
+		if widths[i] < 3 {
+			widths[i] = 3
+		}
+	}
+
+	available := terminalTableWidth()
+	if minTotal := tableRenderedWidth(len(widths), 1); available < minTotal {
+		available = minTotal
+	}
+	for tableRenderedWidthSum(widths) > available {
+		widest := 0
+		for i := 1; i < len(widths); i++ {
+			if widths[i] > widths[widest] {
+				widest = i
+			}
+		}
+		if widths[widest] <= 1 {
+			break
+		}
+		widths[widest]--
+	}
+	return widths
+}
+
+func terminalTableWidth() int {
+	width, err := strconv.Atoi(os.Getenv("COLUMNS"))
+	if err != nil || width <= 0 {
+		return 80
+	}
+	if width < 20 {
+		return 20
+	}
+	return width
+}
+
+func tableRenderedWidth(cols, cellWidth int) int {
+	return cols*cellWidth + 3*cols + 1
+}
+
+func tableRenderedWidthSum(widths []int) int {
+	total := 1
+	for _, width := range widths {
+		total += width + 3
+	}
+	return total
+}
+
+func tableBorder(widths []int) string {
+	var out strings.Builder
+	out.WriteByte('+')
+	for _, width := range widths {
+		out.WriteString(strings.Repeat("-", width+2))
+		out.WriteByte('+')
+	}
+	return out.String()
+}
+
+func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
+	wrapped := make([][]string, len(widths))
+	height := 1
+	for i, width := range widths {
+		if i < len(row) {
+			wrapped[i] = wrapTableCell(row[i], width)
+		} else {
+			wrapped[i] = []string{""}
+		}
+		if len(wrapped[i]) > height {
+			height = len(wrapped[i])
+		}
+	}
+
+	var out strings.Builder
+	for line := 0; line < height; line++ {
+		if line > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteByte('|')
+		for col, width := range widths {
+			cell := ""
+			if line < len(wrapped[col]) {
+				cell = wrapped[col][line]
+			}
+			out.WriteByte(' ')
+			out.WriteString(alignTableCell(cell, width, aligns[col]))
+			out.WriteString(" |")
+		}
+	}
+	return out.String()
+}
+
+func alignTableCell(cell string, width int, align tableAlign) string {
+	pad := width - tableTextWidth(cell)
+	if pad < 0 {
+		pad = 0
+	}
+	switch align {
+	case tableAlignRight:
+		return strings.Repeat(" ", pad) + cell
+	case tableAlignCenter:
+		left := pad / 2
+		right := pad - left
+		return strings.Repeat(" ", left) + cell + strings.Repeat(" ", right)
+	default:
+		return cell + strings.Repeat(" ", pad)
+	}
+}
+
+func wrapTableCell(cell string, width int) []string {
+	cell = strings.TrimSpace(cell)
+	if cell == "" {
+		return []string{""}
+	}
+
+	var lines []string
+	var current string
+	for _, word := range strings.Fields(cell) {
+		for tableTextWidth(word) > width {
+			prefix, rest := splitTableWord(word, width)
+			if current != "" {
+				lines = append(lines, current)
+				current = ""
+			}
+			lines = append(lines, prefix)
+			word = rest
+		}
+		if current == "" {
+			current = word
+			continue
+		}
+		if tableTextWidth(current)+1+tableTextWidth(word) <= width {
+			current += " " + word
+		} else {
+			lines = append(lines, current)
+			current = word
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func splitTableWord(word string, width int) (string, string) {
+	if width < 1 {
+		return "", word
+	}
+	runes := []rune(word)
+	if len(runes) <= width {
+		return word, ""
+	}
+	return string(runes[:width]), string(runes[width:])
+}
+
+func tableTextWidth(s string) int {
+	return len([]rune(s))
 }
 
 // Flush handles any remaining content in the buffer
@@ -617,9 +1044,10 @@ func (r *MarkdownRenderer) Flush() string {
 
 	// In streaming mode, flush any remaining partial line
 	if r.isStreaming && r.currentLineBuffer != "" {
-		result.WriteString(r.renderStreamLine(r.currentLineBuffer))
+		result.WriteString(r.renderStreamLine(r.currentLineBuffer, false))
 		r.currentLineBuffer = ""
 	}
+	result.WriteString(r.flushTableBuffer(false))
 
 	// If we had a pending emphasis marker, flush it as literal
 	if r.pendingEmphasis {
