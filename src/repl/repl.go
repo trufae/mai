@@ -173,6 +173,12 @@ func (r *REPL) buildLLMConfigForTask(task string) *llm.Config {
 	return cfg
 }
 
+func (r *REPL) renderMarkdown(text string) string {
+	cfg := &llm.Config{}
+	applyMarkdownOptionsToLLMConfig(cfg, &r.configOptions)
+	return llm.RenderMarkdown(text)
+}
+
 // AskYesNo prompts the user with a yes/no question, defaulting to 'y' or 'n'.
 // Returns true for yes, false for no.
 func AskYesNo(question string, defaultVal rune) bool {
@@ -1231,7 +1237,7 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 				}
 				if r.configOptions.GetBool("ui.markdown") {
 					// Use markdown formatting
-					fmt.Print(llm.RenderMarkdown(out))
+					fmt.Print(r.renderMarkdown(out))
 				} else {
 					// Use standard formatting
 					fmt.Println(strings.ReplaceAll(out, "\n", "\r\n"))
@@ -1822,7 +1828,7 @@ func (r *REPL) displayFullConversationLog() string {
 		// Print the full content with preserved formatting
 		// Apply markdown rendering if enabled
 		if r.configOptions.GetBool("ui.markdown") {
-			fmt.Fprintf(&output, "%s\r\n", llm.RenderMarkdown(msg.Content))
+			fmt.Fprintf(&output, "%s\r\n", r.renderMarkdown(msg.Content))
 		} else {
 			// Replace single newlines with \r\n for proper terminal display
 			content := strings.ReplaceAll(msg.Content, "\n", "\r\n")

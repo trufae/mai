@@ -72,6 +72,9 @@ type Config struct {
 	QuitAfterActions bool
 	Deterministic    bool
 	Markdown         bool
+	MarkdownWidth    int
+	MarkdownUTF8     bool
+	MarkdownColors   bool
 	Rawdog           bool
 	ReasoningEffort  string // "", none, minimal, low, medium, high, xhigh
 

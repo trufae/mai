@@ -76,7 +76,7 @@ func registerChatCommands(r *REPL) {
 
 			// Return the content with markdown rendering if enabled
 			if r.configOptions.GetBool("ui.markdown") {
-				return llm.RenderMarkdown(content) + "\r\n", nil
+				return r.renderMarkdown(content) + "\r\n", nil
 			} else {
 				// Replace single newlines with \r\n for proper terminal display
 				content = strings.ReplaceAll(content, "\n", "\r\n")

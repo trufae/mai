@@ -132,7 +132,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("repl.skillsdir", StringOption, "Custom directory path for Claude Skills (supports ~ expansion)", "")
 
 	// Screen rendering options
-	co.RegisterOption("ui.markdown", BooleanOption, "Enable markdown rendering with colors", "false")
+	co.RegisterOption("ui.markdown", BooleanOption, "Enable markdown rendering", "false")
+	co.RegisterOption("ui.markdown.colors", BooleanOption, "Use ANSI colors in markdown rendering", "true")
+	co.RegisterOption("ui.markdown.utf8", BooleanOption, "Use UTF-8 glyphs in markdown rendering", "true")
+	co.RegisterOption("ui.markdown.width", NumberOption, "Markdown table width in columns (0=terminal width)", "0")
 	co.RegisterOption("ui.stats", BooleanOption, "Show time statistics (time to first token, tokens/sec, chars/sec) after LLM responses", "false")
 	co.RegisterOption("ui.bgcolor", StringOption, "Background color for the input line (named colors or rgb:RGB)", "")
 	co.RegisterOption("ui.fgcolor", StringOption, "Foreground color for the input line text (named colors or rgb:RGB)", "")
@@ -1029,6 +1032,12 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Logging reverted to default\r\n")
 	case "ui.markdown":
 		output.WriteString("Markdown rendering reverted to default\r\n")
+	case "ui.markdown.colors":
+		output.WriteString("Markdown colors reverted to default\r\n")
+	case "ui.markdown.utf8":
+		output.WriteString("Markdown UTF-8 rendering reverted to default\r\n")
+	case "ui.markdown.width":
+		output.WriteString("Markdown table width reverted to default\r\n")
 	case "ui.bgcolor":
 		output.WriteString("Input line background color reverted to default\r\n")
 	case "ui.fgcolor":

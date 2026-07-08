@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 // ANSI color codes for terminal output
@@ -82,6 +84,27 @@ type MarkdownElement struct {
 	Type    ElementType
 	Content string
 	Level   int // For headers (1-6)
+}
+
+// MarkdownOptions controls terminal-specific markdown rendering.
+type MarkdownOptions struct {
+	TableWidth int
+	UTF8       bool
+	Colors     bool
+}
+
+var markdownOptions = MarkdownOptions{
+	UTF8:   true,
+	Colors: true,
+}
+
+// SetMarkdownOptions updates the package-level renderer options.
+func SetMarkdownOptions(opts MarkdownOptions) {
+	if opts.TableWidth < 0 {
+		opts.TableWidth = 0
+	}
+	markdownOptions = opts
+	ResetStreamRenderer()
 }
 
 // MarkdownRenderer is the state machine for processing markdown
@@ -176,7 +199,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				if r.collectingBold && c == r.boldMarker {
 					// End of bold, add the element
 					r.collectingBold = false
-					formatted := BoldColor + r.currentElement.Content + Reset
+					formatted := markdownColor(BoldColor, r.currentElement.Content)
 					if r.collectingListItem {
 						r.currentElement.Type = ListItemElement
 						r.currentElement.Content = formatted
@@ -338,7 +361,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			if r.collectingInlineCode {
 				// End of inline code, add the element
 				r.collectingInlineCode = false
-				formatted := InlineCodeColor + r.currentElement.Content + Reset
+				formatted := markdownColor(InlineCodeColor, r.currentElement.Content)
 				if r.collectingListItem {
 					r.currentElement.Type = ListItemElement
 					r.currentElement.Content = formatted
@@ -365,7 +388,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				if r.collectingBold && c == r.boldMarker {
 					// End of bold, add the element
 					r.collectingBold = false
-					formatted := BoldColor + r.currentElement.Content + Reset
+					formatted := markdownColor(BoldColor, r.currentElement.Content)
 					if r.collectingListItem {
 						r.currentElement.Type = ListItemElement
 						r.currentElement.Content = formatted
@@ -401,7 +424,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 				if r.collectingItalic && c == r.italicMarker {
 					// End of italic, add the element
 					r.collectingItalic = false
-					formatted := ItalicColor + r.currentElement.Content + Reset
+					formatted := markdownColor(ItalicColor, r.currentElement.Content)
 					if r.collectingListItem {
 						r.currentElement.Type = ListItemElement
 						r.currentElement.Content = formatted
@@ -461,7 +484,7 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 		if c == ')' && r.collectingLinkURL {
 			r.collectingLinkURL = false
 			// Format and add the link
-			result.WriteString(LinkColor + r.linkTextBuffer + Reset + " (" + LinkColor + r.currentElement.Content + Reset + ")")
+			result.WriteString(formatLink(r.linkTextBuffer, r.currentElement.Content))
 			r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 			continue
 		}
@@ -471,29 +494,16 @@ func (r *MarkdownRenderer) Process(chunk string) string {
 			// Finish any current element
 			if r.collectingHeader {
 				r.collectingHeader = false
-				switch r.headerLevel {
-				case 1:
-					result.WriteString(H1Color + r.currentElement.Content + Reset)
-				case 2:
-					result.WriteString(H2Color + r.currentElement.Content + Reset)
-				case 3:
-					result.WriteString(H3Color + r.currentElement.Content + Reset)
-				case 4:
-					result.WriteString(H4Color + r.currentElement.Content + Reset)
-				case 5:
-					result.WriteString(H5Color + r.currentElement.Content + Reset)
-				case 6:
-					result.WriteString(H6Color + r.currentElement.Content + Reset)
-				}
+				result.WriteString(formatHeader(r.headerLevel, r.currentElement.Content))
 				r.headerLevel = 0
 				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 			} else if r.collectingListItem {
 				r.collectingListItem = false
-				result.WriteString(ListItemColor + "• " + r.currentElement.Content + Reset)
+				result.WriteString(formatListItem(r.currentElement.Content))
 				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 			} else if r.collectingBlockquote {
 				r.collectingBlockquote = false
-				result.WriteString(QuoteColor + r.currentElement.Content + Reset)
+				result.WriteString(markdownColor(QuoteColor, r.currentElement.Content))
 				r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 			} else if r.collectingLinkText {
 				// Incomplete link, treat as regular text
@@ -610,7 +620,7 @@ func (r *MarkdownRenderer) renderStreamLine(line string, complete bool) string {
 		if line == "" {
 			return newline
 		}
-		return CodeBlockColor + line + Reset + newline
+		return markdownColor(CodeBlockColor, line) + newline
 	}
 
 	if isPotentialTableLine(line) {
@@ -845,37 +855,34 @@ func normalizeTableRow(cells []string, width int) []string {
 
 func renderMarkdownTable(table markdownTable) string {
 	widths := tableColumnWidths(table)
+	glyphs := tableGlyphSet()
 	var out strings.Builder
 
-	out.WriteString(tableBorder(widths, "┌", "┬", "┐"))
+	out.WriteString(tableBorder(widths, glyphs.topLeft, glyphs.topMiddle, glyphs.topRight))
 	out.WriteByte('\n')
 	out.WriteString(renderTableRow(table.headers, widths, table.aligns))
 	out.WriteByte('\n')
-	out.WriteString(tableBorder(widths, "├", "┼", "┤"))
+	out.WriteString(tableBorder(widths, glyphs.middleLeft, glyphs.middle, glyphs.middleRight))
 	for _, row := range table.rows {
 		out.WriteByte('\n')
 		out.WriteString(renderTableRow(row, widths, table.aligns))
 		out.WriteByte('\n')
-		out.WriteString(tableBorder(widths, "├", "┼", "┤"))
+		out.WriteString(tableBorder(widths, glyphs.middleLeft, glyphs.middle, glyphs.middleRight))
 	}
 	rendered := out.String()
-	separator := tableBorder(widths, "├", "┼", "┤")
+	separator := tableBorder(widths, glyphs.middleLeft, glyphs.middle, glyphs.middleRight)
 	if strings.HasSuffix(rendered, separator) {
-		return strings.TrimSuffix(rendered, separator) + tableBorder(widths, "└", "┴", "┘")
+		return strings.TrimSuffix(rendered, separator) + tableBorder(widths, glyphs.bottomLeft, glyphs.bottomMiddle, glyphs.bottomRight)
 	}
-	return rendered + "\n" + tableBorder(widths, "└", "┴", "┘")
+	return rendered + "\n" + tableBorder(widths, glyphs.bottomLeft, glyphs.bottomMiddle, glyphs.bottomRight)
 }
 
 func tableColumnWidths(table markdownTable) []int {
-	const maxColumnWidth = 32
 	widths := make([]int, len(table.headers))
 	rows := append([][]string{table.headers}, table.rows...)
 	for _, row := range rows {
 		for i, cell := range row {
 			width := tableTextWidth(renderTableCellMarkdown(cell))
-			if width > maxColumnWidth {
-				width = maxColumnWidth
-			}
 			if width > widths[i] {
 				widths[i] = width
 			}
@@ -907,10 +914,20 @@ func tableColumnWidths(table markdownTable) []int {
 }
 
 func terminalTableWidth() int {
+	if markdownOptions.TableWidth > 0 {
+		return minimumTableWidth(markdownOptions.TableWidth)
+	}
+	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && width > 0 {
+		return minimumTableWidth(width)
+	}
 	width, err := strconv.Atoi(os.Getenv("COLUMNS"))
 	if err != nil || width <= 0 {
 		return 80
 	}
+	return minimumTableWidth(width)
+}
+
+func minimumTableWidth(width int) int {
 	if width < 20 {
 		return 20
 	}
@@ -929,17 +946,64 @@ func tableRenderedWidthSum(widths []int) int {
 	return total
 }
 
+type tableGlyphs struct {
+	horizontal   string
+	vertical     string
+	topLeft      string
+	topMiddle    string
+	topRight     string
+	middleLeft   string
+	middle       string
+	middleRight  string
+	bottomLeft   string
+	bottomMiddle string
+	bottomRight  string
+}
+
+func tableGlyphSet() tableGlyphs {
+	if !markdownOptions.UTF8 {
+		return tableGlyphs{
+			horizontal:   "-",
+			vertical:     "|",
+			topLeft:      "+",
+			topMiddle:    "+",
+			topRight:     "+",
+			middleLeft:   "+",
+			middle:       "+",
+			middleRight:  "+",
+			bottomLeft:   "+",
+			bottomMiddle: "+",
+			bottomRight:  "+",
+		}
+	}
+	return tableGlyphs{
+		horizontal:   "─",
+		vertical:     "│",
+		topLeft:      "┌",
+		topMiddle:    "┬",
+		topRight:     "┐",
+		middleLeft:   "├",
+		middle:       "┼",
+		middleRight:  "┤",
+		bottomLeft:   "└",
+		bottomMiddle: "┴",
+		bottomRight:  "┘",
+	}
+}
+
 func tableBorder(widths []int, left, middle, right string) string {
+	glyphs := tableGlyphSet()
 	var out strings.Builder
 	out.WriteString(left)
 	for _, width := range widths {
-		out.WriteString(strings.Repeat("─", width+2))
+		out.WriteString(strings.Repeat(glyphs.horizontal, width+2))
 		out.WriteString(middle)
 	}
 	return strings.TrimSuffix(out.String(), middle) + right
 }
 
 func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
+	glyphs := tableGlyphSet()
 	wrapped := make([][]string, len(widths))
 	height := 1
 	for i, width := range widths {
@@ -958,7 +1022,7 @@ func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
 		if line > 0 {
 			out.WriteByte('\n')
 		}
-		out.WriteString("│")
+		out.WriteString(glyphs.vertical)
 		for col, width := range widths {
 			cell := ""
 			if line < len(wrapped[col]) {
@@ -966,7 +1030,8 @@ func renderTableRow(row []string, widths []int, aligns []tableAlign) string {
 			}
 			out.WriteByte(' ')
 			out.WriteString(alignTableCell(cell, width, aligns[col]))
-			out.WriteString(" │")
+			out.WriteByte(' ')
+			out.WriteString(glyphs.vertical)
 		}
 	}
 	return out.String()
@@ -1194,65 +1259,39 @@ func (r *MarkdownRenderer) Flush() string {
 		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 	} else if r.collectingHeader {
 		// Incomplete header at end of stream - format as header
-		switch r.headerLevel {
-		case 1:
-			result.WriteString(H1Color + r.currentElement.Content + Reset)
-		case 2:
-			result.WriteString(H2Color + r.currentElement.Content + Reset)
-		case 3:
-			result.WriteString(H3Color + r.currentElement.Content + Reset)
-		case 4:
-			result.WriteString(H4Color + r.currentElement.Content + Reset)
-		case 5:
-			result.WriteString(H5Color + r.currentElement.Content + Reset)
-		case 6:
-			result.WriteString(H6Color + r.currentElement.Content + Reset)
-		}
+		result.WriteString(formatHeader(r.headerLevel, r.currentElement.Content))
 		r.collectingHeader = false
 		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 		r.headerLevel = 0
 	} else if r.collectingListItem {
 		// Incomplete list item at end of stream - format as list item
-		result.WriteString(ListItemColor + "• " + r.currentElement.Content + Reset)
+		result.WriteString(formatListItem(r.currentElement.Content))
 		r.collectingListItem = false
 		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 	} else if r.collectingBlockquote {
 		// Incomplete blockquote at end of stream - format as blockquote
-		result.WriteString(QuoteColor + r.currentElement.Content + Reset)
+		result.WriteString(markdownColor(QuoteColor, r.currentElement.Content))
 		r.collectingBlockquote = false
 		r.currentElement = MarkdownElement{Type: TextElement, Content: ""}
 	} else if r.currentElement.Content != "" {
 		// Format based on current element type
 		switch r.currentElement.Type {
 		case HeaderElement:
-			switch r.headerLevel {
-			case 1:
-				result.WriteString(H1Color + r.currentElement.Content + Reset)
-			case 2:
-				result.WriteString(H2Color + r.currentElement.Content + Reset)
-			case 3:
-				result.WriteString(H3Color + r.currentElement.Content + Reset)
-			case 4:
-				result.WriteString(H4Color + r.currentElement.Content + Reset)
-			case 5:
-				result.WriteString(H5Color + r.currentElement.Content + Reset)
-			case 6:
-				result.WriteString(H6Color + r.currentElement.Content + Reset)
-			}
+			result.WriteString(formatHeader(r.headerLevel, r.currentElement.Content))
 		case ListItemElement:
-			result.WriteString(ListItemColor + "• " + r.currentElement.Content + Reset)
+			result.WriteString(formatListItem(r.currentElement.Content))
 		case BlockquoteElement:
-			result.WriteString(QuoteColor + r.currentElement.Content + Reset)
+			result.WriteString(markdownColor(QuoteColor, r.currentElement.Content))
 		case CodeBlockElement:
-			result.WriteString(CodeBlockColor + r.currentElement.Content + Reset)
+			result.WriteString(markdownColor(CodeBlockColor, r.currentElement.Content))
 		case InlineCodeElement:
-			result.WriteString(InlineCodeColor + r.currentElement.Content + Reset)
+			result.WriteString(markdownColor(InlineCodeColor, r.currentElement.Content))
 		case BoldElement:
-			result.WriteString(BoldColor + r.currentElement.Content + Reset)
+			result.WriteString(markdownColor(BoldColor, r.currentElement.Content))
 		case ItalicElement:
-			result.WriteString(ItalicColor + r.currentElement.Content + Reset)
+			result.WriteString(markdownColor(ItalicColor, r.currentElement.Content))
 		case LinkElement:
-			result.WriteString(LinkColor + r.linkTextBuffer + Reset + " (" + LinkColor + r.currentElement.Content + Reset + ")")
+			result.WriteString(formatLink(r.linkTextBuffer, r.currentElement.Content))
 		case TextElement:
 			result.WriteString(r.currentElement.Content)
 		}
@@ -1264,38 +1303,62 @@ func (r *MarkdownRenderer) Flush() string {
 	return result.String()
 }
 
+func markdownColor(style, content string) string {
+	if !markdownOptions.Colors || style == "" || content == "" {
+		return content
+	}
+	return style + content + Reset
+}
+
+func formatHeader(level int, content string) string {
+	switch level {
+	case 1:
+		return markdownColor(H1Color, content)
+	case 2:
+		return markdownColor(H2Color, content)
+	case 3:
+		return markdownColor(H3Color, content)
+	case 4:
+		return markdownColor(H4Color, content)
+	case 5:
+		return markdownColor(H5Color, content)
+	case 6:
+		return markdownColor(H6Color, content)
+	}
+	return content
+}
+
+func formatListItem(content string) string {
+	prefix := "- "
+	if markdownOptions.UTF8 {
+		prefix = "• "
+	}
+	return markdownColor(ListItemColor, prefix+content)
+}
+
+func formatLink(text, url string) string {
+	return markdownColor(LinkColor, text) + " (" + markdownColor(LinkColor, url) + ")"
+}
+
 // formatElement formats a single markdown element
 func formatElement(element MarkdownElement) string {
 	switch element.Type {
 	case HeaderElement:
-		switch element.Level {
-		case 1:
-			return H1Color + element.Content + Reset
-		case 2:
-			return H2Color + element.Content + Reset
-		case 3:
-			return H3Color + element.Content + Reset
-		case 4:
-			return H4Color + element.Content + Reset
-		case 5:
-			return H5Color + element.Content + Reset
-		case 6:
-			return H6Color + element.Content + Reset
-		}
+		return formatHeader(element.Level, element.Content)
 	case ListItemElement:
-		return ListItemColor + "• " + element.Content + Reset
+		return formatListItem(element.Content)
 	case BlockquoteElement:
-		return QuoteColor + element.Content + Reset
+		return markdownColor(QuoteColor, element.Content)
 	case CodeBlockElement:
-		return CodeBlockColor + element.Content + Reset
+		return markdownColor(CodeBlockColor, element.Content)
 	case InlineCodeElement:
-		return InlineCodeColor + element.Content + Reset
+		return markdownColor(InlineCodeColor, element.Content)
 	case BoldElement:
-		return BoldColor + element.Content + Reset
+		return markdownColor(BoldColor, element.Content)
 	case ItalicElement:
-		return ItalicColor + element.Content + Reset
+		return markdownColor(ItalicColor, element.Content)
 	case LinkElement:
-		return LinkColor + element.Content + Reset
+		return markdownColor(LinkColor, element.Content)
 	}
 	return element.Content
 }

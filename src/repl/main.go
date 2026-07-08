@@ -492,6 +492,7 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 	if opts.Get("ui.markdown") != "" {
 		config.Markdown = opts.GetBool("ui.markdown")
 	}
+	applyMarkdownOptionsToLLMConfig(config, opts)
 	if opts.Get("ui.stats") != "" {
 		config.ShowTPS = opts.GetBool("ui.stats")
 	}
@@ -613,6 +614,24 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 	if v := opts.Get("mcp.baseurl"); v != "" {
 		config.MCPBaseURL = v
 	}
+}
+
+func applyMarkdownOptionsToLLMConfig(config *llm.Config, opts *ConfigOptions) {
+	width := 0
+	if num, err := opts.GetNumber("ui.markdown.width"); err == nil {
+		width = int(num)
+	}
+	if width < 0 {
+		width = 0
+	}
+	config.MarkdownWidth = width
+	config.MarkdownUTF8 = opts.GetBool("ui.markdown.utf8")
+	config.MarkdownColors = opts.GetBool("ui.markdown.colors")
+	llm.SetMarkdownOptions(llm.MarkdownOptions{
+		TableWidth: width,
+		UTF8:       config.MarkdownUTF8,
+		Colors:     config.MarkdownColors,
+	})
 }
 
 func main() {
