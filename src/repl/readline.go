@@ -35,6 +35,8 @@ type ReadLine struct {
 	isHeredoc     bool     // Whether we are in heredoc mode
 	heredocDelim  string   // The delimiter to look for
 	heredocBuffer []string // Lines collected in heredoc mode
+	heredocRaw    bool     // Whether the completed heredoc should bypass substitutions
+	lastInputRaw  bool     // Whether the last completed input should bypass substitutions
 	// Line continuation support
 	isContinuation     bool     // Whether we are in line continuation mode
 	continuationBuffer []string // Lines collected in continuation mode
@@ -89,6 +91,8 @@ func NewReadLine() (*ReadLine, error) {
 		isHeredoc:          false,
 		heredocDelim:       "",
 		heredocBuffer:      nil,
+		heredocRaw:         false,
+		lastInputRaw:       false,
 		isContinuation:     false,
 		continuationBuffer: nil,
 		isSearchMode:       false,
@@ -159,6 +163,8 @@ var fgMap = map[string]string{
 	"purple":         "35", // magenta (alias for magenta)
 	"brown":          "33", // yellow (approximates brown)
 }
+
+var rawMultilineDelimiters = []string{`"""`, "'''", "```"}
 
 // parseRGB parses rgb:RGB format (3 hex chars) and returns ANSI code parameters
 func parseRGB(color string) (string, bool) {
@@ -336,6 +342,29 @@ func (r *ReadLine) isHeredocSyntax() (bool, string) {
 	return false, ""
 }
 
+func rawMultilineSyntax(content string) (string, string, bool) {
+	for _, delim := range rawMultilineDelimiters {
+		if !strings.HasPrefix(content, delim) {
+			continue
+		}
+		rest := content[len(delim):]
+		if delim == "```" && !strings.Contains(rest, delim) {
+			// Treat text after an opening code fence as an info string.
+			rest = ""
+		}
+		return delim, rest, true
+	}
+	return "", "", false
+}
+
+func inlineRawMultilineContent(delim, content string) (string, bool) {
+	end := strings.Index(content, delim)
+	if end < 0 {
+		return "", false
+	}
+	return content[:end], true
+}
+
 func (r *ReadLine) Interrupted() {
 	// this function aims to be called by the Interrupt handler
 	r.isSearchMode = false
@@ -348,6 +377,7 @@ func (r *ReadLine) Interrupted() {
 // Read reads a line of input with proper cursor movement and scrolling
 func (r *ReadLine) Read() (string, error) {
 	r.prompt = r.defaultPrompt
+	r.lastInputRaw = false
 	r.Restore()
 	state, err := MakeRawPreserveNewline(int(os.Stdin.Fd()))
 	if err != nil {
@@ -430,6 +460,8 @@ func (r *ReadLine) Read() (string, error) {
 					r.isHeredoc = false
 					r.heredocDelim = ""
 					r.heredocBuffer = nil
+					r.lastInputRaw = r.heredocRaw
+					r.heredocRaw = false
 					// Reset search mode if active
 					r.isSearchMode = false
 					r.searchQuery = ""
@@ -498,19 +530,51 @@ func (r *ReadLine) Read() (string, error) {
 				}
 			}
 
+			// Check for raw multiline syntax: """, ''', or ```
+			if delim, firstLine, ok := rawMultilineSyntax(result); ok {
+				if fullResult, closed := inlineRawMultilineContent(delim, firstLine); closed {
+					r.lastInputRaw = true
+					r.buffer = r.buffer[:0]
+					r.cursorPos = 0
+					r.scrollPos = 0
+					r.Restore()
+					return fullResult, nil
+				}
+
+				r.isHeredoc = true
+				r.heredocDelim = delim
+				r.heredocRaw = true
+				r.heredocBuffer = []string{}
+				r.defaultPrompt = r.prompt
+				r.prompt = r.readlinePrompt
+
+				if firstLine != "" {
+					r.heredocBuffer = append(r.heredocBuffer, firstLine)
+					color := r.getColorCodes()
+					fmt.Printf("%s%s\x1b[0m\n", color, firstLine)
+				}
+
+				r.printPrompt()
+				r.buffer = r.buffer[:0]
+				r.cursorPos = 0
+				r.scrollPos = 0
+				continue
+			}
+
 			// Check for heredoc syntax
 			isHeredoc, delim := r.isHeredocSyntax()
 			if isHeredoc {
 				// Enter heredoc mode
 				r.isHeredoc = true
 				r.heredocDelim = delim
+				r.heredocRaw = true
 				r.heredocBuffer = []string{}
 				r.defaultPrompt = r.prompt
 				r.prompt = r.readlinePrompt
 
 				// Add the first line without the heredoc marker
 				firstLine := strings.TrimSuffix(result, "<<"+delim)
-				if firstLine != result { // If we trimmed something
+				if firstLine != result && firstLine != "" { // If we trimmed non-empty content
 					r.heredocBuffer = append(r.heredocBuffer, firstLine)
 					// Print the first line with colors
 					color := r.getColorCodes()
@@ -814,6 +878,11 @@ func (r *ReadLine) GetCursorPos() int {
 // GetHistory returns the command history
 func (r *ReadLine) GetHistory() []string {
 	return r.history
+}
+
+// LastInputRaw reports whether the last completed input should skip substitutions.
+func (r *ReadLine) LastInputRaw() bool {
+	return r.lastInputRaw
 }
 
 // SetCursorPos sets the cursor position to a specific location

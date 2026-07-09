@@ -15,7 +15,16 @@ func (r *REPL) handleInput() error {
 		return err
 	}
 
-	skipMessage := strings.HasPrefix(input, " ")
+	rawInput := r.readline != nil && r.readline.LastInputRaw()
+	skipMessage := !rawInput && strings.HasPrefix(input, " ")
+
+	if rawInput {
+		if input == "" {
+			return nil
+		}
+		r.addToHistory(input)
+		return r.sendToAI(input, "", "", false, false)
+	}
 
 	input = strings.TrimSpace(input)
 	if input == "" {
