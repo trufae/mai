@@ -99,6 +99,16 @@ var acpBuiltinAgents = []ACPAgent{
 		Install:     "curl -fsSL https://opencode.ai/install | bash",
 	},
 	{
+		Name:        "reasonix",
+		Aliases:     []string{"deepseek", "deepseek-reasonix"},
+		Description: "DeepSeek-native Reasonix coding agent",
+		Command:     "reasonix",
+		Args:        []string{"acp"},
+		NpxPackage:  "reasonix",
+		NpxArgs:     []string{"acp"},
+		Install:     "npm install -g reasonix",
+	},
+	{
 		Name:        "goose",
 		Description: "Block's local extensible AI agent",
 		Command:     "goose",
