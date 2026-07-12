@@ -96,6 +96,7 @@ func (r *REPL) initCommands() {
 	registerFileCommands(r)
 	registerChatCommands(r)
 	registerExitCommands(r)
+	registerACPCommands(r)
 
 	// Dot command: read one or more files and send their combined contents as a prompt
 	r.commands["."] = Command{

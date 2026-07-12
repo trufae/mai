@@ -58,6 +58,9 @@ func NewConfigOptions() *ConfigOptions {
 
 	// Define built-in options
 
+	// ACP sub-agent options
+	registerACPOptions(co)
+
 	// AI provider options
 	co.RegisterOption("ai.baseurl", StringOption, "Custom base URL for API requests", "")
 	co.RegisterOption("ai.apitype", StringOption, "Ollama API endpoint type: chat or generate", "chat")
