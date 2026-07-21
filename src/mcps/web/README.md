@@ -41,16 +41,16 @@ make
 export OLLAMA_API_KEY=your_api_key_here
 
 # Run the MCP server with enabled providers
-./websearch -ollama -duckduckgo -wikipedia
+./mai-mcp-web -ollama -duckduckgo -wikipedia
 
 # Or just enable specific providers
-./websearch -duckduckgo -wikipedia
+./mai-mcp-web -duckduckgo -wikipedia
 
 # Search with all enabled providers (comprehensive results)
-./websearch -all-providers -duckduckgo -wikipedia
+./mai-mcp-web -all-providers -duckduckgo -wikipedia
 
 # Search with first working provider only (faster)
-./websearch -duckduckgo -wikipedia
+./mai-mcp-web -duckduckgo -wikipedia
 ```
 
 ### MCP Tool

@@ -1,4 +1,4 @@
-module websearch
+module web
 
 go 1.20.0
 

@@ -9,9 +9,9 @@ endif
 all: build
 
 build:
-	go build $(BUILD_TAGS) -o mai-mcp-websearch${EXE} .
+	go build $(BUILD_TAGS) -o mai-mcp-web${EXE} .
 
 clean:
-	rm -f mai-mcp-websearch${EXE}
+	rm -f mai-mcp-web${EXE}
 
 .PHONY: all build clean

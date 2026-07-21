@@ -54,7 +54,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  -duckduckgo: Enable DuckDuckGo search (no API key required)\n")
 		fmt.Fprintf(os.Stderr, "  -wikipedia: Enable Wikipedia search (no API key required)\n")
 		fmt.Fprintf(os.Stderr, "  -searxng: Enable Searxng search (requires Searxng instance at localhost:8888 or SEARXNG_API_URL)\n")
-		fmt.Fprintf(os.Stderr, "\nExample: ./websearch -ollama -duckduckgo -wikipedia -searxng\n")
+		fmt.Fprintf(os.Stderr, "\nExample: ./mai-mcp-web -ollama -duckduckgo -wikipedia -searxng\n")
 		os.Exit(1)
 	}
 
