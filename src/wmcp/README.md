@@ -71,6 +71,18 @@ For example, for `https://api.example.com/mcp`, set:
 export MAI_MCP_AUTH_API_EXAMPLE_COM="your-bearer-token"
 ```
 
+## MCP Clients
+
+Use the streamable HTTP endpoint, not the REST tools catalog:
+
+```
+http://127.0.0.1:8989/mcp
+```
+
+The `/tools` endpoint lists and invokes tools through mai-wmcp's REST API; it
+does not accept MCP JSON-RPC requests. The `/mcp` endpoint accepts browser
+clients and sends the required CORS headers.
+
 ## Configuration File
 
 You can also configure servers in a JSON config file:

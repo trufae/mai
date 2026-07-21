@@ -15,7 +15,9 @@ import (
 // registerMCPRoutes registers the single JSON-RPC endpoint used by MCP
 // clients (the bridge exposes a single aggregated view of all child servers).
 func registerMCPRoutes(router *mux.Router, service *wmcplib.MCPService) {
-	router.HandleFunc("/", mcpJSONRPCHandler(service)).Methods("POST")
+	handler := mcpJSONRPCHandler(service)
+	router.HandleFunc("/", handler).Methods("POST", "OPTIONS")
+	router.HandleFunc("/mcp", handler).Methods("POST", "OPTIONS")
 }
 
 func writeJSONRPCResponse(w http.ResponseWriter, sessionID string, resp *wmcplib.JSONRPCResponse) {
@@ -50,6 +52,12 @@ func writeJSONRPCError(w http.ResponseWriter, sessionID string, id interface{}, 
 
 func mcpJSONRPCHandler(service *wmcplib.MCPService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
 		sessionID := ""
 		if service.SessionMode {
 			sessionID = service.EnsureSessionID()
@@ -116,6 +124,7 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 
 Available endpoints:
 
+- POST /mcp - Streamable HTTP MCP endpoint
 - GET /status - Service status
 - GET /tools - List all available tools
 - GET /tools/json - List all available tools in JSON format

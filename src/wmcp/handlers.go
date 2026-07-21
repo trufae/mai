@@ -25,7 +25,7 @@ func writeTextResponse(w http.ResponseWriter, content string) {
 func setCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Native-Tool-Call, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
 }
 
 // writeProxyToolsText renders the two proxy tools in the plain-text catalog
