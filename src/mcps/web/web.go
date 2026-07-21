@@ -60,6 +60,18 @@ type WikipediaResponse struct {
 	} `json:"query"`
 }
 
+type exaResponse struct {
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"result"`
+}
+
 // OllamaSearchProvider implements SearchProvider for Ollama's web search API
 type OllamaSearchProvider struct{}
 
@@ -114,6 +126,89 @@ func (p *OllamaSearchProvider) Search(query string) (*SearchResult, error) {
 
 	result.Query = query
 	return &result, nil
+}
+
+// ExaSearchProvider implements SearchProvider through Exa's public MCP server.
+type ExaSearchProvider struct{}
+
+// Name returns the provider name.
+func (p *ExaSearchProvider) Name() string {
+	return "exa"
+}
+
+// Search performs a web search using Exa's MCP server.
+func (p *ExaSearchProvider) Search(query string) (*SearchResult, error) {
+	payload := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "web_search_exa",
+			"arguments": map[string]interface{}{
+				"query":      query,
+				"numResults": 6,
+			},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://mcp.exa.ai/mcp", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("MCP-Protocol-Version", "2025-06-18")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %v", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(responseBody))
+	}
+
+	var exaResp exaResponse
+	if err := unmarshalExaResponse(responseBody, &exaResp); err != nil {
+		return nil, err
+	}
+	if exaResp.Error != nil {
+		return nil, fmt.Errorf("Exa error: %s", exaResp.Error.Message)
+	}
+
+	result := &SearchResult{Query: query}
+	for _, content := range exaResp.Result.Content {
+		if content.Type == "text" && content.Text != "" {
+			result.Results = append(result.Results, SearchItem{Title: "Exa", Content: content.Text})
+		}
+	}
+	return result, nil
+}
+
+func unmarshalExaResponse(body []byte, response *exaResponse) error {
+	if err := json.Unmarshal(body, response); err == nil {
+		return nil
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == line || data == "" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(data), response); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("failed to parse Exa response")
 }
 
 // DuckDuckGoSearchProvider implements SearchProvider for DuckDuckGo's instant answers API
@@ -360,6 +455,7 @@ func NewWebSearchService(searchAllProviders bool) *WebSearchService {
 	// Register available providers
 	service.providers["ollama"] = &OllamaSearchProvider{}
 	service.providers["duckduckgo"] = &DuckDuckGoSearchProvider{}
+	service.providers["exa"] = &ExaSearchProvider{}
 	service.providers["wikipedia"] = &WikipediaSearchProvider{}
 	service.providers["searxng"] = &SearxngSearchProvider{}
 
@@ -396,6 +492,8 @@ func (s *WebSearchService) isProviderWorking(provider SearchProvider) bool {
 		return os.Getenv("OLLAMA_API_KEY") != ""
 	case "duckduckgo":
 		// DuckDuckGo doesn't require API keys
+		return true
+	case "exa":
 		return true
 	case "wikipedia":
 		// Wikipedia doesn't require API keys

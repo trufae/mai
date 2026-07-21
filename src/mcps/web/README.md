@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server that provides web search capabilities usin
 ## Features
 
 - **Extensible Design**: Easy to add new search providers through the `SearchProvider` interface
-- **Multiple Providers**: Supports Ollama, DuckDuckGo, and Wikipedia search APIs
+- **Multiple Providers**: Supports Ollama, DuckDuckGo, Exa, Searxng, and Wikipedia search APIs
 - **Flexible Search Modes**: Search with first working provider (fast) or all enabled providers (comprehensive)
 - **MCP Compatible**: Full MCP server implementation using the shared mcplib
 
@@ -20,6 +20,10 @@ A Model Context Protocol (MCP) server that provides web search capabilities usin
 - Uses DuckDuckGo's instant answers API
 - No API key required
 - Returns abstract text and search results when available
+
+### Exa Search
+- Uses Exa's public MCP server
+- No API key required
 
 ### Wikipedia Search
 - Uses Wikipedia's search API
@@ -41,7 +45,7 @@ make
 export OLLAMA_API_KEY=your_api_key_here
 
 # Run the MCP server with enabled providers
-./mai-mcp-web -ollama -duckduckgo -wikipedia
+./mai-mcp-web -ollama -duckduckgo -exa -wikipedia
 
 # Or just enable specific providers
 ./mai-mcp-web -duckduckgo -wikipedia
@@ -64,7 +68,7 @@ The server provides a `WebSearch` tool that can be called with:
 }
 ```
 
-Available providers: `ollama`, `duckduckgo`, `wikipedia`
+Available providers: `ollama`, `duckduckgo`, `exa`, `searxng`, `wikipedia`
 
 **Search Behavior:**
 - When `-all-providers` flag is used: Returns aggregated results from all enabled providers

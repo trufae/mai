@@ -13,6 +13,7 @@ func main() {
 	listen := flag.String("l", "", "listen host:port (optional) serve MCP over TCP")
 	enableOllama := flag.Bool("ollama", false, "enable Ollama search provider")
 	enableDuckDuckGo := flag.Bool("duckduckgo", false, "enable DuckDuckGo search provider")
+	enableExa := flag.Bool("exa", false, "enable Exa search provider")
 	enableWikipedia := flag.Bool("wikipedia", false, "enable Wikipedia search provider")
 	enableSearxng := flag.Bool("searxng", false, "enable Searxng search provider")
 	allProviders := flag.Bool("all-providers", false, "search with all enabled providers instead of just the first one")
@@ -30,6 +31,11 @@ func main() {
 	if *enableDuckDuckGo {
 		if err := webSearchService.EnableProvider("duckduckgo"); err != nil {
 			log.Fatalf("Failed to enable DuckDuckGo provider: %v", err)
+		}
+	}
+	if *enableExa {
+		if err := webSearchService.EnableProvider("exa"); err != nil {
+			log.Fatalf("Failed to enable Exa provider: %v", err)
 		}
 	}
 
@@ -52,9 +58,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Available providers:\n")
 		fmt.Fprintf(os.Stderr, "  -ollama: Enable Ollama search (requires OLLAMA_API_KEY environment variable)\n")
 		fmt.Fprintf(os.Stderr, "  -duckduckgo: Enable DuckDuckGo search (no API key required)\n")
+		fmt.Fprintf(os.Stderr, "  -exa: Enable Exa search (no API key required)\n")
 		fmt.Fprintf(os.Stderr, "  -wikipedia: Enable Wikipedia search (no API key required)\n")
 		fmt.Fprintf(os.Stderr, "  -searxng: Enable Searxng search (requires Searxng instance at localhost:8888 or SEARXNG_API_URL)\n")
-		fmt.Fprintf(os.Stderr, "\nExample: ./mai-mcp-web -ollama -duckduckgo -wikipedia -searxng\n")
+		fmt.Fprintf(os.Stderr, "\nExample: ./mai-mcp-web -ollama -duckduckgo -exa -wikipedia -searxng\n")
 		os.Exit(1)
 	}
 
