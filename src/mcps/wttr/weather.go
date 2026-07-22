@@ -340,13 +340,7 @@ func (s *WeatherService) fetchFormatted(location, format string) ([]string, erro
 	req.URL.RawQuery = "format=" + format
 	decorateRequest(req)
 
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := s.fetch(req)
 	if err != nil {
 		return nil, err
 	}
@@ -365,17 +359,10 @@ func (s *WeatherService) fetchWeatherJSON(location string) (*wttrResponse, error
 	}
 	q := req.URL.Query()
 	q.Set("format", "j1")
-	q.Set("num_of_days", "7")
 	req.URL.RawQuery = q.Encode()
 	decorateRequest(req)
 
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := s.fetch(req)
 	if err != nil {
 		return nil, err
 	}
@@ -390,6 +377,27 @@ func (s *WeatherService) fetchWeatherJSON(location string) (*wttrResponse, error
 		return nil, err
 	}
 	return &result, nil
+}
+
+func (s *WeatherService) fetch(req *http.Request) ([]byte, error) {
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		return nil, fmt.Errorf("wttr.in request failed with status %d: %s", resp.StatusCode, message)
+	}
+	return body, nil
 }
 
 func composeBaseURL(location string) string {
