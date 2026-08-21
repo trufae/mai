@@ -1,8 +1,8 @@
-# Delta Chat MCP Server
+# Delta Chat MCP Server and CLI
 
 `mai-mcp-deltachat` exposes Delta Chat messaging and account management through
-MCP. It uses `deltachat-rpc-server` over JSON-RPC on standard I/O, so the Go
-binary has no CGO or third-party dependencies.
+MCP or direct shell commands. It uses `deltachat-rpc-server` over JSON-RPC on
+standard I/O, so the Go binary has no CGO or third-party dependencies.
 
 ## Install and run
 
@@ -17,7 +17,8 @@ No arguments or environment variables are required. By default, accounts are
 stored in the user configuration directory (`~/.config/mai/deltachat` on most
 Unix systems) and all tools, including account management, are exposed.
 
-The first account can be created by calling `deltachat_accounts` with
+The first account can be created directly with `mai-mcp-deltachat accounts
+create`, or through MCP by calling `deltachat_accounts` with
 `{"action":"create"}`. This creates a chatmail account on
 `nine.testrun.org`, selects it, and returns its address and secure invite link.
 
@@ -28,6 +29,9 @@ The first account can be created by calling `deltachat_accounts` with
 | `-rpc-server PATH` | `DELTACHAT_RPC_SERVER` | Find `deltachat-rpc-server` on `PATH` |
 | `-accounts-path PATH` | `DELTACHAT_ACCOUNTS_PATH` or `DC_ACCOUNTS_PATH` | User config directory under `mai/deltachat` |
 | `-account-management=true/false` | `DELTACHAT_ACCOUNT_MANAGEMENT` | `true` |
+| `-T DSL` or `-command DSL` | | Execute direct CLI commands and exit |
+| `-timeout DURATION` | `DELTACHAT_COMMAND_TIMEOUT` | `5m` |
+| `-t` | | List direct CLI scopes and actions |
 | `-l ADDRESS` | `DELTACHAT_LISTEN` | MCP over stdin/stdout |
 
 CLI flags override environment values. `~` is expanded in configured paths.
@@ -45,6 +49,40 @@ or:
 ```sh
 DELTACHAT_ACCOUNT_MANAGEMENT=false mai-mcp-deltachat
 ```
+
+## Direct CLI
+
+Supplying a scope and action runs the same handlers directly and prints JSON;
+no MCP connection or MCP JSON-RPC request is involved. The CLI still uses
+`deltachat-rpc-server` internally. Configuration flags must appear before the
+scope:
+
+```sh
+mai-mcp-deltachat -t
+mai-mcp-deltachat accounts list
+mai-mcp-deltachat messages search query="release plan" chat_id=123
+mai-mcp-deltachat messages send recipient=alice@example.org text="Hello there"
+mai-mcp-deltachat messages forward 'message_ids=[456,457]' recipient="Team"
+mai-mcp-deltachat messages react message_id=456 'reactions=["👍"]'
+mai-mcp-deltachat chats create chat_type=group name="Team" 'members=["alice@example.org",42]'
+mai-mcp-deltachat chats mute chat_id=123 muted=true mute_seconds=3600
+```
+
+The short scopes are `accounts`, `contacts`, `chats`, and `messages`; full MCP
+tool names such as `deltachat_messages` are accepted too. Arguments use the MCP
+DSL's `key=value` syntax. Values may be quoted strings, numbers, booleans,
+`null`, JSON arrays, or JSON objects.
+
+Use `-T` (or `-command`) for an explicit DSL string or multiple commands:
+
+```sh
+mai-mcp-deltachat -T 'accounts action=list; chats action=list limit=10'
+```
+
+Direct commands return a nonzero status on parsing, validation, timeout, RPC,
+or operation errors. `-timeout 0` disables the default five-minute command
+deadline. With no direct command, the program continues to run as an MCP
+server exactly as before.
 
 ## Scoped tools
 
