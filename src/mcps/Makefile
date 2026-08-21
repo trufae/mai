@@ -10,6 +10,7 @@ BINS+=shell
 BINS+=time
 BINS+=term
 BINS+=memory
+BINS+=deltachat
 
 all:
 	for a in $(BINS); do \
@@ -39,6 +40,6 @@ uninstall:
 	done
 
 fmt indent:
-	for a in $(shell ls -F | grep /) ; do ( go fmt $$a/*.go ) ; done
+	gofmt -w $(shell find . -type f -name '*.go')
 
 .PHONY: all clean install uninstall fmt indent
