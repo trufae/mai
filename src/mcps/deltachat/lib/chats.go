@@ -56,6 +56,45 @@ func (c *Client) RemoveChatMember(ctx context.Context, accountID, chatID, contac
 	return nil
 }
 
+// ChatMembers returns group members or broadcast-channel recipients. Group
+// results include the account's own contact.
+func (c *Client) ChatMembers(ctx context.Context, accountID, chatID uint32) ([]Contact, error) {
+	var ids []uint32
+	if err := c.Call(ctx, "get_chat_contacts", &ids, accountID, chatID); err != nil {
+		return nil, fmt.Errorf("list Delta Chat conversation %d members: %w", chatID, err)
+	}
+	return c.ContactsByIDs(ctx, accountID, ids)
+}
+
+// SetChatMuted mutes or unmutes a chat. A zero until value means mute forever;
+// a non-zero value mutes until that time.
+func (c *Client) SetChatMuted(ctx context.Context, accountID, chatID uint32, muted bool, until time.Time) error {
+	duration := map[string]any{"kind": "NotMuted"}
+	if muted {
+		duration["kind"] = "Forever"
+		if !until.IsZero() {
+			if !until.After(time.Now()) {
+				return fmt.Errorf("Delta Chat mute end time must be in the future")
+			}
+			duration["kind"] = "Until"
+			duration["duration"] = until.Unix()
+		}
+	}
+	if err := c.Call(ctx, "set_chat_mute_duration", nil, accountID, chatID, duration); err != nil {
+		return fmt.Errorf("set Delta Chat conversation %d mute state: %w", chatID, err)
+	}
+	return nil
+}
+
+// IsChatMuted reports whether a chat is currently muted.
+func (c *Client) IsChatMuted(ctx context.Context, accountID, chatID uint32) (bool, error) {
+	var muted bool
+	if err := c.Call(ctx, "is_chat_muted", &muted, accountID, chatID); err != nil {
+		return false, fmt.Errorf("get Delta Chat conversation %d mute state: %w", chatID, err)
+	}
+	return muted, nil
+}
+
 // LeaveGroup removes this account from a group.
 func (c *Client) LeaveGroup(ctx context.Context, accountID, chatID uint32) error {
 	if err := c.Call(ctx, "leave_group", nil, accountID, chatID); err != nil {

@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"deltachatmcp/lib"
 	"mcplib"
@@ -27,16 +28,17 @@ func newDeltaChatService(client *deltachat.Client, accountManagement bool) *delt
 
 func (s *deltaChatService) tools() []mcpTool {
 	tools := []mcpTool{
-		s.tool("deltachat_contacts", "Contact operations. The search action lists or filters known contacts.", map[string]any{
-			"action":     enumProperty("Contact operation.", "search"),
+		s.tool("deltachat_contacts", "Contact operations. Actions: search and info. info requires contact, which may be a contact ID, email address, or exact name.", map[string]any{
+			"action":     enumProperty("Contact operation.", "search", "info"),
+			"contact":    stringProperty("Existing contact ID, email address, or exact name used by info."),
 			"query":      stringProperty("Optional contact name or email filter."),
 			"account_id": accountIDProperty(),
 			"limit":      limitProperty(50),
 		}, []string{"action"}, s.contactsTool),
-		s.tool("deltachat_chats", "Chat, group, and channel operations. Actions: list, create, update, invite, join, leave, accept, clear. create requires chat_type and name; update/leave/accept/clear require chat_id; join requires invite_link.", map[string]any{
-			"action":         enumProperty("Chat operation.", "list", "create", "update", "invite", "join", "leave", "accept", "clear"),
+		s.tool("deltachat_chats", "Chat, group, and channel operations. Actions: list, create, update, members, mute, invite, join, leave, accept, clear. Most mutations and members require chat_id; join requires invite_link.", map[string]any{
+			"action":         enumProperty("Chat operation.", "list", "create", "update", "members", "mute", "invite", "join", "leave", "accept", "clear"),
 			"account_id":     accountIDProperty(),
-			"chat_id":        uintProperty("Conversation ID used by update, invite, leave, accept, and clear."),
+			"chat_id":        uintProperty("Conversation ID used by update, members, mute, invite, leave, accept, and clear."),
 			"chat_type":      enumProperty("Conversation type for create.", "group", "channel"),
 			"name":           stringProperty("Group or channel name for create/update."),
 			"description":    stringProperty("Group or channel description for create/update; an empty value clears it."),
@@ -47,21 +49,28 @@ func (s *deltaChatService) tools() []mcpTool {
 			"invite_link":    stringProperty("Secure invite link used by join."),
 			"query":          stringProperty("Optional conversation-name filter used by list."),
 			"limit":          limitProperty(50),
+			"muted":          boolProperty("Mute state required by mute. False unmutes the chat."),
+			"mute_seconds":   boundedIntegerProperty("Optional mute duration in seconds. Omit or use 0 to mute forever.", 0, 31536000),
 			"confirm":        boolProperty("Must be true for leave and clear."),
 		}, []string{"action"}, s.chatsTool),
-		s.tool("deltachat_messages", "Message operations. Actions: receive, read, send, reply, react, reactions. send requires recipient; read requires chat_id; reply/react/reactions require message_id. text and file_path may be combined.", map[string]any{
-			"action":          enumProperty("Message operation.", "receive", "read", "send", "reply", "react", "reactions"),
+		s.tool("deltachat_messages", "Message operations. Actions: receive, read, search, send, reply, edit, delete, forward, download, react, reactions, receipts, info. search requires query; send/forward require recipient; single-message actions require message_id. Delete requires confirm=true. Downloads are asynchronous.", map[string]any{
+			"action":          enumProperty("Message operation.", "receive", "read", "search", "send", "reply", "edit", "delete", "forward", "download", "react", "reactions", "receipts", "info"),
 			"account_id":      accountIDProperty(),
-			"chat_id":         uintProperty("Conversation ID used by read."),
-			"message_id":      uintProperty("Existing message used by reply, react, or reactions."),
-			"recipient":       stringProperty("Conversation ID, email, exact contact name, or exact conversation name used by send."),
-			"text":            stringProperty("Message or reply text."),
+			"chat_id":         uintProperty("Conversation ID used by read or to scope search."),
+			"message_id":      uintProperty("Existing message used by single-message actions or as one delete/forward source."),
+			"message_ids":     uintArrayProperty("Message IDs used by delete or forward. May be combined with message_id."),
+			"recipient":       stringProperty("Conversation ID, email, exact contact name, or exact conversation name used by send or forward."),
+			"query":           stringProperty("Required text query used by search."),
+			"text":            stringProperty("Message, reply, or replacement edit text."),
 			"file_path":       stringProperty("Optional local file to attach when sending or replying."),
 			"filename":        stringProperty("Optional attachment filename shown to recipients."),
 			"reactions":       stringArrayProperty("Reaction emoji. An empty array clears this account's reaction."),
 			"limit":           scopedMessageLimitProperty(),
 			"mark_seen":       boolProperty("For receive, mark returned messages seen and consume them. Default: true."),
 			"accept_requests": boolProperty("For receive, accept contact-request chats before marking seen. Default: true."),
+			"delete_for_all":  boolProperty("For delete, also request deletion for all chat members. Default: false."),
+			"include_raw":     boolProperty("For info, include the extended human-readable message report. Default: false."),
+			"confirm":         boolProperty("Must be true for delete."),
 		}, []string{"action"}, s.messagesTool),
 	}
 
@@ -103,20 +112,22 @@ func (s *deltaChatService) tool(name, description string, properties map[string]
 }
 
 func (s *deltaChatService) contactsTool(ctx context.Context, args map[string]any) (any, error) {
-	action, err := actionArgument(args, "search")
+	action, err := actionArgument(args, "search", "info")
 	if err != nil {
 		return nil, err
 	}
 	switch action {
 	case "search":
 		return s.searchContacts(ctx, args)
+	case "info":
+		return s.contactInfo(ctx, args)
 	default:
 		panic("unreachable")
 	}
 }
 
 func (s *deltaChatService) chatsTool(ctx context.Context, args map[string]any) (any, error) {
-	action, err := actionArgument(args, "list", "create", "update", "invite", "join", "leave", "accept", "clear")
+	action, err := actionArgument(args, "list", "create", "update", "members", "mute", "invite", "join", "leave", "accept", "clear")
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +138,10 @@ func (s *deltaChatService) chatsTool(ctx context.Context, args map[string]any) (
 		return s.createChat(ctx, args)
 	case "update":
 		return s.updateChat(ctx, args)
+	case "members":
+		return s.listChatMembers(ctx, args)
+	case "mute":
+		return s.muteChat(ctx, args)
 	case "invite":
 		return s.getInviteLink(ctx, args)
 	case "join":
@@ -143,7 +158,7 @@ func (s *deltaChatService) chatsTool(ctx context.Context, args map[string]any) (
 }
 
 func (s *deltaChatService) messagesTool(ctx context.Context, args map[string]any) (any, error) {
-	action, err := actionArgument(args, "receive", "read", "send", "reply", "react", "reactions")
+	action, err := actionArgument(args, "receive", "read", "search", "send", "reply", "edit", "delete", "forward", "download", "react", "reactions", "receipts", "info")
 	if err != nil {
 		return nil, err
 	}
@@ -152,14 +167,28 @@ func (s *deltaChatService) messagesTool(ctx context.Context, args map[string]any
 		return s.receivePendingMessages(ctx, args)
 	case "read":
 		return s.readConversation(ctx, args)
+	case "search":
+		return s.searchMessages(ctx, args)
 	case "send":
 		return s.sendMessage(ctx, args)
 	case "reply":
 		return s.replyMessage(ctx, args)
+	case "edit":
+		return s.editMessage(ctx, args)
+	case "delete":
+		return s.deleteMessages(ctx, args)
+	case "forward":
+		return s.forwardMessages(ctx, args)
+	case "download":
+		return s.downloadMessage(ctx, args)
 	case "react":
 		return s.reactMessage(ctx, args)
 	case "reactions":
 		return s.messageReactions(ctx, args)
+	case "receipts":
+		return s.messageReadReceipts(ctx, args)
+	case "info":
+		return s.messageInfo(ctx, args)
 	default:
 		panic("unreachable")
 	}
@@ -202,6 +231,34 @@ func (s *deltaChatService) searchContacts(ctx context.Context, args map[string]a
 	return map[string]any{"account_id": accountID, "contacts": contacts, "count": len(contacts)}, nil
 }
 
+func (s *deltaChatService) contactInfo(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	target, err := requiredString(args, "contact")
+	if err != nil {
+		return nil, err
+	}
+	contactID, err := s.client.LookupContact(ctx, accountID, target)
+	if err != nil {
+		return nil, err
+	}
+	contact, err := s.client.Contact(ctx, accountID, contactID)
+	if err != nil {
+		return nil, err
+	}
+	encryptionInfo, err := s.client.ContactEncryptionInfo(ctx, accountID, contactID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id":      accountID,
+		"contact":         contact,
+		"encryption_info": encryptionInfo,
+	}, nil
+}
+
 func (s *deltaChatService) listConversations(ctx context.Context, args map[string]any) (any, error) {
 	accountID, err := s.configuredAccount(ctx, args)
 	if err != nil {
@@ -216,6 +273,72 @@ func (s *deltaChatService) listConversations(ctx context.Context, args map[strin
 		return nil, err
 	}
 	return map[string]any{"account_id": accountID, "conversations": chats, "count": len(chats)}, nil
+}
+
+func (s *deltaChatService) listChatMembers(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	chatID, err := requiredUint32(args, "chat_id")
+	if err != nil {
+		return nil, err
+	}
+	chat, err := s.client.Chat(ctx, accountID, chatID)
+	if err != nil {
+		return nil, err
+	}
+	members, err := s.client.ChatMembers(ctx, accountID, chatID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id":   accountID,
+		"conversation": chat,
+		"members":      members,
+		"count":        len(members),
+	}, nil
+}
+
+func (s *deltaChatService) muteChat(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	chatID, err := requiredUint32(args, "chat_id")
+	if err != nil {
+		return nil, err
+	}
+	muted, err := requiredBool(args, "muted")
+	if err != nil {
+		return nil, err
+	}
+	seconds, err := intArgument(args, "mute_seconds", 0, 31536000)
+	if err != nil {
+		return nil, err
+	}
+	var until time.Time
+	if muted && seconds > 0 {
+		until = time.Now().Add(time.Duration(seconds) * time.Second)
+	}
+	if err := s.client.SetChatMuted(ctx, accountID, chatID, muted, until); err != nil {
+		return nil, err
+	}
+	muted, err = s.client.IsChatMuted(ctx, accountID, chatID)
+	if err != nil {
+		return nil, err
+	}
+	var mutedUntil any
+	if !until.IsZero() {
+		mutedUntil = until.Unix()
+	}
+	return map[string]any{
+		"account_id":   accountID,
+		"chat_id":      chatID,
+		"muted":        muted,
+		"muted_until":  mutedUntil,
+		"mute_forever": muted && until.IsZero(),
+	}, nil
 }
 
 func (s *deltaChatService) readConversation(ctx context.Context, args map[string]any) (any, error) {
@@ -240,6 +363,220 @@ func (s *deltaChatService) readConversation(ctx context.Context, args map[string
 		return nil, err
 	}
 	return map[string]any{"account_id": accountID, "conversation": chat, "messages": messages, "count": len(messages)}, nil
+}
+
+func (s *deltaChatService) searchMessages(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	query, err := requiredString(args, "query")
+	if err != nil {
+		return nil, err
+	}
+	chatID, err := optionalUint32(args, "chat_id")
+	if err != nil {
+		return nil, err
+	}
+	limit, err := intArgument(args, "limit", 50, 500)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := s.client.SearchMessages(ctx, accountID, query, chatID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id": accountID,
+		"chat_id":    chatID,
+		"query":      query,
+		"messages":   messages,
+		"count":      len(messages),
+	}, nil
+}
+
+func (s *deltaChatService) editMessage(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	text, err := requiredString(args, "text")
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.StartIO(ctx, accountID); err != nil {
+		return nil, err
+	}
+	if err := s.client.EditMessage(ctx, accountID, messageID, text); err != nil {
+		return nil, err
+	}
+	return map[string]any{"account_id": accountID, "message_id": messageID, "edit_requested": true}, nil
+}
+
+func (s *deltaChatService) deleteMessages(ctx context.Context, args map[string]any) (any, error) {
+	confirmed, err := boolArgument(args, "confirm", false)
+	if err != nil || !confirmed {
+		return nil, fmt.Errorf("confirm must be true to delete messages")
+	}
+	messageIDs, err := messageIDsArgument(args)
+	if err != nil {
+		return nil, err
+	}
+	forAll, err := boolArgument(args, "delete_for_all", false)
+	if err != nil {
+		return nil, err
+	}
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.StartIO(ctx, accountID); err != nil {
+		return nil, err
+	}
+	if err := s.client.DeleteMessages(ctx, accountID, messageIDs, forAll); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id":      accountID,
+		"message_ids":     messageIDs,
+		"deleted":         true,
+		"deleted_for_all": forAll,
+	}, nil
+}
+
+func (s *deltaChatService) forwardMessages(ctx context.Context, args map[string]any) (any, error) {
+	messageIDs, err := messageIDsArgument(args)
+	if err != nil {
+		return nil, err
+	}
+	recipient, err := requiredString(args, "recipient")
+	if err != nil {
+		return nil, err
+	}
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.StartIO(ctx, accountID); err != nil {
+		return nil, err
+	}
+	chatID, err := s.client.ResolveChat(ctx, accountID, recipient)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.ForwardMessages(ctx, accountID, messageIDs, chatID); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id":  accountID,
+		"chat_id":     chatID,
+		"message_ids": messageIDs,
+		"forwarded":   true,
+	}, nil
+}
+
+func (s *deltaChatService) downloadMessage(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	message, err := s.client.Message(ctx, accountID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	requested := message.DownloadState == "Available" || message.DownloadState == "Failure" || message.DownloadState == ""
+	if requested {
+		if err := s.client.StartIO(ctx, accountID); err != nil {
+			return nil, err
+		}
+		if err := s.client.DownloadMessage(ctx, accountID, messageID); err != nil {
+			return nil, err
+		}
+		if current, err := s.client.Message(ctx, accountID, messageID); err == nil {
+			message = current
+		}
+	}
+	return map[string]any{
+		"account_id":   accountID,
+		"message":      message,
+		"requested":    requested,
+		"asynchronous": true,
+	}, nil
+}
+
+func (s *deltaChatService) messageReadReceipts(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	receipts, count, err := s.client.MessageReadReceipts(ctx, accountID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	contactIDs := make([]uint32, 0, len(receipts))
+	seen := make(map[uint32]bool)
+	for _, receipt := range receipts {
+		if seen[receipt.ContactID] {
+			continue
+		}
+		seen[receipt.ContactID] = true
+		contactIDs = append(contactIDs, receipt.ContactID)
+	}
+	contacts, err := s.client.ContactsByIDs(ctx, accountID, contactIDs)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id": accountID,
+		"message_id": messageID,
+		"receipts":   receipts,
+		"contacts":   contacts,
+		"count":      count,
+	}, nil
+}
+
+func (s *deltaChatService) messageInfo(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	message, err := s.client.Message(ctx, accountID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	info, err := s.client.MessageInformation(ctx, accountID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"account_id": accountID, "message": message, "info": info}
+	includeRaw, err := boolArgument(args, "include_raw", false)
+	if err != nil {
+		return nil, err
+	}
+	if includeRaw {
+		raw, err := s.client.RawMessageInformation(ctx, accountID, messageID)
+		if err != nil {
+			return nil, err
+		}
+		result["raw_info"] = raw
+	}
+	return result, nil
 }
 
 func (s *deltaChatService) receivePendingMessages(ctx context.Context, args map[string]any) (any, error) {
@@ -787,6 +1124,16 @@ func stringArrayProperty(description string) map[string]any {
 	}
 }
 
+func uintArrayProperty(description string) map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "integer", "minimum": 1},
+		"uniqueItems": true,
+		"minItems":    1,
+		"description": description,
+	}
+}
+
 func membersProperty(description string) map[string]any {
 	return map[string]any{
 		"type": "array",
@@ -802,6 +1149,15 @@ func membersProperty(description string) map[string]any {
 
 func uintProperty(description string) map[string]any {
 	return map[string]any{"type": "integer", "minimum": 1, "description": description}
+}
+
+func boundedIntegerProperty(description string, minimum, maximum int) map[string]any {
+	return map[string]any{
+		"type":        "integer",
+		"minimum":     minimum,
+		"maximum":     maximum,
+		"description": description,
+	}
 }
 
 func accountIDProperty() map[string]any {
@@ -829,7 +1185,7 @@ func scopedMessageLimitProperty() map[string]any {
 		"type":        "integer",
 		"minimum":     0,
 		"maximum":     500,
-		"description": "Maximum messages. For receive, omit or use 0 for all pending messages. For read, omit or use 0 for the latest 50.",
+		"description": "Maximum messages. For receive, omit or use 0 for all pending messages. For read and search, omit or use 0 for 50 messages.",
 	}
 }
 
@@ -942,6 +1298,38 @@ func stringArrayArgument(args map[string]any, name string) ([]string, bool, erro
 	return result, true, nil
 }
 
+func messageIDsArgument(args map[string]any) ([]uint32, error) {
+	ids := make([]uint32, 0)
+	seen := make(map[uint32]bool)
+	if id, err := optionalUint32(args, "message_id"); err != nil {
+		return nil, err
+	} else if id != 0 {
+		ids = append(ids, id)
+		seen[id] = true
+	}
+	values, present, err := arrayArgument(args, "message_ids")
+	if err != nil {
+		return nil, err
+	}
+	if present {
+		for _, raw := range values {
+			value, ok := raw.(float64)
+			if !ok || value <= 0 || value > math.MaxUint32 || math.Trunc(value) != value {
+				return nil, fmt.Errorf("message_ids entries must be positive integers")
+			}
+			id := uint32(value)
+			if !seen[id] {
+				ids = append(ids, id)
+				seen[id] = true
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("message_id or message_ids is required")
+	}
+	return ids, nil
+}
+
 func requiredUint32(args map[string]any, name string) (uint32, error) {
 	value, err := optionalUint32(args, name)
 	if err != nil {
@@ -1006,6 +1394,18 @@ func boolArgument(args map[string]any, name string, defaultValue bool) (bool, er
 	raw, ok := args[name]
 	if !ok || raw == nil {
 		return defaultValue, nil
+	}
+	value, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return value, nil
+}
+
+func requiredBool(args map[string]any, name string) (bool, error) {
+	raw, ok := args[name]
+	if !ok || raw == nil {
+		return false, fmt.Errorf("%s is required and must be a boolean", name)
 	}
 	value, ok := raw.(bool)
 	if !ok {

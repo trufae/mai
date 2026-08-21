@@ -26,6 +26,45 @@ func (c *Client) Contacts(ctx context.Context, accountID uint32, query string, l
 	return contacts, nil
 }
 
+// Contact returns one known contact.
+func (c *Client) Contact(ctx context.Context, accountID, contactID uint32) (Contact, error) {
+	var contact Contact
+	if err := c.Call(ctx, "get_contact", &contact, accountID, contactID); err != nil {
+		return Contact{}, fmt.Errorf("get Delta Chat contact %d: %w", contactID, err)
+	}
+	return contact, nil
+}
+
+// ContactsByIDs returns contacts in the same order as the supplied IDs.
+func (c *Client) ContactsByIDs(ctx context.Context, accountID uint32, ids []uint32) ([]Contact, error) {
+	if len(ids) == 0 {
+		return []Contact{}, nil
+	}
+	var records map[string]Contact
+	if err := c.Call(ctx, "get_contacts_by_ids", &records, accountID, ids); err != nil {
+		return nil, fmt.Errorf("get Delta Chat contacts: %w", err)
+	}
+	contacts := make([]Contact, 0, len(ids))
+	for _, id := range ids {
+		contact, ok := records[strconv.FormatUint(uint64(id), 10)]
+		if !ok {
+			return nil, fmt.Errorf("Delta Chat contact %d was missing from the RPC response", id)
+		}
+		contacts = append(contacts, contact)
+	}
+	return contacts, nil
+}
+
+// ContactEncryptionInfo returns human-readable fingerprint and verification
+// information for a contact.
+func (c *Client) ContactEncryptionInfo(ctx context.Context, accountID, contactID uint32) (string, error) {
+	var info string
+	if err := c.Call(ctx, "get_contact_encryption_info", &info, accountID, contactID); err != nil {
+		return "", fmt.Errorf("get Delta Chat contact %d encryption info: %w", contactID, err)
+	}
+	return info, nil
+}
+
 // Chats returns recent conversations, optionally filtered by a query.
 func (c *Client) Chats(ctx context.Context, accountID uint32, query string, limit int) ([]Chat, error) {
 	var queryArg any
@@ -107,6 +146,111 @@ func (c *Client) Message(ctx context.Context, accountID, messageID uint32) (Mess
 		return Message{}, fmt.Errorf("Delta Chat message %d was not found", messageID)
 	}
 	return *message, nil
+}
+
+// SearchMessages finds messages containing query, optionally within one chat.
+func (c *Client) SearchMessages(ctx context.Context, accountID uint32, query string, chatID uint32, limit int) ([]Message, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("Delta Chat message search query is required")
+	}
+	var chatArg any
+	if chatID != 0 {
+		chatArg = chatID
+	}
+	var ids []uint32
+	if err := c.Call(ctx, "search_messages", &ids, accountID, query, chatArg); err != nil {
+		return nil, fmt.Errorf("search Delta Chat messages: %w", err)
+	}
+	if limit > 0 && len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return c.Messages(ctx, accountID, ids)
+}
+
+// EditMessage replaces the text of an editable outgoing message.
+func (c *Client) EditMessage(ctx context.Context, accountID, messageID uint32, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fmt.Errorf("Delta Chat edited message text is required")
+	}
+	if err := c.Call(ctx, "send_edit_request", nil, accountID, messageID, text); err != nil {
+		return fmt.Errorf("edit Delta Chat message %d: %w", messageID, err)
+	}
+	return nil
+}
+
+// DeleteMessages deletes messages locally and from the IMAP server. When
+// forAll is true it also requests deletion for all chat members.
+func (c *Client) DeleteMessages(ctx context.Context, accountID uint32, messageIDs []uint32, forAll bool) error {
+	messageIDs, err := normalizeMessageIDs(messageIDs)
+	if err != nil {
+		return err
+	}
+	method := "delete_messages"
+	if forAll {
+		method = "delete_messages_for_all"
+	}
+	if err := c.Call(ctx, method, nil, accountID, messageIDs); err != nil {
+		return fmt.Errorf("delete Delta Chat messages: %w", err)
+	}
+	return nil
+}
+
+// ForwardMessages forwards messages to another chat.
+func (c *Client) ForwardMessages(ctx context.Context, accountID uint32, messageIDs []uint32, chatID uint32) error {
+	messageIDs, err := normalizeMessageIDs(messageIDs)
+	if err != nil {
+		return err
+	}
+	if chatID == 0 {
+		return fmt.Errorf("Delta Chat destination conversation is required")
+	}
+	if err := c.Call(ctx, "forward_messages", nil, accountID, messageIDs, chatID); err != nil {
+		return fmt.Errorf("forward Delta Chat messages: %w", err)
+	}
+	return nil
+}
+
+// DownloadMessage requests asynchronous download of a partially downloaded
+// message. Message changes are applied by the RPC server in the background.
+func (c *Client) DownloadMessage(ctx context.Context, accountID, messageID uint32) error {
+	if err := c.Call(ctx, "download_full_message", nil, accountID, messageID); err != nil {
+		return fmt.Errorf("download Delta Chat message %d: %w", messageID, err)
+	}
+	return nil
+}
+
+// MessageInformation returns structured transport and expiry details.
+func (c *Client) MessageInformation(ctx context.Context, accountID, messageID uint32) (MessageInfo, error) {
+	var info MessageInfo
+	if err := c.Call(ctx, "get_message_info_object", &info, accountID, messageID); err != nil {
+		return MessageInfo{}, fmt.Errorf("get Delta Chat message %d info: %w", messageID, err)
+	}
+	return info, nil
+}
+
+// RawMessageInformation returns the extended human-readable message details.
+func (c *Client) RawMessageInformation(ctx context.Context, accountID, messageID uint32) (string, error) {
+	var info string
+	if err := c.Call(ctx, "get_message_info", &info, accountID, messageID); err != nil {
+		return "", fmt.Errorf("get Delta Chat message %d raw info: %w", messageID, err)
+	}
+	return info, nil
+}
+
+// MessageReadReceipts returns individual read receipts and the core's total
+// receipt count. The count is useful for broadcast-channel view counts.
+func (c *Client) MessageReadReceipts(ctx context.Context, accountID, messageID uint32) ([]MessageReadReceipt, uint, error) {
+	var receipts []MessageReadReceipt
+	if err := c.Call(ctx, "get_message_read_receipts", &receipts, accountID, messageID); err != nil {
+		return nil, 0, fmt.Errorf("get Delta Chat message %d read receipts: %w", messageID, err)
+	}
+	var count uint
+	if err := c.Call(ctx, "get_message_read_receipt_count", &count, accountID, messageID); err != nil {
+		return nil, 0, fmt.Errorf("get Delta Chat message %d read receipt count: %w", messageID, err)
+	}
+	return receipts, count, nil
 }
 
 // Conversation returns up to limit most recent messages, oldest first.
@@ -322,6 +466,16 @@ func (c *Client) resolveEmailChat(ctx context.Context, accountID uint32, address
 // ResolveContact resolves a contact ID, email address, or exact contact name.
 // Unknown email addresses are added to the contact list.
 func (c *Client) ResolveContact(ctx context.Context, accountID uint32, target string) (uint32, error) {
+	return c.resolveContact(ctx, accountID, target, true)
+}
+
+// LookupContact resolves an existing contact ID, email address, or exact name
+// without creating a new contact.
+func (c *Client) LookupContact(ctx context.Context, accountID uint32, target string) (uint32, error) {
+	return c.resolveContact(ctx, accountID, target, false)
+}
+
+func (c *Client) resolveContact(ctx context.Context, accountID uint32, target string, create bool) (uint32, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return 0, fmt.Errorf("Delta Chat contact is required")
@@ -336,6 +490,9 @@ func (c *Client) ResolveContact(ctx context.Context, accountID uint32, target st
 		}
 		if contactID != nil && *contactID != 0 {
 			return *contactID, nil
+		}
+		if !create {
+			return 0, fmt.Errorf("Delta Chat contact %q was not found", target)
 		}
 		var created uint32
 		if err := c.Call(ctx, "create_contact", &created, accountID, address, nil); err != nil {
@@ -355,6 +512,24 @@ func (c *Client) ResolveContact(ctx context.Context, accountID uint32, target st
 		return 0, fmt.Errorf("ambiguous Delta Chat contact %q", target)
 	}
 	return 0, fmt.Errorf("Delta Chat contact %q was not found", target)
+}
+
+func normalizeMessageIDs(messageIDs []uint32) ([]uint32, error) {
+	if len(messageIDs) == 0 {
+		return nil, fmt.Errorf("at least one Delta Chat message ID is required")
+	}
+	result := make([]uint32, 0, len(messageIDs))
+	seen := make(map[uint32]bool)
+	for _, id := range messageIDs {
+		if id == 0 {
+			return nil, fmt.Errorf("Delta Chat message IDs must be positive")
+		}
+		if !seen[id] {
+			result = append(result, id)
+			seen[id] = true
+		}
+	}
+	return result, nil
 }
 
 func (c *Client) chatForContact(ctx context.Context, accountID, contactID uint32) (uint32, error) {
