@@ -105,3 +105,16 @@ type SentMessage struct {
 	MessageID uint32  `json:"message_id"`
 	Message   Message `json:"message"`
 }
+
+// Reaction summarizes one emoji reaction on a message.
+type Reaction struct {
+	Emoji      string `json:"emoji"`
+	Count      uint   `json:"count"`
+	IsFromSelf bool   `json:"isFromSelf"`
+}
+
+// Reactions contains aggregate reactions and the reactions by contact ID.
+type Reactions struct {
+	Reactions          []Reaction          `json:"reactions"`
+	ReactionsByContact map[string][]string `json:"reactionsByContact"`
+}

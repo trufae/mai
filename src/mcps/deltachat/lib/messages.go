@@ -97,6 +97,18 @@ func (c *Client) Messages(ctx context.Context, accountID uint32, ids []uint32) (
 	return messages, nil
 }
 
+// Message returns one message by ID.
+func (c *Client) Message(ctx context.Context, accountID, messageID uint32) (Message, error) {
+	var message *Message
+	if err := c.Call(ctx, "get_message", &message, accountID, messageID); err != nil {
+		return Message{}, fmt.Errorf("get Delta Chat message %d: %w", messageID, err)
+	}
+	if message == nil {
+		return Message{}, fmt.Errorf("Delta Chat message %d was not found", messageID)
+	}
+	return *message, nil
+}
+
 // Conversation returns up to limit most recent messages, oldest first.
 func (c *Client) Conversation(ctx context.Context, accountID, chatID uint32, limit int) ([]Message, error) {
 	var ids []uint32
@@ -240,6 +252,16 @@ func (c *Client) Send(ctx context.Context, accountID, chatID uint32, text, fileP
 	return sent, nil
 }
 
+// Reply queues text and/or a file as a reply to an existing message. The
+// destination conversation is derived from the original message.
+func (c *Client) Reply(ctx context.Context, accountID, messageID uint32, text, filePath, filename string) (SentMessage, error) {
+	original, err := c.Message(ctx, accountID, messageID)
+	if err != nil {
+		return SentMessage{}, err
+	}
+	return c.Send(ctx, accountID, original.ChatID, text, filePath, filename, messageID)
+}
+
 // InviteLink returns a secure-join link for the account or a group chat.
 func (c *Client) InviteLink(ctx context.Context, accountID, chatID uint32) (string, error) {
 	var chatArg any
@@ -269,19 +291,70 @@ func (c *Client) JoinInvite(ctx context.Context, accountID uint32, invite string
 	return chatID, nil
 }
 
-func (c *Client) resolveEmailChat(ctx context.Context, accountID uint32, address string) (uint32, error) {
-	var contactID *uint32
-	if err := c.Call(ctx, "lookup_contact_id_by_addr", &contactID, accountID, address); err != nil {
-		return 0, fmt.Errorf("lookup Delta Chat contact %s: %w", address, err)
+// SendReaction replaces this account's reaction to a message. An empty slice
+// clears the current reaction.
+func (c *Client) SendReaction(ctx context.Context, accountID, messageID uint32, reactions []string) (uint32, error) {
+	var reactionMessageID uint32
+	if err := c.Call(ctx, "send_reaction", &reactionMessageID, accountID, messageID, reactions); err != nil {
+		return 0, fmt.Errorf("react to Delta Chat message %d: %w", messageID, err)
 	}
-	if contactID == nil || *contactID == 0 {
+	return reactionMessageID, nil
+}
+
+// MessageReactions returns all reactions to a message. A nil result means the
+// message has no reactions.
+func (c *Client) MessageReactions(ctx context.Context, accountID, messageID uint32) (*Reactions, error) {
+	var reactions *Reactions
+	if err := c.Call(ctx, "get_message_reactions", &reactions, accountID, messageID); err != nil {
+		return nil, fmt.Errorf("get reactions for Delta Chat message %d: %w", messageID, err)
+	}
+	return reactions, nil
+}
+
+func (c *Client) resolveEmailChat(ctx context.Context, accountID uint32, address string) (uint32, error) {
+	contactID, err := c.ResolveContact(ctx, accountID, address)
+	if err != nil {
+		return 0, err
+	}
+	return c.chatForContact(ctx, accountID, contactID)
+}
+
+// ResolveContact resolves a contact ID, email address, or exact contact name.
+// Unknown email addresses are added to the contact list.
+func (c *Client) ResolveContact(ctx context.Context, accountID uint32, target string) (uint32, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return 0, fmt.Errorf("Delta Chat contact is required")
+	}
+	if id, ok := parseContactID(target); ok {
+		return id, nil
+	}
+	if address, ok := emailAddress(target); ok {
+		var contactID *uint32
+		if err := c.Call(ctx, "lookup_contact_id_by_addr", &contactID, accountID, address); err != nil {
+			return 0, fmt.Errorf("lookup Delta Chat contact %s: %w", address, err)
+		}
+		if contactID != nil && *contactID != 0 {
+			return *contactID, nil
+		}
 		var created uint32
 		if err := c.Call(ctx, "create_contact", &created, accountID, address, nil); err != nil {
 			return 0, fmt.Errorf("create Delta Chat contact %s: %w", address, err)
 		}
-		contactID = &created
+		return created, nil
 	}
-	return c.chatForContact(ctx, accountID, *contactID)
+	contacts, err := c.Contacts(ctx, accountID, target, 0)
+	if err != nil {
+		return 0, err
+	}
+	contacts = exactContacts(target, contacts)
+	if len(contacts) == 1 {
+		return contacts[0].ID, nil
+	}
+	if len(contacts) > 1 {
+		return 0, fmt.Errorf("ambiguous Delta Chat contact %q", target)
+	}
+	return 0, fmt.Errorf("Delta Chat contact %q was not found", target)
 }
 
 func (c *Client) chatForContact(ctx context.Context, accountID, contactID uint32) (uint32, error) {
@@ -303,6 +376,15 @@ func parseChatID(target string) (uint32, bool) {
 	value := target
 	if len(target) > 5 && strings.EqualFold(target[:5], "chat:") {
 		value = strings.TrimSpace(target[5:])
+	}
+	id, err := strconv.ParseUint(value, 10, 32)
+	return uint32(id), err == nil && id != 0
+}
+
+func parseContactID(target string) (uint32, bool) {
+	value := target
+	if len(target) > 8 && strings.EqualFold(target[:8], "contact:") {
+		value = strings.TrimSpace(target[8:])
 	}
 	id, err := strconv.ParseUint(value, 10, 32)
 	return uint32(id), err == nil && id != 0

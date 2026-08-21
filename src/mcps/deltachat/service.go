@@ -27,66 +27,51 @@ func newDeltaChatService(client *deltachat.Client, accountManagement bool) *delt
 
 func (s *deltaChatService) tools() []mcpTool {
 	tools := []mcpTool{
-		s.tool("search_contacts", "Search known Delta Chat contacts. With no query, lists recent known contacts.", map[string]any{
+		s.tool("deltachat_contacts", "Contact operations. The search action lists or filters known contacts.", map[string]any{
+			"action":     enumProperty("Contact operation.", "search"),
 			"query":      stringProperty("Optional contact name or email filter."),
 			"account_id": accountIDProperty(),
 			"limit":      limitProperty(50),
-		}, nil, s.searchContacts),
-		s.tool("list_conversations", "List recent Delta Chat conversations, optionally filtered by name.", map[string]any{
-			"query":      stringProperty("Optional conversation-name filter."),
-			"account_id": accountIDProperty(),
-			"limit":      limitProperty(50),
-		}, nil, s.listConversations),
-		s.tool("read_conversation", "Read the most recent messages in a Delta Chat conversation, oldest first.", map[string]any{
-			"chat_id":    uintProperty("Conversation ID."),
-			"account_id": accountIDProperty(),
-			"limit":      limitProperty(50),
-		}, []string{"chat_id"}, s.readConversation),
-		s.tool("receive_pending_messages", "Receive messages waiting for the active account. By default accepts contact requests and marks returned messages seen so they are consumed.", map[string]any{
+		}, []string{"action"}, s.contactsTool),
+		s.tool("deltachat_chats", "Chat, group, and channel operations. Actions: list, create, update, invite, join, leave, accept, clear. create requires chat_type and name; update/leave/accept/clear require chat_id; join requires invite_link.", map[string]any{
+			"action":         enumProperty("Chat operation.", "list", "create", "update", "invite", "join", "leave", "accept", "clear"),
+			"account_id":     accountIDProperty(),
+			"chat_id":        uintProperty("Conversation ID used by update, invite, leave, accept, and clear."),
+			"chat_type":      enumProperty("Conversation type for create.", "group", "channel"),
+			"name":           stringProperty("Group or channel name for create/update."),
+			"description":    stringProperty("Group or channel description for create/update; an empty value clears it."),
+			"profile_image":  stringProperty("Local group/channel image path for create/update; an empty value clears it."),
+			"members":        membersProperty("Initial group members or channel recipients."),
+			"add_members":    membersProperty("Members or channel recipients to add during update."),
+			"remove_members": membersProperty("Members or channel recipients to remove during update."),
+			"invite_link":    stringProperty("Secure invite link used by join."),
+			"query":          stringProperty("Optional conversation-name filter used by list."),
+			"limit":          limitProperty(50),
+			"confirm":        boolProperty("Must be true for leave and clear."),
+		}, []string{"action"}, s.chatsTool),
+		s.tool("deltachat_messages", "Message operations. Actions: receive, read, send, reply, react, reactions. send requires recipient; read requires chat_id; reply/react/reactions require message_id. text and file_path may be combined.", map[string]any{
+			"action":          enumProperty("Message operation.", "receive", "read", "send", "reply", "react", "reactions"),
 			"account_id":      accountIDProperty(),
-			"limit":           limitProperty(0),
-			"mark_seen":       boolProperty("Mark returned messages seen and consume them. Default: true."),
-			"accept_requests": boolProperty("Accept returned contact-request chats before marking seen. Default: true."),
-		}, nil, s.receivePendingMessages),
-		s.tool("send_message", "Send a text message to a conversation ID, email address, exact contact name, or exact conversation name.", map[string]any{
-			"recipient":         stringProperty("Conversation ID, email address, contact name, or conversation name."),
-			"message":           stringProperty("Message text."),
-			"account_id":        accountIDProperty(),
-			"quoted_message_id": uintProperty("Optional message ID to quote."),
-		}, []string{"recipient", "message"}, s.sendMessage),
-		s.tool("send_attachment", "Attach a local file to a Delta Chat message, with an optional caption and filename.", map[string]any{
-			"recipient":         stringProperty("Conversation ID, email address, contact name, or conversation name."),
-			"file_path":         stringProperty("Path to a local regular file."),
-			"caption":           stringProperty("Optional attachment caption."),
-			"filename":          stringProperty("Optional filename shown to recipients."),
-			"account_id":        accountIDProperty(),
-			"quoted_message_id": uintProperty("Optional message ID to quote."),
-		}, []string{"recipient", "file_path"}, s.sendAttachment),
-		s.tool("accept_chat", "Accept a Delta Chat contact-request conversation.", map[string]any{
-			"chat_id":    uintProperty("Conversation ID."),
-			"account_id": accountIDProperty(),
-		}, []string{"chat_id"}, s.acceptChat),
-		s.tool("clear_chat", "Permanently clear a Delta Chat conversation from this device and schedule its messages for server deletion.", map[string]any{
-			"chat_id":    uintProperty("Conversation ID to clear."),
-			"confirm":    boolProperty("Must be true to confirm permanent deletion."),
-			"account_id": accountIDProperty(),
-		}, []string{"chat_id", "confirm"}, s.clearChat),
-		s.tool("get_invite_link", "Get a secure Delta Chat invite link for the active account or a group conversation.", map[string]any{
-			"chat_id":    uintProperty("Optional group conversation ID. Omit for an account contact invite."),
-			"account_id": accountIDProperty(),
-		}, nil, s.getInviteLink),
-		s.tool("join_invite", "Join a Delta Chat contact or group using a secure invite link.", map[string]any{
-			"invite_link": stringProperty("Delta Chat secure-join link."),
-			"account_id":  accountIDProperty(),
-		}, []string{"invite_link"}, s.joinInvite),
+			"chat_id":         uintProperty("Conversation ID used by read."),
+			"message_id":      uintProperty("Existing message used by reply, react, or reactions."),
+			"recipient":       stringProperty("Conversation ID, email, exact contact name, or exact conversation name used by send."),
+			"text":            stringProperty("Message or reply text."),
+			"file_path":       stringProperty("Optional local file to attach when sending or replying."),
+			"filename":        stringProperty("Optional attachment filename shown to recipients."),
+			"reactions":       stringArrayProperty("Reaction emoji. An empty array clears this account's reaction."),
+			"limit":           scopedMessageLimitProperty(),
+			"mark_seen":       boolProperty("For receive, mark returned messages seen and consume them. Default: true."),
+			"accept_requests": boolProperty("For receive, accept contact-request chats before marking seen. Default: true."),
+		}, []string{"action"}, s.messagesTool),
 	}
 
 	if !s.accountManagement {
 		return tools
 	}
 	return append(tools,
-		s.tool("list_accounts", "List Delta Chat accounts and show which account is active.", map[string]any{}, nil, s.listAccounts),
-		s.tool("create_account", "Create and select a Delta Chat account. With no arguments, creates a chatmail account on nine.testrun.org. Provide email and password together for a conventional email account.", map[string]any{
+		s.tool("deltachat_accounts", "Account operations. Actions: list, create, switch, update, remove. create with only the action uses nine.testrun.org; switch/remove require account_id.", map[string]any{
+			"action":        enumProperty("Account operation.", "list", "create", "switch", "update", "remove"),
+			"account_id":    accountIDProperty(),
 			"relay":         stringProperty("Optional chatmail relay domain or HTTPS account URL."),
 			"email":         stringProperty("Conventional email address; requires password."),
 			"password":      stringProperty("Conventional email password; requires email."),
@@ -101,19 +86,8 @@ func (s *deltaChatService) tools() []mcpTool {
 			"smtp_security": securityProperty("Optional SMTP socket security."),
 			"smtp_user":     stringProperty("Optional SMTP username."),
 			"smtp_password": stringProperty("Optional SMTP password when different from the email password."),
-		}, nil, s.createAccount),
-		s.tool("switch_account", "Select the account used when messaging tools omit account_id.", map[string]any{
-			"account_id": uintProperty("Account ID to select."),
-		}, []string{"account_id"}, s.switchAccount),
-		s.tool("set_account_profile", "Update the selected account's display name and/or profile image.", map[string]any{
-			"account_id":    accountIDProperty(),
-			"display_name":  stringProperty("New non-empty display name."),
-			"profile_image": stringProperty("Path to a new local profile image."),
-		}, nil, s.setAccountProfile),
-		s.tool("remove_account", "Permanently remove a Delta Chat account and its local data.", map[string]any{
-			"account_id": uintProperty("Account ID to permanently remove."),
-			"confirm":    boolProperty("Must be true to confirm permanent deletion."),
-		}, []string{"account_id", "confirm"}, s.removeAccount),
+			"confirm":       boolProperty("Must be true for remove."),
+		}, []string{"action"}, s.accountsTool),
 	)
 }
 
@@ -125,6 +99,90 @@ func (s *deltaChatService) tool(name, description string, properties map[string]
 	return mcpTool{
 		definition: mcplib.ToolDefinition{Name: name, Description: description, InputSchema: schema},
 		handler:    handler,
+	}
+}
+
+func (s *deltaChatService) contactsTool(ctx context.Context, args map[string]any) (any, error) {
+	action, err := actionArgument(args, "search")
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "search":
+		return s.searchContacts(ctx, args)
+	default:
+		panic("unreachable")
+	}
+}
+
+func (s *deltaChatService) chatsTool(ctx context.Context, args map[string]any) (any, error) {
+	action, err := actionArgument(args, "list", "create", "update", "invite", "join", "leave", "accept", "clear")
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "list":
+		return s.listConversations(ctx, args)
+	case "create":
+		return s.createChat(ctx, args)
+	case "update":
+		return s.updateChat(ctx, args)
+	case "invite":
+		return s.getInviteLink(ctx, args)
+	case "join":
+		return s.joinInvite(ctx, args)
+	case "leave":
+		return s.leaveChat(ctx, args)
+	case "accept":
+		return s.acceptChat(ctx, args)
+	case "clear":
+		return s.clearChat(ctx, args)
+	default:
+		panic("unreachable")
+	}
+}
+
+func (s *deltaChatService) messagesTool(ctx context.Context, args map[string]any) (any, error) {
+	action, err := actionArgument(args, "receive", "read", "send", "reply", "react", "reactions")
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "receive":
+		return s.receivePendingMessages(ctx, args)
+	case "read":
+		return s.readConversation(ctx, args)
+	case "send":
+		return s.sendMessage(ctx, args)
+	case "reply":
+		return s.replyMessage(ctx, args)
+	case "react":
+		return s.reactMessage(ctx, args)
+	case "reactions":
+		return s.messageReactions(ctx, args)
+	default:
+		panic("unreachable")
+	}
+}
+
+func (s *deltaChatService) accountsTool(ctx context.Context, args map[string]any) (any, error) {
+	action, err := actionArgument(args, "list", "create", "switch", "update", "remove")
+	if err != nil {
+		return nil, err
+	}
+	switch action {
+	case "list":
+		return s.listAccounts(ctx, args)
+	case "create":
+		return s.createAccount(ctx, args)
+	case "switch":
+		return s.switchAccount(ctx, args)
+	case "update":
+		return s.setAccountProfile(ctx, args)
+	case "remove":
+		return s.removeAccount(ctx, args)
+	default:
+		panic("unreachable")
 	}
 }
 
@@ -262,22 +320,6 @@ func (s *deltaChatService) receivePendingMessages(ctx context.Context, args map[
 }
 
 func (s *deltaChatService) sendMessage(ctx context.Context, args map[string]any) (any, error) {
-	message, err := requiredString(args, "message")
-	if err != nil {
-		return nil, err
-	}
-	return s.send(ctx, args, message, "", "")
-}
-
-func (s *deltaChatService) sendAttachment(ctx context.Context, args map[string]any) (any, error) {
-	filePath, err := requiredString(args, "file_path")
-	if err != nil {
-		return nil, err
-	}
-	return s.send(ctx, args, stringArgument(args, "caption"), filePath, stringArgument(args, "filename"))
-}
-
-func (s *deltaChatService) send(ctx context.Context, args map[string]any, message, filePath, filename string) (any, error) {
 	accountID, err := s.configuredAccount(ctx, args)
 	if err != nil {
 		return nil, err
@@ -286,7 +328,7 @@ func (s *deltaChatService) send(ctx context.Context, args map[string]any, messag
 	if err != nil {
 		return nil, err
 	}
-	quotedMessageID, err := optionalUint32(args, "quoted_message_id")
+	text, filePath, filename, err := messageArguments(args)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +339,241 @@ func (s *deltaChatService) send(ctx context.Context, args map[string]any, messag
 	if err != nil {
 		return nil, err
 	}
-	return s.client.Send(ctx, accountID, chatID, message, filePath, filename, quotedMessageID)
+	return s.client.Send(ctx, accountID, chatID, text, filePath, filename, 0)
+}
+
+func (s *deltaChatService) replyMessage(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	text, filePath, filename, err := messageArguments(args)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.StartIO(ctx, accountID); err != nil {
+		return nil, err
+	}
+	return s.client.Reply(ctx, accountID, messageID, text, filePath, filename)
+}
+
+func (s *deltaChatService) reactMessage(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	reactions, present, err := stringArrayArgument(args, "reactions")
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		return nil, fmt.Errorf("reactions is required and must be an array of strings")
+	}
+	if err := s.client.StartIO(ctx, accountID); err != nil {
+		return nil, err
+	}
+	reactionMessageID, err := s.client.SendReaction(ctx, accountID, messageID, reactions)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"account_id":          accountID,
+		"message_id":          messageID,
+		"reaction_message_id": reactionMessageID,
+		"sent_reactions":      reactions,
+	}, nil
+}
+
+func (s *deltaChatService) messageReactions(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := requiredUint32(args, "message_id")
+	if err != nil {
+		return nil, err
+	}
+	reactions, err := s.client.MessageReactions(ctx, accountID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"account_id": accountID, "message_id": messageID, "reactions": reactions}, nil
+}
+
+func (s *deltaChatService) createChat(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	chatType, err := requiredString(args, "chat_type")
+	if err != nil {
+		return nil, err
+	}
+	if chatType != "group" && chatType != "channel" {
+		return nil, fmt.Errorf("chat_type must be group or channel")
+	}
+	name, err := requiredString(args, "name")
+	if err != nil {
+		return nil, err
+	}
+	members, _, err := s.memberIDs(ctx, accountID, args, "members")
+	if err != nil {
+		return nil, err
+	}
+
+	var chat deltachat.Chat
+	switch chatType {
+	case "group":
+		chat, err = s.client.CreateGroup(ctx, accountID, name, members)
+	case "channel":
+		chat, err = s.client.CreateChannel(ctx, accountID, name, members)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if description, present, err := optionalStringArgument(args, "description"); err != nil {
+		return nil, err
+	} else if present {
+		if err := s.client.SetChatDescription(ctx, accountID, chat.ID, description); err != nil {
+			return nil, err
+		}
+	}
+	if image, present, err := optionalStringArgument(args, "profile_image"); err != nil {
+		return nil, err
+	} else if present {
+		if err := s.client.SetChatProfileImage(ctx, accountID, chat.ID, image); err != nil {
+			return nil, err
+		}
+	}
+	chat, err = s.client.Chat(ctx, accountID, chat.ID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"account_id": accountID, "conversation": chat, "created": true}, nil
+}
+
+func (s *deltaChatService) updateChat(ctx context.Context, args map[string]any) (any, error) {
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	chatID, err := requiredUint32(args, "chat_id")
+	if err != nil {
+		return nil, err
+	}
+	name, hasName, err := optionalStringArgument(args, "name")
+	if err != nil {
+		return nil, err
+	}
+	description, hasDescription, err := optionalStringArgument(args, "description")
+	if err != nil {
+		return nil, err
+	}
+	image, hasImage, err := optionalStringArgument(args, "profile_image")
+	if err != nil {
+		return nil, err
+	}
+	add, _, err := s.memberIDs(ctx, accountID, args, "add_members")
+	if err != nil {
+		return nil, err
+	}
+	remove, _, err := s.memberIDs(ctx, accountID, args, "remove_members")
+	if err != nil {
+		return nil, err
+	}
+	if !hasName && !hasDescription && !hasImage && len(add) == 0 && len(remove) == 0 {
+		return nil, fmt.Errorf("update requires name, description, profile_image, add_members, or remove_members")
+	}
+
+	if hasName {
+		if err := s.client.SetChatName(ctx, accountID, chatID, name); err != nil {
+			return nil, err
+		}
+	}
+	if hasDescription {
+		if err := s.client.SetChatDescription(ctx, accountID, chatID, description); err != nil {
+			return nil, err
+		}
+	}
+	if hasImage {
+		if err := s.client.SetChatProfileImage(ctx, accountID, chatID, image); err != nil {
+			return nil, err
+		}
+	}
+	for _, contactID := range add {
+		if err := s.client.AddChatMember(ctx, accountID, chatID, contactID); err != nil {
+			return nil, err
+		}
+	}
+	for _, contactID := range remove {
+		if err := s.client.RemoveChatMember(ctx, accountID, chatID, contactID); err != nil {
+			return nil, err
+		}
+	}
+	chat, err := s.client.Chat(ctx, accountID, chatID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"account_id": accountID, "conversation": chat, "updated": true}, nil
+}
+
+func (s *deltaChatService) leaveChat(ctx context.Context, args map[string]any) (any, error) {
+	confirmed, err := boolArgument(args, "confirm", false)
+	if err != nil || !confirmed {
+		return nil, fmt.Errorf("confirm must be true to leave a group")
+	}
+	accountID, err := s.configuredAccount(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	chatID, err := requiredUint32(args, "chat_id")
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.LeaveGroup(ctx, accountID, chatID); err != nil {
+		return nil, err
+	}
+	return map[string]any{"account_id": accountID, "chat_id": chatID, "left": true}, nil
+}
+
+func (s *deltaChatService) memberIDs(ctx context.Context, accountID uint32, args map[string]any, name string) ([]uint32, bool, error) {
+	values, present, err := arrayArgument(args, name)
+	if err != nil || !present {
+		return nil, present, err
+	}
+	ids := make([]uint32, 0, len(values))
+	seen := make(map[uint32]bool)
+	for _, value := range values {
+		var id uint32
+		switch value := value.(type) {
+		case string:
+			id, err = s.client.ResolveContact(ctx, accountID, value)
+		case float64:
+			if value <= 0 || value > math.MaxUint32 || math.Trunc(value) != value {
+				err = fmt.Errorf("%s entries must be positive contact IDs or contact strings", name)
+			} else {
+				id = uint32(value)
+			}
+		default:
+			err = fmt.Errorf("%s entries must be positive contact IDs or contact strings", name)
+		}
+		if err != nil {
+			return nil, true, err
+		}
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	return ids, true, nil
 }
 
 func (s *deltaChatService) acceptChat(ctx context.Context, args map[string]any) (any, error) {
@@ -498,6 +774,32 @@ func stringProperty(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
 }
 
+func enumProperty(description string, values ...string) map[string]any {
+	return map[string]any{"type": "string", "enum": values, "description": description}
+}
+
+func stringArrayProperty(description string) map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"uniqueItems": true,
+		"description": description,
+	}
+}
+
+func membersProperty(description string) map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"oneOf": []any{
+				map[string]any{"type": "integer", "minimum": 1},
+				map[string]any{"type": "string", "minLength": 1},
+			},
+		},
+		"description": description + " Each entry may be a contact ID, email address, or exact contact name.",
+	}
+}
+
 func uintProperty(description string) map[string]any {
 	return map[string]any{"type": "integer", "minimum": 1, "description": description}
 }
@@ -522,6 +824,15 @@ func limitProperty(defaultValue int) map[string]any {
 	return map[string]any{"type": "integer", "minimum": minimum, "maximum": 500, "description": description}
 }
 
+func scopedMessageLimitProperty() map[string]any {
+	return map[string]any{
+		"type":        "integer",
+		"minimum":     0,
+		"maximum":     500,
+		"description": "Maximum messages. For receive, omit or use 0 for all pending messages. For read, omit or use 0 for the latest 50.",
+	}
+}
+
 func portProperty(description string) map[string]any {
 	return map[string]any{"type": "integer", "minimum": 1, "maximum": 65535, "description": description}
 }
@@ -542,9 +853,93 @@ func requiredString(args map[string]any, name string) (string, error) {
 	return value, nil
 }
 
+func actionArgument(args map[string]any, allowed ...string) (string, error) {
+	action, err := requiredString(args, "action")
+	if err != nil {
+		return "", err
+	}
+	for _, candidate := range allowed {
+		if action == candidate {
+			return action, nil
+		}
+	}
+	return "", fmt.Errorf("action must be one of: %s", strings.Join(allowed, ", "))
+}
+
 func stringArgument(args map[string]any, name string) string {
 	value, _ := args[name].(string)
 	return strings.TrimSpace(value)
+}
+
+func optionalStringArgument(args map[string]any, name string) (string, bool, error) {
+	raw, present := args[name]
+	if !present || raw == nil {
+		return "", false, nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", true, fmt.Errorf("%s must be a string", name)
+	}
+	return strings.TrimSpace(value), true, nil
+}
+
+func messageArguments(args map[string]any) (string, string, string, error) {
+	text, _, err := optionalStringArgument(args, "text")
+	if err != nil {
+		return "", "", "", err
+	}
+	filePath, _, err := optionalStringArgument(args, "file_path")
+	if err != nil {
+		return "", "", "", err
+	}
+	filename, _, err := optionalStringArgument(args, "filename")
+	if err != nil {
+		return "", "", "", err
+	}
+	if text == "" && filePath == "" {
+		return "", "", "", fmt.Errorf("text or file_path is required")
+	}
+	return text, filePath, filename, nil
+}
+
+func arrayArgument(args map[string]any, name string) ([]any, bool, error) {
+	raw, present := args[name]
+	if !present || raw == nil {
+		return nil, false, nil
+	}
+	switch values := raw.(type) {
+	case []any:
+		return values, true, nil
+	case []string:
+		result := make([]any, len(values))
+		for i := range values {
+			result[i] = values[i]
+		}
+		return result, true, nil
+	default:
+		return nil, true, fmt.Errorf("%s must be an array", name)
+	}
+}
+
+func stringArrayArgument(args map[string]any, name string) ([]string, bool, error) {
+	values, present, err := arrayArgument(args, name)
+	if err != nil || !present {
+		return nil, present, err
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]bool)
+	for _, raw := range values {
+		value, ok := raw.(string)
+		value = strings.TrimSpace(value)
+		if !ok || value == "" {
+			return nil, true, fmt.Errorf("%s entries must be non-empty strings", name)
+		}
+		if !seen[value] {
+			result = append(result, value)
+			seen[value] = true
+		}
+	}
+	return result, true, nil
 }
 
 func requiredUint32(args map[string]any, name string) (uint32, error) {

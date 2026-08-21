@@ -17,9 +17,9 @@ No arguments or environment variables are required. By default, accounts are
 stored in the user configuration directory (`~/.config/mai/deltachat` on most
 Unix systems) and all tools, including account management, are exposed.
 
-The first account can be created by calling `create_account` with `{}`. This
-creates a chatmail account on `nine.testrun.org`, selects it, and returns its
-address and secure invite link.
+The first account can be created by calling `deltachat_accounts` with
+`{"action":"create"}`. This creates a chatmail account on
+`nine.testrun.org`, selects it, and returns its address and secure invite link.
 
 ## Configuration
 
@@ -46,41 +46,69 @@ or:
 DELTACHAT_ACCOUNT_MANAGEMENT=false mai-mcp-deltachat
 ```
 
-## Messaging tools
+## Scoped tools
 
-- `search_contacts`: search contacts, or list them with no arguments.
-- `list_conversations`: list or search conversations.
-- `read_conversation`: read recent messages and attachment paths.
-- `receive_pending_messages`: fetch pending messages; by default it accepts
-  contact requests and marks returned messages seen.
-- `send_message`: send text to a chat ID, email, contact, or conversation name.
-- `send_attachment`: send a local file with an optional caption.
-- `accept_chat`: accept a contact request.
-- `clear_chat`: permanently clear a conversation; requires `confirm: true`.
-- `get_invite_link`: get an account or group secure-join link.
-- `join_invite`: join a contact or group from a secure-join link.
+The MCP intentionally exposes a small surface: three messaging tools and, by
+default, one account-management tool. Each tool uses an `action` parameter.
+
+| Tool | Actions |
+|---|---|
+| `deltachat_contacts` | `search` lists or filters known contacts |
+| `deltachat_chats` | `list`, `create`, `update`, `invite`, `join`, `leave`, `accept`, `clear` |
+| `deltachat_messages` | `receive`, `read`, `send`, `reply`, `react`, `reactions` |
+| `deltachat_accounts` | `list`, `create`, `switch`, `update`, `remove` |
+
+Examples:
+
+```json
+{"action":"create","chat_type":"group","name":"Team","members":["alice@example.org",42]}
+{"action":"create","chat_type":"channel","name":"Announcements","members":["alice@example.org"]}
+{"action":"update","chat_id":123,"add_members":["bob@example.org"],"description":"Project coordination"}
+{"action":"invite","chat_id":123}
+{"action":"join","invite_link":"OPENPGP4FPR:..."}
+{"action":"leave","chat_id":123,"confirm":true}
+{"action":"send","recipient":"alice@example.org","text":"Hello"}
+{"action":"reply","message_id":456,"text":"Got it"}
+{"action":"react","message_id":456,"reactions":["👍"]}
+{"action":"react","message_id":456,"reactions":[]}
+```
+
+`create` supports encrypted groups and outgoing broadcast channels. Group
+members and channel recipients can be contact IDs, email addresses, or exact
+contact names. Use `update` to rename a group/channel, change its description or
+image, and add or remove members. Channels are controlled by their creator;
+recipients receive a read-only conversation rather than explicitly joining it.
+
+`reply` accepts text, a file, or both and derives the destination conversation
+from `message_id`. `react` replaces the selected account's reaction; an empty
+array clears it. `receive` fetches pending messages and, by default, accepts
+contact requests and marks returned messages seen. `clear` permanently removes
+a local conversation and `leave` leaves a group, so both require
+`confirm: true`.
 
 Every messaging tool accepts an optional `account_id`. If omitted, the selected
 configured account is used; if none is selected, the first configured account is
 selected automatically.
 
-## Account-management tools
+## Account management
 
-These tools are enabled by default and omitted entirely in messaging-only mode:
+The `deltachat_accounts` tool is enabled by default and omitted entirely in
+messaging-only mode. Its actions are:
 
-- `list_accounts`: list accounts, the active account, and account-store path.
-- `create_account`: create a default chatmail account, choose another relay, or
+- `list`: list accounts, the active account, and account-store path.
+- `create`: create a default chatmail account, choose another relay, or
   configure a conventional email account with `email` and `password`.
-- `switch_account`: persist the account used by default for messaging.
-- `set_account_profile`: update the display name or profile image.
-- `remove_account`: permanently remove an account; requires `confirm: true`.
+- `switch`: persist the account used by default for messaging.
+- `update`: update the display name or profile image.
+- `remove`: permanently remove an account; requires `confirm: true`.
 
 ## Library
 
 The reusable package in `lib` can be imported as `deltachatmcp/lib`. It provides
 the RPC process lifecycle, concurrent request correlation, raw `Call` access,
 typed account/contact/chat/message APIs, account selection, recipient resolution,
-file sending, pending-message consumption, and secure joins.
+file sending, group and channel management, membership changes, replies,
+reactions, pending-message consumption, and secure joins.
 
 The JSON-RPC transport was adapted from PicoClaw's MIT-licensed Delta Chat
 channel implementation (Copyright 2026 PicoClaw contributors).
