@@ -70,8 +70,6 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("ai.model.embed", StringOption, "AI model to use for embedding tasks", defaultEmbedModel)
 	co.RegisterOption("ai.model.compact", StringOption, "AI model to use for /compact command", "")
 	co.RegisterOption("ai.model.tool", StringOption, "AI model to use for tool calling", "")
-	co.RegisterOption("ai.reason", StringOption, "Alias for think.reason", "auto")
-	co.RegisterOption("ai.effort", StringOption, "Alias for think.reason", "auto")
 
 	// Chat configuration
 	co.RegisterOption("chat.aitopic", BooleanOption, "Enable automatic AI-generated session topics", "false")
@@ -113,14 +111,10 @@ func NewConfigOptions() *ConfigOptions {
 	co.RegisterOption("llm.systemprompt", StringOption, "System prompt text (overrides systempromptfile)", "")
 	co.RegisterOption("llm.systempromptfile", StringOption, "Path to system prompt file (default: ~/.config/mai/systemprompt.md)", "")
 	co.RegisterOption("llm.temperature", NumberOption, "Temperature for AI response (0.0-1.0)", "0.7")
-	co.RegisterOption("llm.reason", StringOption, "Alias for think.reason", "auto")
-	co.RegisterOption("llm.effort", StringOption, "Alias for think.reason", "auto")
-	co.RegisterOption("llm.think", BooleanOption, "Legacy reasoning toggle (true=medium, false=none)", "false")
 	co.RegisterOption("ui.think", BooleanOption, "Alias for think.show", "true")
 
 	// Thinking controls
 	co.RegisterOption("think.disable", BooleanOption, "Disable model reasoning and use /no_think fallback in raw prompt mode", "false")
-	co.RegisterOption("think.effort", StringOption, "Alias for think.reason", "auto")
 	co.RegisterOption("think.reason", StringOption, "Reasoning effort: "+llm.ReasoningEffortValues(), "auto")
 	co.RegisterOption("think.show", BooleanOption, "Show <think> internal reasoning in output", "true")
 
@@ -394,11 +388,7 @@ func (c *ConfigOptions) GetOptionDescription(option string) string {
 }
 
 func isReasoningEffortOption(key string) bool {
-	switch key {
-	case "think.reason", "think.effort", "llm.reason", "llm.effort", "ai.reason", "ai.effort":
-		return true
-	}
-	return false
+	return key == "think.reason"
 }
 
 func isThinkShowOption(key string) bool {
@@ -684,18 +674,13 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 	case "ai.provider":
 		provider := strings.ToLower(value)
 		return "", r.setProvider(provider)
-	case "think.reason", "think.effort", "llm.reason", "llm.effort", "ai.reason", "ai.effort":
+	case "think.reason":
 		effort, ok := llm.NormalizeReasoningEffort(value)
 		if !ok {
 			return fmt.Sprintf("Error: invalid value '%s' for %s. Must be one of: %s\r\n", value, key, llm.ReasoningEffortValues()), nil
 		}
 		display := llm.ReasoningEffortDisplay(effort)
 		_ = r.configOptions.Set("think.reason", display)
-		_ = r.configOptions.Set("think.effort", display)
-		_ = r.configOptions.Set("llm.reason", display)
-		_ = r.configOptions.Set("llm.effort", display)
-		_ = r.configOptions.Set("ai.reason", display)
-		_ = r.configOptions.Set("ai.effort", display)
 		_ = r.configOptions.Set("think.disable", map[bool]string{true: "true", false: "false"}[effort == "none"])
 		return fmt.Sprintf("Set think.reason = %s\r\n", display), nil
 	case "think.disable":
@@ -707,11 +692,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 			display = "none"
 		}
 		_ = r.configOptions.Set("think.reason", display)
-		_ = r.configOptions.Set("think.effort", display)
-		_ = r.configOptions.Set("llm.reason", display)
-		_ = r.configOptions.Set("llm.effort", display)
-		_ = r.configOptions.Set("ai.reason", display)
-		_ = r.configOptions.Set("ai.effort", display)
 		return fmt.Sprintf("Set think.disable = %s (think.reason = %s)\r\n", r.configOptions.Get("think.disable"), display), nil
 	case "think.show", "ui.think":
 		if err := r.configOptions.Set("think.show", value); err != nil {
@@ -782,26 +762,6 @@ func (r *REPL) handleSetCommand(args []string) (string, error) {
 		fmt.Fprintf(&output, "Streaming mode %s\r\n", streamStatus)
 	case "chat.replies":
 		fmt.Fprintf(&output, "Set %s = %s\r\n", key, value)
-	case "llm.think":
-		if r.configOptions.GetBool("llm.think") {
-			_ = r.configOptions.Set("think.disable", "false")
-			_ = r.configOptions.Set("think.reason", "medium")
-			_ = r.configOptions.Set("think.effort", "medium")
-			_ = r.configOptions.Set("llm.reason", "medium")
-			_ = r.configOptions.Set("llm.effort", "medium")
-			_ = r.configOptions.Set("ai.reason", "medium")
-			_ = r.configOptions.Set("ai.effort", "medium")
-			fmt.Fprintf(&output, "Set %s = %s (think.reason = medium)\r\n", key, value)
-		} else {
-			_ = r.configOptions.Set("think.disable", "true")
-			_ = r.configOptions.Set("think.reason", "none")
-			_ = r.configOptions.Set("think.effort", "none")
-			_ = r.configOptions.Set("llm.reason", "none")
-			_ = r.configOptions.Set("llm.effort", "none")
-			_ = r.configOptions.Set("ai.reason", "none")
-			_ = r.configOptions.Set("ai.effort", "none")
-			fmt.Fprintf(&output, "Set %s = %s (think.reason = none)\r\n", key, value)
-		}
 	case "chat.log":
 		fmt.Fprintf(&output, "Set %s = %s\r\n", key, value)
 	case "ui.bgcolor":
@@ -995,14 +955,9 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 
 	// Unset the option
 	r.configOptions.Unset(option)
-	if isReasoningEffortOption(option) || option == "think.disable" || option == "llm.think" {
+	if isReasoningEffortOption(option) || option == "think.disable" {
 		r.configOptions.Unset("think.reason")
-		r.configOptions.Unset("think.effort")
 		r.configOptions.Unset("think.disable")
-		r.configOptions.Unset("llm.reason")
-		r.configOptions.Unset("llm.effort")
-		r.configOptions.Unset("ai.reason")
-		r.configOptions.Unset("ai.effort")
 	}
 	if isThinkShowOption(option) {
 		r.configOptions.Unset("think.show")
@@ -1023,11 +978,9 @@ func (r *REPL) handleUnsetCommand(args []string) (string, error) {
 		output.WriteString("Include replies reverted to default\r\n")
 	case "chat.replythink":
 		output.WriteString("Assistant reasoning in replies reverted to default\r\n")
-	case "llm.think":
-		output.WriteString("AI reasoning reverted to default\r\n")
 	case "think.disable":
 		output.WriteString("AI reasoning disable flag reverted to default\r\n")
-	case "think.reason", "think.effort", "llm.reason", "llm.effort", "ai.reason", "ai.effort":
+	case "think.reason":
 		output.WriteString("AI reasoning effort reverted to auto\r\n")
 	case "think.show", "ui.think":
 		output.WriteString("Thinking display reverted to default\r\n")

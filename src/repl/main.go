@@ -508,32 +508,6 @@ func applyConfigOptionsToLLMConfigForTask(config *llm.Config, opts *ConfigOption
 		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("think.reason")); ok {
 			config.ReasoningEffort = effort
 		}
-	} else if opts.IsSet("think.effort") {
-		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("think.effort")); ok {
-			config.ReasoningEffort = effort
-		}
-	} else if opts.IsSet("llm.reason") {
-		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("llm.reason")); ok {
-			config.ReasoningEffort = effort
-		}
-	} else if opts.IsSet("llm.effort") {
-		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("llm.effort")); ok {
-			config.ReasoningEffort = effort
-		}
-	} else if opts.IsSet("ai.reason") {
-		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("ai.reason")); ok {
-			config.ReasoningEffort = effort
-		}
-	} else if opts.IsSet("ai.effort") {
-		if effort, ok := llm.NormalizeReasoningEffort(opts.Get("ai.effort")); ok {
-			config.ReasoningEffort = effort
-		}
-	} else if opts.IsSet("llm.think") {
-		if opts.GetBool("llm.think") {
-			config.ReasoningEffort = "medium"
-		} else {
-			config.ReasoningEffort = "none"
-		}
 	}
 
 	// Whether to hide internal <think> regions from user-visible output.
