@@ -1092,12 +1092,9 @@ func (r *REPL) sendToAI(input string, redirectType string, redirectTarget string
 
 	disableThinking := r.configOptions.GetBool("think.disable")
 	if !disableThinking {
-		for _, key := range []string{"think.reason", "think.effort", "llm.reason", "llm.effort", "ai.reason", "ai.effort"} {
-			if r.configOptions.IsSet(key) {
-				if effort, ok := llm.NormalizeReasoningEffort(r.configOptions.Get(key)); ok && effort == "none" {
-					disableThinking = true
-					break
-				}
+		if r.configOptions.IsSet("think.reason") {
+			if effort, ok := llm.NormalizeReasoningEffort(r.configOptions.Get("think.reason")); ok && effort == "none" {
+				disableThinking = true
 			}
 		}
 	}
