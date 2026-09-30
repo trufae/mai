@@ -1,5 +1,14 @@
 <img width="300px" height="300px" align="left" style="float: left; margin: 0 10px 0 0;" alt="mailogo" src="https://raw.githubusercontent.com/trufae/mai/master/mai-logo.png?nocache">
 
+> ### ⚠️ Warning: This Go tooling has been rewritten in Swift
+>
+> **Before you go further, please read this.** This repository holds the original **Go** implementation. It has since been rewritten in **Swift**, with a full **CLI** and an **iOS app**.
+>
+> * New project: **[pmai](https://github.com/trufae/pmai)**
+> * Website: **[pmai](https://trufae.github.io/pmai)**
+>
+> The **Go implementation is still maintained and working**, but it is no longer my main go-to. Unless you specifically need Go, the **Swift implementation will probably work better**. If you are not tied to Go, start with **pmai** instead.
+
 ### M(🐱)AI: My Artificial Intelligence
 
 [![CI](https://github.com/trufae/mai/actions/workflows/ci.yml/badge.svg)](https://github.com/trufae/mai/actions/workflows/ci.yml)
