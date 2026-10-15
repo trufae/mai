@@ -14,6 +14,7 @@ src/bot/config.json
 src/bot/mai-bot
 src/repl/mai
 **/*_test.go
+!src/mcps/applemail/*_test.go
 src/mcps/shell/mai-mcp-shell
 **/.DS_Store
 **/*.swp

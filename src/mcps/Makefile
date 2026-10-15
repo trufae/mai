@@ -11,6 +11,7 @@ BINS+=time
 BINS+=term
 BINS+=memory
 BINS+=deltachat
+BINS+=applemail
 
 all:
 	for a in $(BINS); do \
